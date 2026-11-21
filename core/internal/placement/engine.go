@@ -851,6 +851,13 @@ func (e *Engine) copy(ctx context.Context, mv state.Move) (state.Move, error) {
 		// on the backup set's own disk (#429). See staging.go.
 		bytes, err = e.copyMediumToMedium(ctx, mv, src)
 	}
+	if errors.Is(err, ErrReencryptLocalCopyGone) {
+		// The local copy a from-local move reads is missing or no longer
+		// matches its digest (#1545). Nothing was uploaded that anything
+		// believes in; the old copy is restored ACTIVE and the move ends by
+		// name, so a later run is not wedged on it.
+		return e.abandon(ctx, mv, localCopyGoneWhy)
+	}
 	if errors.Is(err, ErrClassRefused) {
 		// A refusal no retry can change, on the SOURCE end this time, and
 		// handled exactly as verifyDestination handles one on the

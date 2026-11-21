@@ -290,7 +290,14 @@ retnd encryption reencrypt --key kOLD --from-local --to offsite
   show. The old copy is untouched. Run the dry run again, which now lists that copy as a `move`
   with its bytes, and a run without `--from-local` reads it from the old copy (so does a re-run
   with a different selector, which resumes the interrupted move as an ordinary one). A run killed
-  after the upload finishes without the old copy or the old key. The old copy stays until the new
+  after the upload finishes without the old copy or the old key.
+- A local copy whose placement is still ACTIVE but whose file is missing, or no longer matches the
+  recorded digest, is treated the same way: the interrupted move is abandoned by name, the old copy
+  stays ACTIVE and the destination and staging are discarded, whichever way you re-run. A file that
+  cannot be read for another reason (permissions, an I/O error) is not known to be gone and is
+  retried like any failed copy. While the local placement is still ACTIVE a plain run is refused
+  (two ACTIVE copies), so restore the file and run with `--from-local` again, or wait for the local
+  copy to expire and then run without it. The old copy stays until the new
   one verifies in every case.
 
 ## Managed keys and external keys

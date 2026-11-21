@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/retnd/retnd/core/service"
 )
 
 // #1545: `retnd encryption reencrypt ... --from-local`. The byte path is the
@@ -38,5 +40,18 @@ func TestReencryptUsageNamesFromLocal_1545(t *testing.T) {
 	out := captureStderr(t, func() { _ = run([]string{"encryption"}) })
 	if !strings.Contains(out, "--from-local") {
 		t.Errorf("the encryption usage text does not mention --from-local:\n%s", out)
+	}
+}
+
+// A from-local move abandoned as local_copy_gone is a failure exit, and a clean
+// run is not.
+func TestAFromLocalAbandonExitsWithFailure_1545(t *testing.T) {
+	abandoned := service.EncryptExistingResult{Planned: 1, Abandoned: 1, Outcomes: []service.EncryptExistingOutcome{
+		{ArtifactID: "a/b/c", Phase: "ABANDONED", Refusal: "local_copy_gone"}}}
+	if got := reencryptStatus(abandoned, false); got != exitFailure {
+		t.Errorf("an abandoned run exits %d, want %d", got, exitFailure)
+	}
+	if got := reencryptStatus(service.EncryptExistingResult{Planned: 1, Completed: 1}, false); got != exitOK {
+		t.Errorf("a clean run exits %d, want %d", got, exitOK)
 	}
 }

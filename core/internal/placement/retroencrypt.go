@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/artifactstore"
 	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/state"
@@ -439,6 +440,11 @@ func (e *Engine) adoptable(ctx context.Context, mv state.Move, wanted map[string
 // avoid.
 func (e *Engine) advanceEncryptExisting(ctx context.Context, mv state.Move, resumed bool) Outcome {
 	out := e.advance(ctx, mv, resumed)
+	if out.Phase == Abandoned && out.Err == nil && out.Refused == localCopyGoneWhy {
+		// Abandoned in the copy phase (#1545): the same named refusal as the
+		// resume check, so the run report and the CLI say local_copy_gone.
+		out.Err = fmt.Errorf("%w: %s", ErrReencryptLocalCopyGone, mv.Artifact)
+	}
 	if ctx.Err() == nil {
 		return out
 	}
@@ -672,8 +678,23 @@ func (e *Engine) copyFromLocal(ctx context.Context, mv state.Move, local state.P
 		return 0, fmt.Errorf("%w: %w: %s was opted in to be re-encrypted, and its backup set no longer requires encryption",
 			ErrClassRefused, ErrEncryptExistingNotRequired, mv.Artifact)
 	}
-	return e.copyEncryptedToMedium(ctx, mv, local)
+	bytes, err := e.copyEncryptedToMedium(ctx, mv, local)
+	// How the local copy is told apart from a hiccup: the store answered "not
+	// there" (artifactstore.ErrNotPresent), or the bytes it served failed the
+	// recorded digest (copycrypt.ErrDigestMismatch). Both are deterministic, so
+	// the move is abandoned by name. Anything else (permissions, an I/O error)
+	// is not known to be gone and is retried like any failed copy.
+	if errors.Is(err, artifactstore.ErrNotPresent) || errors.Is(err, copycrypt.ErrDigestMismatch) {
+		return 0, fmt.Errorf("%w: %w", ErrReencryptLocalCopyGone, err)
+	}
+	return bytes, err
 }
+
+// localCopyGoneWhy is what an abandoned from-local move says. The last clause
+// is true in both of its halves: while the local placement is still ACTIVE the
+// plain run is refused (two ACTIVE copies), and once it is not, the plain run is
+// an ordinary re-encryption that reads the old copy.
+const localCopyGoneWhy = "the local copy this re-encryption was to be written from is missing, changed or gone, so the move was abandoned rather than read from the old copy; fix or restore the local copy and run with --from-local again, or, once the artifact has no ACTIVE local copy, run the dry run again and run without --from-local to read it from the old copy"
 
 // abandonIfLocalCopyGone is #1545's rule for a resumed move. A run that asked
 // for --from-local and finds a consented re-encryption that has uploaded
@@ -704,13 +725,12 @@ func (e *Engine) abandonIfLocalCopyGone(ctx context.Context, mv state.Move, want
 	if _, has := activeLocal(rec); has {
 		return Outcome{}, false, nil
 	}
-	why := "the local copy this re-encryption was to be written from is gone, so the move was abandoned rather than read from the old copy; run the dry run again, and run without --from-local to read it from the old copy"
-	next, err := e.abandon(ctx, mv, why)
+	next, err := e.abandon(ctx, mv, localCopyGoneWhy)
 	if err != nil {
 		return Outcome{}, false, err
 	}
 	return Outcome{
 		Artifact: mv.Artifact, MoveID: mv.ID, Resumed: true, Phase: Phase(next.Phase),
-		Refused: why, Err: fmt.Errorf("%w: %s", ErrReencryptLocalCopyGone, mv.Artifact),
+		Refused: localCopyGoneWhy, Err: fmt.Errorf("%w: %s", ErrReencryptLocalCopyGone, mv.Artifact),
 	}, true, nil
 }

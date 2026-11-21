@@ -421,6 +421,9 @@ func TestAMissingLocalFileAbandonsTheResumedMoveByNameWhateverTheFlag_1545(t *te
 		if got.Phase != string(placement.Abandoned) || !strings.Contains(got.Error, "run without --from-local") || !strings.Contains(got.Error, "missing, changed or gone") {
 			t.Fatalf("from-local run=%v: report %+v, move %+v, want ABANDONED with the sentence", fromLocalRun, report, got)
 		}
+		if len(report.Outcomes) != 1 || !errors.Is(report.Outcomes[0].Err, placement.ErrReencryptLocalCopyGone) {
+			t.Errorf("the outcome %+v does not carry ErrReencryptLocalCopyGone (the CLI and API say local_copy_gone from it)", report.Outcomes)
+		}
 		if n := w.store.opensOf(w.key) - opensBefore; n != 0 {
 			t.Errorf("the old copy was read %d time(s)", n)
 		}

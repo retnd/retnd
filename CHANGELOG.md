@@ -29,7 +29,7 @@ Worth reading before you upgrade:
   now says per copy whether it's a `move` or an `upload_from_local` and prints the bytes each
   medium would read and write. If a run is killed before it uploads and the local copy expires
   before the re-run, the re-run with `--from-local` abandons that move by name
-  (`local_copy_gone`) rather than reading the old copy at a cost the dry run didn't show. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
+  (`local_copy_gone`, also when the local file is missing or changed) rather than reading the old copy at a cost the dry run didn't show. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
 
 - **The refusal for a schema version this build doesn't carry now says when it was applied**
   (#1583). The engine reads `applied_at` from the `schema_migrations` row and prints it in UTC

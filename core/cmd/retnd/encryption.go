@@ -722,10 +722,7 @@ func cmdEncryptionEncryptExisting(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	status := exitOK
-	if got.Refused > 0 || got.Abandoned > 0 || runCtx.Err() != nil {
-		status = exitFailure
-	}
+	status := reencryptStatus(got, runCtx.Err() != nil)
 	if *asJSON {
 		if code := emitWireJSON(got); code != exitOK {
 			return code
@@ -953,4 +950,15 @@ func cmdEncryptionReencrypt(args []string) int {
 		fmt.Println("stopped: a copy that was not yet verified was discarded and the copy it was made from is untouched; run it again to carry on")
 	}
 	return status
+}
+
+// reencryptStatus is the exit status of a local re-encryption run: any copy
+// refused or abandoned (a from-local move abandoned as local_copy_gone is one),
+// or a run an interrupt stopped, is a failure, because something the operator
+// asked for did not happen.
+func reencryptStatus(got service.EncryptExistingResult, interrupted bool) int {
+	if got.Refused > 0 || got.Abandoned > 0 || interrupted {
+		return exitFailure
+	}
+	return exitOK
 }
