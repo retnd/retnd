@@ -1724,7 +1724,26 @@ if [ "$FAST" != "1" ]; then
   if [ "$have_gib" -lt 9 ]; then
     gate_note_skip "the encryption self-test (#1531): this run has ${have_gib} GiB and its two copycrypt controls need 9 GiB, so none of it ran. Run the selftest-encryption shard with a 9g fence (scripts/release/run-gate-shard.sh asks for one)"
   else
-    gate_selftest_with_ledger scripts/encryption/selftest.sh
+    # Three controls run a case of retnd-tests against a build of the planted
+    # copy and need RETND_TESTS_DIR and RETND_COMMIT (#1548). The pinned checkout
+    # comes anonymously over https at the sha scripts/e2e/tests-repo.pin names
+    # (no token, no login), cached per sha. A remote this host cannot reach
+    # exits 3: the controls then skip by name into the ledger as before and the
+    # shard ends INCOMPLETE. A wrong pin exits 1 and fails the shard.
+    tests_dir="" tests_commit=""
+    if tests_dir="$(bash scripts/e2e/tests-checkout.sh)"; then
+      tests_commit="$(git rev-parse HEAD 2>/dev/null || true)"
+    else
+      rc=$?
+      [ "$rc" = "3" ] || return "$rc"
+      tests_dir=""
+    fi
+    if [ -n "$tests_dir" ] && [ -n "$tests_commit" ]; then
+      RETND_TESTS_DIR="$(printf '%s\n' "$tests_dir" | tail -n 1)" RETND_COMMIT="$tests_commit" \
+        gate_selftest_with_ledger scripts/encryption/selftest.sh
+    else
+      gate_selftest_with_ledger scripts/encryption/selftest.sh
+    fi
   fi
 fi
 }

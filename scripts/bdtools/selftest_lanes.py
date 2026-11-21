@@ -34,7 +34,8 @@ LANE_LOCK = "playwright-lock"
 LANE_DOCKER = "docker"
 LANE_NODE = "node"
 LANE_TESTS = "retnd-tests"
-LANES = (LANE_LOCK, LANE_DOCKER, LANE_NODE, LANE_TESTS)
+LANE_TESTS_BROWSER = "retnd-tests-browser"
+LANES = (LANE_LOCK, LANE_DOCKER, LANE_NODE, LANE_TESTS, LANE_TESTS_BROWSER)
 
 PW_LOCK = Path("/Users/rom/workspace/xdg-pw-lock.sh")
 
@@ -63,6 +64,9 @@ def visible_needs(cmd: Sequence[str]) -> frozenset[str]:
         needs |= {LANE_LOCK, LANE_DOCKER}
     if "retnd_tests_case.sh" in line:
         needs.add(LANE_TESTS)
+        # Suite C drives a browser; Suite A is a Go test and needs none.
+        if re.search(r"retnd_tests_case\.sh\s+c\b", line):
+            needs.add(LANE_TESTS_BROWSER)
     if LANE_LOCK not in needs:
         if _NODE_RUN.search(line):
             needs.add(LANE_NODE)
@@ -99,6 +103,14 @@ def node_lane(root: Path, *, has_node: bool, has_docker: bool) -> bool:
     return (root / "ui/shared/node_modules").is_dir() and (has_node or has_docker)
 
 
+def _suite_c_ready(tests_dir: Path) -> bool:
+    """Suite C's npm install is in the checkout and Playwright has a Chromium to start."""
+    if not (tests_dir / "suites/equivalence/node_modules").is_dir():
+        return False
+    browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or str(Path.home() / ".cache/ms-playwright")
+    return any(Path(browsers).glob("chromium*-*"))
+
+
 def host_lanes(root: Path) -> dict[str, bool]:
     """Probe this host for each lane."""
     docker = False
@@ -109,11 +121,15 @@ def host_lanes(root: Path) -> dict[str, bool]:
             docker = False
     node = node_lane(root, has_node=shutil.which("node") is not None, has_docker=docker)
     tests_dir = os.environ.get("RETND_TESTS_DIR", "")
+    # The case script refuses to start without RETND_COMMIT, so a checkout with
+    # no commit to build as is not a lane (#1548).
+    have_tests = bool(tests_dir) and Path(tests_dir).is_dir() and bool(os.environ.get("RETND_COMMIT"))
     return {
         LANE_LOCK: docker and PW_LOCK.is_file(),
         LANE_DOCKER: docker,
         LANE_NODE: node,
-        LANE_TESTS: bool(tests_dir) and Path(tests_dir).is_dir(),
+        LANE_TESTS: have_tests,
+        LANE_TESTS_BROWSER: have_tests and _suite_c_ready(Path(tests_dir)),
     }
 
 
