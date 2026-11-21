@@ -11,6 +11,13 @@ a reviewed change to that file. visible_needs() reads what a command asks for
 and pin_problems() refuses any disagreement with the pinned file, which is a
 cross-check and not the source of truth.
 
+The browser specs, the browser contrast check and the capture rig go through
+the Chromium lane (#1543): scripts/e2e/ui-browser.sh, or scripts/e2e/ui-capture.sh
+for the capture rig, run from the planted copy. spec(), capture() and
+chromium() build those commands, and visible_needs() reads them as the
+chromium-lane: a docker daemon, and on a Mac the Playwright lock as well,
+because a browser never runs bare there.
+
 plan() then runs every control whose lanes this host has and skips the rest,
 naming what each is missing, except in a --check-anchors or a --record run,
 which skip nothing. report() writes the skips to the file the gate hands over
@@ -25,6 +32,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Protocol, Sequence, TypeVar
 
@@ -35,9 +43,15 @@ LANE_DOCKER = "docker"
 LANE_NODE = "node"
 LANE_TESTS = "retnd-tests"
 LANE_TESTS_BROWSER = "retnd-tests-browser"
-LANES = (LANE_LOCK, LANE_DOCKER, LANE_NODE, LANE_TESTS, LANE_TESTS_BROWSER)
+LANE_CHROMIUM = "chromium-lane"
+LANES = (LANE_LOCK, LANE_DOCKER, LANE_NODE, LANE_TESTS, LANE_TESTS_BROWSER, LANE_CHROMIUM)
 
-PW_LOCK = Path("/Users/rom/workspace/xdg-pw-lock.sh")
+# RETND_PW_LOCK names another lock, as for scripts/ci-local.sh.
+PW_LOCK = Path(os.environ.get("RETND_PW_LOCK", "/Users/rom/workspace/xdg-pw-lock.sh"))
+
+# The two ways into the Chromium lane (#1543), from the copy's root.
+LANE = "scripts/e2e/ui-browser.sh"
+CAPTURE = "scripts/e2e/ui-capture.sh"
 
 # docker run in command position: at the start, or after ; & | ( or then/else.
 _DOCKER_RUN = re.compile(r"(?:^|[;&|(]\s*|\b(?:then|else|do)\s+)docker\s+run\b")
@@ -58,6 +72,8 @@ def visible_needs(cmd: Sequence[str]) -> frozenset[str]:
     """The lanes a command visibly asks for."""
     if not cmd:
         return frozenset()
+    if in_lane(cmd):
+        return frozenset({LANE_CHROMIUM})
     line = " ".join(cmd)
     needs: set[str] = set()
     if cmd[0].endswith("xdg-pw-lock.sh"):
@@ -130,6 +146,7 @@ def host_lanes(root: Path) -> dict[str, bool]:
         LANE_NODE: node,
         LANE_TESTS: have_tests,
         LANE_TESTS_BROWSER: have_tests and _suite_c_ready(Path(tests_dir)),
+        LANE_CHROMIUM: docker and (sys.platform != "darwin" or lock_prefix() is not None),
     }
 
 
@@ -165,3 +182,36 @@ def report(skipped: Sequence[tuple[HasCommand, list[str]]], selftest: str, ledge
             fh.write("".join(x + "\n" for x in lines))
         return 0
     return harness.EXIT_CANNOT_RUN
+
+
+# ------------------------------------------------------------ the Chromium lane (#1543)
+
+
+def in_lane(cmd: Sequence[str]) -> bool:
+    return len(cmd) >= 2 and cmd[0] == "bash" and cmd[1] in (LANE, CAPTURE)
+
+
+def spec(spec_file: str, grep: str) -> list[str]:
+    """One ui/shared Playwright spec in the lane, narrowed to the tests matching `grep`."""
+    return ["bash", LANE, "specs", "ui/shared/e2e/playwright.config.ts", spec_file, "-g", grep]
+
+
+def chromium(command: str) -> list[str]:
+    """Any command in the lane, from its copy's root."""
+    return ["bash", LANE, "run", "sh", "-c", command]
+
+
+def capture(script: str, args: str) -> list[str]:
+    """One docs/site/tools capture script in the lane, in the image with ffmpeg."""
+    return ["bash", CAPTURE, script, *args.split()]
+
+
+def lock_prefix() -> list[str] | None:
+    """What a lane command runs under here: nothing off a Mac; on a Mac the
+    workspace Playwright lock, the one scripts/ci-local.sh takes. None when a
+    Mac has no lock to take."""
+    if sys.platform != "darwin":
+        return []
+    if PW_LOCK.is_file() and os.access(PW_LOCK, os.X_OK):
+        return [str(PW_LOCK)]
+    return None

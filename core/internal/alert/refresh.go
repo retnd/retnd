@@ -213,7 +213,7 @@ func (d *Dispatcher) refreshAndResolve(ctx context.Context, now time.Time, resol
 	}
 	for _, r := range resolved {
 		a := r.alert
-		// A refresh already on its way for this alert finishes first. One
+		// A refresh or first delivery already on its way for this alert finishes first. One
 		// still queued sees the entry gone and never sends.
 		d.mu.Lock()
 		flight := r.entry.flight
@@ -224,9 +224,17 @@ func (d *Dispatcher) refreshAndResolve(ctx context.Context, now time.Time, resol
 			case <-ctx.Done():
 				// Skipped, not lost: the receiver expires the alert on its own.
 				d.logger.Error(ctx, "alert-delivery",
-					fmt.Errorf("not closing the %s alert for %s: stopped while its refresh was still in flight (it expires on its own): %w", a.Kind, a.Scope, ctx.Err()))
+					fmt.Errorf("not closing the %s alert for %s: stopped while its delivery was still in flight (it expires on its own): %w", a.Kind, a.Scope, ctx.Err()))
 				continue
 			}
+		}
+		// A first delivery that failed was never seen by the receiver, so
+		// there is nothing to close.
+		d.mu.Lock()
+		sent := r.entry.delivered
+		d.mu.Unlock()
+		if !sent {
+			continue
 		}
 		cctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 		err := rs.Resolve(cctx, a, now)
