@@ -78,7 +78,9 @@ function describedNodes(el: Element): HTMLElement[] {
 
 /** The registry copy a tooltip host on `el` renders, or "" when none does. */
 function tooltipOn(el: Element): string {
-  return describedNodes(el).filter((n) => n.classList.contains("tooltip__body")).map((n) => n.innerHTML).join("\n");
+  // A set: since #1619 the control a label is for is described by the same
+  // body as the label's span, and a label that wraps its checkbox holds both.
+  return Array.from(new Set(describedNodes(el).filter((n) => n.classList.contains("tooltip__body")))).map((n) => n.innerHTML).join("\n");
 }
 
 /** The visible <label> of a control, which is where its tooltip sits. */

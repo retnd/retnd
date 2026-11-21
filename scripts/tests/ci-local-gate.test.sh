@@ -419,6 +419,8 @@ make_full_tree() {
   mkdir -p "$tree/scripts/observability"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/check-dashboard-metrics.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/every-guard-is-a-gate-step.test.sh"
+  # It imports the real agents and encryption self-tests (#1543).
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-linux-skips.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-lanes.test.sh"
   # The self-tests of the gate's own machinery (#1533): the shard runner, the
   # --shard i/n split of the self-tests, and the release e2e hooks. Each makes
@@ -484,6 +486,7 @@ make_full_tree() {
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/selftest.sh"
   # And EPIC O's log pipeline run (#903), which pulls two images and runs them.
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/log-pipeline.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/observability/rule-tests.sh"
 
   # The encryption (EPIC N and T, #1531) and agent (EPIC U, #1530) mutation
   # self-tests, stubbed for the reason above: each copies the tree for every
