@@ -73,3 +73,15 @@ test.describe("#1616 the failed re-ask in the Retire dialog", () => {
     });
   }
 });
+
+test("#1616 Ask again puts the same choice to the host again, and an answer clears the banner and turns Retire on", async ({ page }) => {
+  await open(page, "/backups/media/weekly-archive/media-week34.tar", "retire-reask-fails-once");
+  await page.getByRole("button", { name: "Retire…" }).click();
+  await dialog(page).getByLabel("Replaced by").selectOption("media-week35.tar");
+  await expect(dialog(page).getByTestId("retire-reask-error")).toBeVisible();
+  await expect(dialog(page).getByRole("button", { name: /^Retire/ }).last()).toBeDisabled();
+  await dialog(page).getByRole("button", { name: "Ask again" }).click();
+  await expect(dialog(page).getByTestId("retire-reask-error")).toHaveCount(0);
+  await expect(dialog(page).getByRole("button", { name: "Retire 1 backup" })).toBeEnabled();
+  await beat(page);
+});
