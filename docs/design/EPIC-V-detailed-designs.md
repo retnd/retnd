@@ -2,7 +2,8 @@
 
 **Spec:** `docs/EPIC-V-encryption-residue.md` and `docs/conformance/epic-v-matrix.md` (#1511, draft PR #1519).
 **Tracker:** #1512. **Sub-issues:** V1.1 #1513, V1.2 #1514, V1.3 #1515, V2.1 #1516, V2.2 #1517.
-**Read on:** 2026-11-19, against the spec branch `docs/epic-v-encryption-residue` at `bc5f0ed5` (code as on `origin/main` at the spec's base). Every `path:line` below is from that tree.
+**Read on:** 2026-11-19, against the spec branch `docs/epic-v-encryption-residue` at `bc5f0ed5` (code as on `origin/main` at the spec's base). Every `path:line` below is from that tree. The code those lines cite is unchanged on `origin/main` at `791ac5e5`.
+**Decisions:** D-1 to D-6 below were answered on 2026-11-19, and the spec in #1519 was rewritten to them and to the list of spec changes.
 
 This is one design per sub-issue, written so that whoever picks an issue up can build it without coming back to ask. Before designing anything I put each sub-issue in front of seven experts, each with one lens, and told them to reject first. The verdicts and the dissents that survived are under each section. Where the code showed the spec to be wrong, I say so and say what has to change.
 
@@ -15,7 +16,7 @@ This is one design per sub-issue, written so that whoever picks an issue up can 
 | Sub-issue | Verdict | In one line |
 |---|---|---|
 | V1.1 #1513 | **Keep, re-scoped** | Most of the guards it promises already exist with mutation controls. The real work is the one nobody wrote down: a `command` key source runs about ten times per re-encrypted copy and on every page load of the keys card, and its stderr reaches alert emails. |
-| V1.2 #1514 | **Keep, re-scoped (bigger)** | Wiring `Store.RotateExternal` is the wrong fix. In the common topology (one external reference, every set inheriting it) there is nowhere to keep the old reference declared, so the old copies stop opening the moment the reference moves. The fix is a decrypt-only reference list plus a `supersede` verb, and that needs one config field: an owner decision. |
+| V1.2 #1514 | **Keep, re-scoped (bigger)** | Wiring `Store.RotateExternal` is the wrong fix. In the common topology (one external reference, every set inheriting it) there is nowhere to keep the old reference declared, so the old copies stop opening the moment the reference moves. The fix is a decrypt-only reference list plus a `supersede` verb, and that needs one config field (D-1, accepted). |
 | V1.3 #1515 | **Shrink** | The per-key count already exists (`copies_recording` on `GET /encryption/keys`). Drop the health field and the metric. Keep the CLI print, the retire hint, the dry-run byte totals and the "nothing starts a re-encryption" guard. |
 | V2.1 #1516 | **Shrink and fix a bug** | The backlog is already on the key list. The keys card draws a superseded key as "Retired" next to a Retire button. The work is that fix, the supersede, keep and forget controls, re-encrypt by key, and the captures (moved here from V2.2). No per-copy chip. |
 | V2.2 #1517 | **Keep, slightly smaller** | The e2e, documentation, gate and closing check stay. Captures move to V2.1. The managed-key e2e case already passes on `main` except for the two new assertions, and the spec should say so. |
@@ -23,6 +24,8 @@ This is one design per sub-issue, written so that whoever picks an issue up can 
 The skeptic wanted V1.3 folded into V1.2. The others kept them apart because the two touch different code and can be built in parallel; that dissent is recorded under V1.3.
 
 ### What must change in the spec
+
+All eleven are applied in the spec's 2026-11-19 revision (#1519), together with D-1 to D-6.
 
 1. **FR-106 is the wrong model.** "Supersedes the old key's row and registers the new one in one durable write" assumes one active external slot. There isn't one: migration 0015 only constrains managed keys (`core/migrations/0015_retained_copy_encryption.sql:94-100`), every external row starts and stays `active` (`core/internal/keycustody/externalregistry.go:97`), and nothing ever moves one out. Rewrite FR-106 as: *an external key can be superseded once no key provider yields it; nothing new is written under a superseded external key; its copies keep opening through a reference declared for reading; it can be retired once no ACTIVE copy records it.*
 2. **The "no config key" invariant cannot hold if FR-106 is to work for the ordinary deployment.** See V1.2's problem statement. The spec already reserved compat fixtures `15` and `70` for exactly this case.
@@ -36,14 +39,14 @@ The skeptic wanted V1.3 folded into V1.2. The others kept them apart because the
 10. **"Each e2e case fails against main first"** is false for the managed-key case: rotate, `reencrypt --key` and retire all work on `main`. It fails only on the two new assertions (the retire hint and the dry-run bytes), and the spec should say that is the red.
 11. **Small citation fixes.** `RetireKey` refuses the active key at `core/internal/placement/keyretire.go:111` (`:59` is the sentinel). The "seven guards" are mostly existing controls in `scripts/bdtools/encryption/controls_n_a.py` and `controls_n_b.py`, and the matrix should cite them by label.
 
-### Decisions the owner has to make
+### The decisions, answered 2026-11-19
 
-- **D-1. One config field, `retained_copy_encryption.previous_external_keys`.** Without it an external key rotation strands the old copies in the ordinary deployment. With it, compat fixtures `15` and `70` and a one-way door sentence in the CHANGELOG. If the answer is no, V1.2 falls back to a reference passed to one `reencrypt` run (designed below, with its costs), or is dropped and the limitation documented.
-- **D-2. Delete `keycustody.Store.RotateExternal`.** It has no caller and encodes the one-active-slot model that is wrong.
-- **D-3. One new event, `key_superseded`.**
-- **D-4. Artifacts that still have a local plaintext copy cannot be re-encrypted by `reencrypt`.** The move engine refuses an artifact with two ACTIVE placements (`core/internal/placement/engine.go:513-517`), so recent copies under a compromised key stay under it until their local copy expires. The cheap fix (upload a fresh copy from the local plaintext, no egress) is a new run mode. File a follow-up, or accept and document. The spec says everything cut becomes nothing; this one has an operator who is stuck.
-- **D-5. Accept FR-107's shrink** (no health field, no metric).
-- **D-6. One additive value, `not_checked`, in the key list's `resolvability`** for an external key no alert pass has probed yet, so the read surface stops running commands.
+- **D-1. One config field, `retained_copy_encryption.previous_external_keys`: yes, as designed in V1.2.** Opt-in: only `--keep-previous` writes it, `omitempty` keeps every other file byte for byte, and the way back is deleting the key by hand, which the CHANGELOG says. Compat fixtures `15` and `70`. The per-run fallback below stays written down as the rejected alternative. Keeping the reference in the journal or in a state-directory file was also rejected: a `command` reference is argv the daemon executes, and it belongs in the file an operator reviews.
+- **D-2. Delete `keycustody.Store.RotateExternal`: yes.** It has no caller and encodes the one-active-slot model that is wrong.
+- **D-3. One new event, `key_superseded`: yes.** One constant, one `Logger` method, one feed sentence, a `Result` on success and refusal.
+- **D-4. Re-encrypting artifacts that still have a local plaintext copy: a follow-up issue, #1545, outside V.** The move engine refuses an artifact with two ACTIVE placements (`core/internal/placement/engine.go:513-517`), so recent copies under a compromised key stay under it until their local copy expires. The fix (upload a fresh copy from the local plaintext, no egress) is a new run mode with its own crash cells, and both of V's phases are full. The issue says the upload reads the local plaintext copy the engine already holds and adds no new place plaintext lands.
+- **D-5. FR-107's shrink: yes.** No health field, no metric. The CLI print, the retire hint and the dry-run bytes stay.
+- **D-6. `not_checked` in the key list's `resolvability`, plus `checked_at`: yes**, so the read surface stops running commands. `checked_at` is a timestamp, and the `reason` for `not_checked` is a fixed sentence, never anything a resolver printed.
 
 ---
 
@@ -184,7 +187,7 @@ Nothing opens a session for longer than one of these, and there is no session on
 - `KeyCustody` keeps, beside `probed` (`core/service/keycustody.go:57-60`), the full map `UnreadableExternalKeys` returned (not only the keys with copies) and when it ran.
 - In that map: `resolvability: "unreachable"` with its reason.
 - Probed and not in it: `resolvability: "resolves"`, and a new `checked_at` field.
-- Never probed in this process: `resolvability: "not_checked"`, `reason: "not checked yet; the next alert pass checks it, or run retnd encryption provider test"`. This is D-6, one additive enum value in `api/v1/openapi.json`.
+- Never probed in this process: `resolvability: "not_checked"`, no `checked_at`, and the fixed `reason: "not checked yet; the next alert pass checks it, or run retnd encryption provider test"`. The reason is never anything a resolver printed. This is D-6. In `api/v1/openapi.json`, `resolvability` is a documented string ("resolves, unreachable or not_declared"), not an enum, so the change is one more value in that description, both bindings, and every consumer that switches on the string (the keys card, V2.1).
 
 #### Where a command's stderr may appear (D3)
 
@@ -300,7 +303,7 @@ Existing controls the matrix cites unchanged: "a fourth source field on the exte
 | Parity | **Reject** a design where the browser cannot keep the old reference: references are write-only, so a browser user cannot retype one they never saw. | Accept `keep_previous` on the same write that replaces the reference, so nobody retypes anything. |
 | Skeptic | **Reject.** How many deployments use external keys? If few, document the limitation and drop V1.2. | Accept, because the stuck state is real and permanent: today an external key can never be retired, and a dropped reference raises an alert that cannot be cleared except by restoring it. |
 
-**Consensus: keep, re-scoped around a decrypt-only reference list and a supersede verb. Needs owner decision D-1.**
+**Consensus: keep, re-scoped around a decrypt-only reference list and a supersede verb. D-1 was accepted on 2026-11-19.**
 **Surviving dissents:** the skeptic still thinks the number of external-key deployments may not justify a config field, and would ship the fallback below first. The parity expert wanted a "rotate external" convenience route that does the config move and the supersede in one call; the others rejected it because the two writes are to different stores and the verb would need its own resume rule (see Alternatives).
 
 ### The problem in the code today
@@ -313,7 +316,7 @@ Existing controls the matrix cites unchanged: "a fourth source field on the exte
 
 ### Design
 
-#### Config: `retained_copy_encryption.previous_external_keys` (owner decision D-1)
+#### Config: `retained_copy_encryption.previous_external_keys` (D-1, accepted)
 
 ```yaml
 retained_copy_encryption:
@@ -326,7 +329,7 @@ retained_copy_encryption:
 ```
 
 - Type: `PreviousExternalKeys []SecretSource yaml:"previous_external_keys,omitempty"` on `RetainedCopyEncryptionBlock`, resolved into `RetainedCopyEncryption.PreviousExternalKeys []secretref.Ref`. `omitempty`, so a file that never mentions it re-marshals byte for byte.
-- `Validate`: each entry names exactly one source (`validateExactlyOneSource`, as `retainedcopyencryption.go:139-141` does); no entry equal (by `refKey`) to a provider reference ("it is already the key provider; a reference is either written under or kept for reading"); at most 16 entries (a bound so a typo'd loop cannot grow the alert tick's work without limit).
+- `Validate`: each entry names exactly one source (`SecretSource.validateExactlyOneSource`, as `retainedcopyencryption.go:146` does for the provider); no entry equal to a provider reference, the deployment's or any set's ("it is already the key provider; a reference is either written under or kept for reading"); at most 16 entries (a bound so a typo'd loop cannot grow the alert tick's work without limit). "Equal" means the same file, env name and command argv, which is what `keycustody.refKey` hashes; `refKey` is unexported in `keycustody` and `config` does not import that package, so `Validate` compares the resolved `secretref.Ref` fields itself rather than calling it.
 - **Deployment-wide only.** Checklist section 2 asks for a per-set override; the written answer is no, because a reference kept for reading is a property of a key, and any set's copy may be under any key.
 - **Never written under.** `activeKey` and `externalKey` never read this list. `KeyCustody.externalRefs()` (`core/service/keycustody.go:72-93`) appends it, so `withExternalRecord`, `UnreadableExternalKeys` and the alert's at-risk check see these references and nothing else changes.
 - **One-way door.** Under `KnownFields(true)` an older build cannot load a file that carries the key. The CHANGELOG says so in the sentence checklist section 2 asks for.
@@ -352,7 +355,7 @@ retained_copy_encryption:
 - **cliecho:** `key("POST", "/encryption/keys/{id}/supersede")` building `newCmd("encryption", "key", "supersede", a.Params["id"])`, example id `x0123456789abcdef`, beside the retire entry (`core/cliecho/routes.go:1866-1871`).
 - **Service:** `BackupService.SupersedeEncryptionKey(ctx, id)`, wrapped by `classifyEncryption`, opens a V1.1 resolution session, then calls a new `keycustody.Store.SupersedeExternal(ctx, id, writers []secretref.Ref) (KeyRecord, error)` where `writers` is the deployment's provider reference and every set's override reference, whatever the mode (a staged provider under `off` would be written under the day the mode flips).
 - **Journal:** `state.Journal.SupersedeEncryptionKey(ctx, id)`: one transaction, `UPDATE encryption_keys SET status = 'superseded' WHERE id = ? AND provider = 'external' AND status = 'active'`, with the row read in the same transaction to tell the refusals apart.
-- **Event:** `EventKeySuperseded = "key_superseded"` and `Logger.KeySuperseded(ctx, keyID, result)` (D-3), emitted on success and on refusal with `ResultError`, as `KeyRetired` does (`keyretire.go:95-99`). Feed text in `ui/shared/src/encryption/feedText.ts`: "External key x3f… superseded: nothing new is written under it".
+- **Event:** `EventKeySuperseded = "key_superseded"` and `Logger.KeySuperseded(ctx, keyID, result)` (D-3), emitted on success and on refusal with `ResultError`, as `KeyRetired` does (`keyretire.go:95-99`). The constant joins the pinned table in `core/internal/obs/events_test.go:75-79`. Feed text in `ui/shared/src/encryption/feedText.ts`: "External key x3f… superseded: nothing new is written under it". The same file's `key_retired` sentence is "managed key retired:" (`feedText.ts:60-61`), which turns false the first time an external key retires, so it drops "managed" in the same change.
 
 **Refusals, in the order they are checked:**
 
@@ -437,7 +440,7 @@ No medium is read or written by B1, B2, B4 or B5. Command runs: B1 none (config 
 - `last_key_id` is a key id, which is derived from the public recipient (`externalregistry.go:49-52`) and is not secret.
 - The new refusal texts name key ids, set ids and reference descriptions. The V-22 canary corpus (`core/tests/encryptedretention/canary_test.go`) gains rows for the supersede response, the policy view's kept list, the `key_superseded` feed row and the forget refusal.
 
-#### The fallback if the owner says no to D-1
+#### The fallback that was not chosen for D-1
 
 `StartReencryptRequest` gains `source_key: EncryptionKeyReference` (write-only), and `reencrypt --key K1 --source-key-file R1` passes it. The run adds it to its V1.1 session as an extra reference for that operation only. Supersede and the engine refusal stay as above. Costs, which is why the review did not choose it:
 
@@ -847,7 +850,7 @@ One suite, `encryption-external-rotation`, with `scripts/e2e/tests-repo.pin` mov
 
 #### Documentation
 
-- `docs/encrypted-copies.md`: replace `:291-302` with the lifecycle (active, superseded, retired; the kept list); two procedures ("Retiring an external key" and "After a key is compromised"); the honest sentences: re-encryption writes to another medium and needs one; it reads the old copy and reads the new one back, about twice the data in reads; it cannot move an artifact that still has a local copy (unless D-4 changes that); it cannot open copies under a key that is lost, and those copies keep the key from being retired; it does not recall copies a provider retains (bucket versioning, provider backups), so keep the old key offline until those are purged. Update `:530-540`.
+- `docs/encrypted-copies.md`: replace `:291-302` with the lifecycle (active, superseded, retired; the kept list); two procedures ("Retiring an external key" and "After a key is compromised"); the honest sentences: re-encryption writes to another medium and needs one; it reads the old copy and reads the new one back, about twice the data in reads; it cannot move an artifact that still has a local copy yet (#1545 tracks the run mode that would); it cannot open copies under a key that is lost, and those copies keep the key from being retired; it does not recall copies a provider retains (bucket versioning, provider backups), so keep the old key offline until those are purged. Update `:530-540`.
 - `docs/recovery.md` and `docs/recovery-without-a-terminal.md`: one paragraph each pointing at the compromise procedure, and the note that a copy under a superseded key still decrypts with the stock tool and its own key.
 - `README.md` subcommand list; `docs/site/reference.html` (`key supersede`, `--keep-previous`, `--forget-previous`); `docs/site/index.html#honest` (no real KMS or Vault was operated; the sample scripts were not run against one; no fleet; no real bucket at scale); `docs/api/contract.md`; `CHANGELOG.md` under `[Unreleased]` naming #1512 and the sub-issues, what an existing deployment sees (nothing, unless it uses an external key; the keys card says Superseded where it said Retired; the key list stops running commands), and the one-way door sentence for `previous_external_keys`.
 - `docs/compliance/` and `docs/submission/`: a sentence each that what is stored did not change, except references in config, which were already stored there.
@@ -855,7 +858,7 @@ One suite, `encryption-external-rotation`, with `scripts/e2e/tests-repo.pin` mov
 
 #### Gate and closing check
 
-- `scripts/release/check-epic-v-closed.sh` in the shape of `check-epic-u-closed.sh`: no `BLOCKED` row in the matrix; ADR 0036 names all seven items; the canonical deployment unchanged via `scripts/release/contract-unchanged.sh` against the epic's start commit; `core/migrations/` still ends at `0022_agent_access.sql`; and only the two reserved compat fixtures added (`15`, `70`) if D-1 is accepted, none otherwise.
+- `scripts/release/check-epic-v-closed.sh` in the shape of `check-epic-u-closed.sh`: no `BLOCKED` row in the matrix; ADR 0036 names all seven items; the canonical deployment unchanged via `scripts/release/contract-unchanged.sh` against the epic's start commit; `core/migrations/` still ends at `0022_agent_access.sql`; and only the two reserved compat fixtures added (`15`, `70`).
 - `scripts/tests/epic-v-closure.test.sh`: plants a `BLOCKED` row, a moved compose file, a migration and a third compat fixture in a throwaway copy, and requires each to be named; a clean copy is the control.
 - `scripts/ci-local.sh`: a `gate_step` for the closing check; a stub in `scripts/tests/ci-local-gate.test.sh`.
 - `scripts/bdtools/encryption/controls_v.py` registered with the selftest runner; `core/tests/encryptiongate/matrix_test.go` reads `docs/conformance/epic-v-matrix.md` in open mode the way it reads EPIC T's (`:44-45`), so a `PASS` row must quote a real control label and a date.
@@ -912,7 +915,7 @@ Cases 1 to 3 fail against `main` (no verb, no field). Case 4 fails on its two ne
 | V-22 | no key material on new surfaces | add stderr and the kept list |
 | V-23 | e2e | the five cases above |
 | V-24 | canonical deployment untouched | unchanged |
-| V-25 | no migration, no config key | no migration; config fixtures `15` and `70` only (if D-1) |
+| V-25 | no migration, no config key | no migration; config fixtures `15` and `70` only |
 | V-26 | docs tell the truth | add the two procedures and the four honest sentences |
 | V-27 | captures | moved to V2.1 |
 | V-28 | gates | unchanged |
