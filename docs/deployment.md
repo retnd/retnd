@@ -982,7 +982,7 @@ Refusals are counted, not logged, in `retnd_scrape_rejected_total{reason}` with
 `reason` one of `disabled`, `unauthenticated` or `method`.
 
 **What a scrape costs.** The health half needs a journal read, so it is rebuilt at most
-once per `observability.metrics.min_rebuild_interval` (default `15s`, at least `1s`) and
+once per `observability.metrics.min_rebuild_interval` (default `15s`, at least `1s`, at most `2m`, because the example bundle's report-age alert goes off at 5 minutes) and
 reused in between, whatever the number of scrapers. `retnd_report_generated_timestamp_seconds`
 says how old the reading is. A scrape writes no action-log row and no agent audit row.
 

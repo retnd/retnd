@@ -110,12 +110,24 @@ var (
 	// password could start with: `${...}` interpolation, a `__FILE`
 	// variant, a path and a backtick-quoted mention in prose are not
 	// literals, and a guard that fired on them would be switched off.
-	grafanaPasswordRe = regexp.MustCompile(`\bGF_SECURITY_ADMIN_PASSWORD[ \t]*[:=][ \t]*["']?[A-Za-z0-9][^\s"']{3,}`)
+	grafanaPasswordRe = regexp.MustCompile(`\bGF_SECURITY_ADMIN_PASSWORD["']?[ \t]*[:=][ \t]*["']?[A-Za-z0-9][^\s"']{3,}`)
 
 	// Any credential-named setting given a literal, which is only applied
 	// inside the example bundle: across the whole tree the same shape is
 	// every test fixture's made-up token.
-	credentialSettingRe = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_]*[ \t]*[:=][ \t]*["']?[A-Za-z0-9][^\s"']{3,}`)
+	credentialSettingRe = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_]*["']?[ \t]*[:=][ \t]*["']?[A-Za-z0-9][^\s"']{3,}`)
+
+	// An inline Bearer credential in an Authorization header (#1595), in YAML,
+	// JSON or a curl line. It has to sit in a header, because "Bearer" next to
+	// an ordinary word is prose and `type: Bearer` is how Prometheus is told
+	// the scheme; a value that is an interpolation or a file starts with
+	// something outside the class and is not a literal.
+	bearerHeaderRe = regexp.MustCompile(`(?i)\bauthorization["']?[ \t]*[:=][ \t]*["']?Bearer[ \t]+[A-Za-z0-9][A-Za-z0-9._~+/=-]{7,}`)
+
+	// A retnd scrape token written out (#1595): rsc_ and the body the mint
+	// prints. Whatever key it sits under, the value is the credential. Prose
+	// naming the prefix ("a rsc_ token") has no body after it.
+	scrapeTokenRe = regexp.MustCompile(`\brsc_[A-Za-z0-9_-]{16,}`)
 
 	// The host of a URL, any scheme.
 	urlHostRe = regexp.MustCompile(`\b[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^/\s@]+@)?([^/\s:'"<>()\[\]{},]+)`)
@@ -319,9 +331,10 @@ func scanOneForEndpoints(name, text string) []Violation {
 // host at all, SSH context or not.
 func scanExampleBundle(name, text string) []Violation {
 	var out []Violation
-	if credentialSettingRe.MatchString(text) && !grafanaPasswordRe.MatchString(text) {
+	if (credentialSettingRe.MatchString(text) && !grafanaPasswordRe.MatchString(text)) ||
+		bearerHeaderRe.MatchString(text) || scrapeTokenRe.MatchString(text) {
 		out = append(out, Violation{name, RuleCommittedCredential,
-			"gives a password, secret, token or API key setting a literal value inside the example bundle; read it from the environment or a file the operator supplies"})
+			"gives a password, secret, token or API key setting, an inline Bearer header or an rsc_ token a literal value inside the example bundle; read it from the environment or a file the operator supplies"})
 	}
 	for _, m := range urlHostRe.FindAllStringSubmatch(text, -1) {
 		if routableHost(m[1]) {
