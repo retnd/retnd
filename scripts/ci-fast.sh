@@ -27,7 +27,8 @@
 #   conformance   docs/conformance/ or an EPIC spec staged runs the compat
 #                 package that reads them (core/tests/compat)
 #   shell, python bash -n (and shellcheck, when it is installed) on changed
-#                 shell, ruff on changed Python under scripts/
+#                 shell, ruff on changed Python under scripts/, and mypy --strict
+#                 on the changed files of the typed subset (#1647)
 #   JS            only when a path under ui/shared or apps/common/tests is
 #                 staged, and then only that workspace (typecheck, eslint,
 #                 and for ui/shared its vitest suite). A fresh worktree with
@@ -609,12 +610,17 @@ fi
 
 shfiles=""
 pyfiles=""
+typedfiles=""
 while IFS= read -r f; do
   if [ -n "$f" ] && [ -f "$f" ]; then
     case "$f" in
       .husky/*) sh -n "$f" ;;
       *.sh) shfiles="$shfiles $f" ;;
       scripts/*.py) pyfiles="$pyfiles $f" ;;
+    esac
+    # The typed subset is the one scripts/ci-local.sh names for mypy.
+    case "$f" in
+      scripts/bdtools/*.py | scripts/deploy/*.py | scripts/install/embed_compose.py) typedfiles="$typedfiles $f" ;;
     esac
   fi
 done <<EOF
@@ -637,6 +643,17 @@ if [ -n "$pyfiles" ]; then
     ruff check --config scripts/bdtools/pyproject.toml $pyfiles
   else
     gate_note_skip "ruff over the changed Python (#672): ruff is not on PATH. Install it (pipx install ruff) and re-run."
+  fi
+fi
+
+if [ -n "$typedfiles" ]; then
+  gate_step "changed typed Python passes mypy --strict (#1647)"
+  if command -v mypy >/dev/null 2>&1; then
+    # Same paths and config as the full gate's mypy line, narrowed to what changed.
+    # shellcheck disable=SC2086
+    mypy --strict --config-file scripts/bdtools/pyproject.toml $typedfiles
+  else
+    gate_note_skip "mypy --strict over the changed typed Python (#1647): mypy is not on PATH. Install it (pipx install mypy) and re-run."
   fi
 fi
 
