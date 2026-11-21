@@ -24,6 +24,7 @@
  * mounted by the unauthenticated router with no one to pass it down.
  */
 import { useId, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -80,6 +81,7 @@ export function ResetPasswordPage() {
   const tooShortId = useId();
   const mismatchId = useId();
   const valid = password.length >= MIN_LENGTH && confirm === password;
+  const mountedRef = useMounted();
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,12 +91,18 @@ export function ResetPasswordPage() {
     api
       .resetPassword(token, password)
       .then(() => {
+        if (!mountedRef.current) return;
         setDone(true);
         setPassword("");
         setConfirm("");
       })
-      .catch((e: unknown) => setFailure(describeResetFailure(e)))
-      .finally(() => setBusy(false));
+      .catch((e: unknown) => {
+        if (!mountedRef.current) return;
+        setFailure(describeResetFailure(e));
+      })
+      .finally(() => {
+        if (mountedRef.current) setBusy(false);
+      });
   };
 
   return (

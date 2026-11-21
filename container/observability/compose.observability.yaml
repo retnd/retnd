@@ -1,0 +1,161 @@
+# The retnd example observability bundle (EPIC O, FR-102, #902).
+#
+# THIS IS AN EXAMPLE, NOT A SUPPORTED DEPLOYMENT. Nothing installs it, no
+# provider ships it, and the canonical deployment (container/compose.yaml)
+# does not change by a single line for it. Read ./README.md first.
+#
+# It is its own compose project, run beside the canonical one:
+#
+#   cd container/observability
+#   export GF_SECURITY_ADMIN_PASSWORD=...            # required, no default
+#   export RETND_SCRAPE_TOKEN_FILE=/path/to/token    # required, minted by retnd
+#   docker compose -f compose.observability.yaml up -d
+#
+# Prometheus is the only service here that joins the canonical stack's
+# `internal` network (its name on the host is retnd_internal, from
+# container/compose.yaml's `name: retnd`), because /metrics is served by the
+# engine on that network and nowhere else: the engine publishes no port and
+# web-ui does not forward /metrics. Joining makes Prometheus a direct peer of
+# the engine, which the canonical file otherwise reserves for web-ui, so
+# nothing else in this bundle joins it.
+#
+# Every hostname below is a compose service name. No credential is written in
+# this file: Grafana's admin password and the scrape token both come from the
+# operator at `up` time, and `up` refuses to start without them, naming the
+# variable that is missing.
+name: retnd-observability
+
+networks:
+  retnd:
+    # The canonical file's project name and network. A provider that runs the
+    # stack under another project name, or on a user-defined network of its
+    # own (Unraid's templates use one called retnd), is reached by setting
+    # RETND_NETWORK; `docker network ls` shows the name.
+    name: ${RETND_NETWORK:-retnd_internal}
+    external: true
+  observability: {}
+
+volumes:
+  prometheus-data: {}
+  alertmanager-data: {}
+  loki-data: {}
+  grafana-data: {}
+
+secrets:
+  retnd_scrape_token:
+    file: ${RETND_SCRAPE_TOKEN_FILE:?RETND_SCRAPE_TOKEN_FILE must name a file holding the scrape token from `retnd settings observability rotate-scrape-token`; this example ships no token}
+
+x-hardening: &hardening
+  restart: unless-stopped
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  prometheus:
+    <<: *hardening
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    secrets:
+      - retnd_scrape_token
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    networks:
+      - retnd
+      - observability
+
+  alertmanager:
+    <<: *hardening
+    image: prom/alertmanager:v0.27.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - observability
+
+  loki:
+    <<: *hardening
+    image: grafana/loki:3.2.1
+    # loki/loki.yaml is the image's single-node config with usage reporting off
+    # and discover_service_name emptied, so Loki keeps the four documented
+    # labels instead of inventing service_name (see the file).
+    command:
+      - -config.file=/etc/loki/loki.yaml
+    volumes:
+      - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    networks:
+      - observability
+
+  # Ships the engine's JSON log lines to Loki with exactly four labels (job,
+  # instance, level, schema). It reads plain NDJSON from RETND_LOG_DIR; the
+  # README says how to put the engine's stdout there. With nothing there,
+  # Loki stays empty and the dashboards' log panels say so.
+  promtail:
+    <<: *hardening
+    image: grafana/promtail:3.2.1
+    command:
+      - -config.file=/etc/promtail/promtail.yaml
+      - -config.expand-env=true
+    environment:
+      LOKI_URL: http://loki:3100
+      INSTANCE: ${RETND_INSTANCE:-retnd}
+    volumes:
+      - ./promtail/promtail.yaml:/etc/promtail/promtail.yaml:ro
+      - ${RETND_LOG_DIR:-./logs}:/var/log/retnd:ro
+    networks:
+      - observability
+
+  # The same pipeline in Grafana Alloy, for an operator who has moved off
+  # Promtail. Off unless asked for, so the two never ship every line twice:
+  #   docker compose -f compose.observability.yaml --profile alloy up -d --scale promtail=0
+  alloy:
+    <<: *hardening
+    profiles:
+      - alloy
+    image: grafana/alloy:v1.5.1
+    command:
+      - run
+      - --disable-reporting
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      LOKI_URL: http://loki:3100
+      INSTANCE: ${RETND_INSTANCE:-retnd}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ${RETND_LOG_DIR:-./logs}:/var/log/retnd:ro
+    networks:
+      - observability
+
+  grafana:
+    <<: *hardening
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:? set GF_SECURITY_ADMIN_PASSWORD, this example ships no Grafana password}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # No phoning home from an example.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    # Loopback only by default. Publishing Grafana to the LAN is a decision
+    # about its own login page, which this example does not make for you.
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    networks:
+      - observability

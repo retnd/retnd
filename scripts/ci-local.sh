@@ -202,8 +202,10 @@ fi
 export CI_LOCAL=1
 
 # And CI, which this gate had never set (#1259, #1260). vitest reads it to
-# pick its non-interactive reporter, Playwright reads it to refuse a
-# `.only` and to stop retrying, and core/tests/machines keys a refusal
+# pick its non-interactive reporter, Playwright reads it to stop retrying
+# (and to refuse a `.only` where a config sets forbidOnly from it, which
+# ui/shared/e2e's does; the Chromium lane passes --forbid-only as well), and
+# core/tests/machines keys a refusal
 # on it, so its comment about "a failure under CI" described a run nobody
 # ever made. The recorder sets it too; both, so
 # neither depends on the other being the version in the worktree.
@@ -244,6 +246,12 @@ FAST="${CI_LOCAL_FAST:-0}"
 # second EXIT trap later in this file would silently replace this one. See
 # gate_install_traps.
 gate_install_traps
+
+# Every step is watched for a stall from the first one on (#1540): no output
+# for RETND_GATE_STALL_MIN minutes, or past its hard cap, and the step is
+# stopped with its containers and the run ends FAILED (STALLED: ...). This
+# only checks the knobs; see the stall watchdog in lib/ci-local-gate.sh.
+gate_watchdog_arm
 
 # The hook cannot report its own absence, so the gate does, first thing
 # and every run (#1260). A warning rather than a refusal: a run by hand in
@@ -347,7 +355,7 @@ fi
 # A shard that has no Docker-backed step has no use for the daemon, so it
 # neither refuses without one nor keeps one awake (the sentinel below).
 gate_needs_docker=0
-if gate_shard_wants core-rest core-docker apps e2e two-machine selftest-conformance structure; then
+if gate_shard_wants core-rest core-docker apps e2e ui-browser two-machine selftest-conformance structure; then
   gate_needs_docker=1
 fi
 
@@ -374,7 +382,7 @@ if [ "$gate_needs_docker" = 1 ]; then
 fi
 
 if [ "$FAST" = "1" ]; then
-  gate_note_skip "core/ ./tests/... (the Docker-backed crash matrix, the SFTP integration tests, the MinIO integration tests and the composed conformance scenario), the cross-compiles, the upk-proof and ui/shared production builds, the apps/common/tests cross-provider conformance suite, the browser e2e suite and CLI smoke slice from retnd-tests, the repository-structure dependency rules and this gate's own self-test (CI_LOCAL_FAST=1)"
+  gate_note_skip "core/ ./tests/... (the Docker-backed crash matrix, the SFTP integration tests, the MinIO integration tests and the composed conformance scenario), the cross-compiles, the upk-proof and ui/shared production builds, the apps/common/tests cross-provider conformance suite, the browser e2e suite and CLI smoke slice from retnd-tests, the ui/shared browser specs and the assurance UI self-test, the repository-structure dependency rules and this gate's own self-test (CI_LOCAL_FAST=1)"
 fi
 
 gate_seg_static_a() {
@@ -591,6 +599,14 @@ bash scripts/tests/pin-on-main.test.sh
 gate_step "the web-ui ratchet refuses a new failure, a listed pass, an expired or other-pin entry and a grown skip count (#1260)"
 bash scripts/tests/web-ui-ratchet.test.sh
 
+# The Chromium lane's own cases (#1532, #1537), against a stand-in docker:
+# the read-only mount, the fence, the cap and the stall limit it hands the
+# daemon, the container removed on every way out, and its three answers kept
+# apart (a red, stalled or capped run is 1, a machine that cannot run it is
+# 3, and a 3 from the command inside is a 1). No Docker, a second or two.
+gate_step "the Chromium lane hands the daemon a read-only tree and a fence, and tells a red run from a machine that cannot run it (#1532, #1537)"
+bash scripts/tests/ui-browser-lane.test.sh
+
 # docs/reference/local-gate.md names every variable, trailer and exit
 # status this gate reads or writes; this reads the names out of the gate's
 # sources and refuses when the page is missing one. No Docker, instant.
@@ -755,6 +771,13 @@ bash scripts/tests/epic-t-closure.test.sh
 gate_step "the closure checks and their self-tests never pipe into grep -q under pipefail (#1482)"
 bash scripts/tests/closure-no-pipe-grep-q.test.sh
 
+# Issue #1528's planted violations, anchors only: each mutation the
+# self-test plants still matches the product source it names, so a refactor
+# cannot turn a control into one that plants nothing. Builds nothing; the
+# planted runs themselves are the selftest-recovery shard's.
+gate_step "the retirement self-test's planted violations still anchor in the product source (#1528)"
+bash scripts/retire/selftest.sh --check-anchors
+
 # A self-test or guard script that is in the tree and in no step here runs
 # nowhere, and its PASS rows rest on one run (#1530, #1531, #1533). This names
 # the ones the gate does not run, and takes an exemption only with an issue.
@@ -765,6 +788,15 @@ bash scripts/tests/every-guard-is-a-gate-step.test.sh
 # ledger (#1530, #1531): the lane plan and the pinned lanes.txt of each.
 gate_step "the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)"
 bash scripts/tests/selftest-lanes.test.sh
+
+# The agents and encryption self-tests' controls used to hard-code paths on
+# the maintainer's Mac and a hand-built capture image, so the gate left about
+# twenty of them out wholesale (#1543). This lists every control that would
+# not run on a Linux gate host and refuses any without an allowed reason (only
+# the retnd-tests checkout, #1548). Static, a second or two: it imports the two
+# self-tests and reads their lanes.txt.
+gate_step "every agents and encryption self-test control runs on a Linux gate host, in the Chromium lane or where the driver runs, or skips for an allowed reason (#1543)"
+bash scripts/tests/selftest-linux-skips.test.sh
 
 # EPIC U's closing check (#1353), the same shape for the MCP server: the
 # canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
@@ -778,6 +810,31 @@ bash scripts/tests/selftest-lanes.test.sh
 # runs in the retnd-tests lane at the pin. No containers, no browser, no network.
 gate_step "the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)"
 bash scripts/tests/epic-u-closure.test.sh
+
+# EPIC O's dashboards and rules name guard (#902, FR-102). A Grafana panel
+# querying a series retnd never emitted draws an empty line that reads like a
+# healthy one, and a rule over such a name never fires. This renders the real
+# exposition from a fully loaded health report and workflow counter set and
+# fails on any retnd_* name, label or closed-vocabulary value in
+# container/observability's dashboards and rules that the renderers do not
+# produce, on any Loki label or field the shipped pipeline and log schema do
+# not carry, and on any panel title that does not say what healthy looks like.
+# Its planted violations (PV4 and the rules-file variant) and positive controls
+# run in the same go test. No containers, no browser, no network.
+gate_step "every retnd_* name, label and Loki field a shipped dashboard or rule names is one retnd emits, and the guard can still fail (#902)"
+bash scripts/observability/check-dashboard-metrics.sh
+
+# EPIC O's closing check (#903), the same shape as N, T and U's: the canonical
+# deployment is an empty diff against 89af3d93 (/metrics is on the listener the
+# engine already had, and the bundle is an example), core/migrations has not
+# moved at all (EPIC O stores nothing in the journal), no row of
+# docs/conformance/epic-o-matrix.md is BLOCKED and every exit-gate box in the
+# spec is ticked. This drives the real script against throwaway repositories,
+# one planted violation per guard and four controls. The matrix half in closing
+# mode is core/tests/observabilitygate, which runs with the core suite below in
+# open mode and carries its own lie table. No containers, no browser, no network.
+gate_step "the EPIC O closing check refuses a moved canonical deployment, any migration, a BLOCKED row or an unticked exit-gate box, and can still fail (#903)"
+bash scripts/tests/epic-o-closure.test.sh
 }
 
 gate_seg_core_build() {
@@ -793,7 +850,11 @@ gate_lint core
 
 gate_seg_core_test() {
 if [ "$FAST" = "1" ]; then
-  gate_docker_step "core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)"
+  # go test prints a package only when it finishes, in order, and kopia alone
+  # took 715s on the 0.8.0 run, so this step is quiet for longer than the
+  # stall watchdog's ten minutes on a healthy run. Its own -timeout 45m is the
+  # bound that names the test; the watchdog waits past it (#1540).
+  gate_docker_step "core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)" --stall-min 50
   (cd core && GOWORK=off go test -race -timeout 45m ./internal/...)
 else
   # tests/crashmatrix, tests/sftpintegration, tests/sshexecintegration,
@@ -821,7 +882,8 @@ else
   # resolve into. Each one lands in the skip ledger, so the run ends
   # INCOMPLETE naming them, and a matrix with no BLOCKED row costs nothing.
   gate_github_ledger_open
-  gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
+  # --stall-min 50 for the reason given on the CI_LOCAL_FAST step above (#1540).
+  gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)" --stall-min 50
   # shellcheck disable=SC2046  # the package list from `go list` is meant to split into one word each
   (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$' | gate_core_shard_filter))
   gate_github_ledger_close
@@ -876,6 +938,22 @@ if [ "$FAST" != "1" ]; then
   # window (45s here) still catches a stall; only the overall backstop moves.
   gate_docker_step "core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)"
   (cd core && GOWORK=off go run ./cmd/gotestwatch -overall-floor 12m -- -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
+
+  # EPIC O's shipped log pipelines, executed rather than read (#900, #903,
+  # matrix row O-08): the real Promtail 3.2.1 and Alloy 1.5.1 images run over a
+  # log file the real logger wrote, and the label set they push has to be
+  # exactly job, instance, level and schema. Its control (a config promoting
+  # action_id) runs in the same go test. It needs this daemon, which is why it
+  # sits here with the other Docker-backed suites; it fails rather than skips
+  # without one.
+  gate_docker_step "the shipped Promtail and Alloy pipelines label exactly job, instance, level and schema (#903)"
+  bash scripts/observability/log-pipeline.sh
+
+  # The bundle's alerting rules, evaluated rather than read (#1595): promtool in the
+  # pinned Prometheus image checks the rules file and runs the unit tests beside it
+  # (a token rotation stays quiet, a probe still fires, the report-age alert holds).
+  gate_docker_step "the shipped alerting rules pass promtool and its unit tests (#1595)"
+  bash scripts/observability/rule-tests.sh
 fi
 }
 
@@ -1048,6 +1126,68 @@ if [ "$FAST" != "1" ]; then
 fi
 }
 
+# A browser run, through the workspace Playwright lock on the maintainer's Mac
+# (#1373): one run at a time and a watchdog on the headless Chromes. Anywhere
+# else (the lanes, Linux hosts) it runs bare. RETND_PW_LOCK names another lock
+# script. On a Mac with no lock at that path the run goes ahead bare, and says
+# so. The command's own status is returned, untouched.
+gate_pw_locked() {
+  pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
+  if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
+    # Every Playwright run in the workspace queues on that lock, and the
+    # wait is not this step's: the stall watchdog holds the step's clocks
+    # until the command under the lock writes the time it got it (#1540).
+    gate_watchdog_hold
+    # shellcheck disable=SC2016,SC2154  # $1 is the inner shell's; gate_wd_resume comes from lib/ci-local-gate.sh
+    "$pw_lock" sh -c '[ -z "$1" ] || date +%s >"$1"; shift; exec "$@"' sh "$gate_wd_resume" "$@"
+    return
+  fi
+  if [ "$(uname -s)" = "Darwin" ]; then
+    echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
+  fi
+  "$@"
+}
+
+# One step of the Chromium lane (#1532, #1537): the lane's 3 (this machine
+# could not run it) is ledgered with what it left out, anything else
+# non-zero ends the run on this step.
+#
+# Not on a Mac unless asked. Heavy retnd steps stay off the maintainer's Mac,
+# so there the steps are ledgered with the command that runs them on MARS
+# (scripts/release/run-gate-shard.sh, which sends this shard there when no
+# host is named). RETND_UI_BROWSER_ALLOW_LOCAL=1 runs them on the Mac anyway,
+# and then only through the Playwright lock: with no lock to take they are
+# ledgered too, never run bare.
+gate_ui_browser() { # <what it runs, for the ledger> <command...>
+  ui_what="$1"
+  shift
+  # scripts/ci-docker.sh says which OS the run started on (#1588): inside its
+  # container uname is always Linux, so a by-hand run on a Mac would pass for
+  # a Linux box. A gate run directly has no such variable and asks uname.
+  # Either one saying Darwin makes it a Mac: a stale RETND_GATE_HOST_OS=Linux
+  # exported in a Mac shell must not hide a native Mac run.
+  if [ "$(uname -s)" = "Darwin" ] || [ "${RETND_GATE_HOST_OS:-}" = "Darwin" ]; then
+    if [ "${RETND_UI_BROWSER_ALLOW_LOCAL:-0}" != "1" ]; then
+      gate_note_skip "$ui_what (#1532, #1537): not run on this Mac, where heavy steps do not run. Run the shard on MARS: bash scripts/release/run-gate-shard.sh ui-browser --host mars (RETND_UI_BROWSER_ALLOW_LOCAL=1 runs it here, through the Playwright lock)"
+      return 0
+    fi
+    ui_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
+    if [ ! -x "$ui_lock" ]; then
+      gate_note_skip "$ui_what (#1532, #1537): RETND_UI_BROWSER_ALLOW_LOCAL=1 runs it on a Mac only through the Playwright lock, and $ui_lock is not an executable file"
+      return 0
+    fi
+  fi
+  set +e
+  gate_pw_locked "$@"
+  ui_status=$?
+  set -e
+  case "$ui_status" in
+    0) ;;
+    3) gate_note_skip "$ui_what (#1532, #1537): the Chromium lane could not run on this machine, and said why above" ;;
+    *) exit "$ui_status" ;;
+  esac
+}
+
 gate_seg_e2e() {
 # The browser e2e signal (#158, #197). Until this step existed, the
 # Playwright suite had no automated execution anywhere: nightly-e2e.yml's
@@ -1085,24 +1225,15 @@ if [ "$FAST" != "1" ]; then
     # and runs the three-machine rig, the most Docker-heavy stretch of
     # the whole gate, and it used to be the one step that dropped the
     # lock the crash matrix had just held.
-    gate_docker_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)"
+    # --stall-min 30: the rig builds the client image (the pinned Playwright
+    # image, over a gigabyte) with `docker build -q`, which prints nothing
+    # until it is done, and on a cold cache that takes longer than the stall
+    # watchdog's ten minutes (#1540).
+    gate_docker_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197), the browser suite judged against the known-red ratchet (#1260)" --stall-min 30
     # Not under `set -e`: exit 3 is a verdict this script has to READ, and
     # `set -e` would end the run on it before the ledger ever saw it.
     set +e
-    # On the maintainer's Mac the browser run goes through the workspace
-    # Playwright lock (#1373): one run at a time and a watchdog on the
-    # headless Chromes. Anywhere else (the lanes, Linux hosts) it runs bare.
-    # RETND_PW_LOCK names another lock script. On a Mac with no lock at that
-    # path the run goes ahead bare, and says so.
-    pw_lock="${RETND_PW_LOCK:-/Users/rom/workspace/xdg-pw-lock.sh}"
-    if [ "$(uname -s)" = "Darwin" ] && [ -x "$pw_lock" ]; then
-      "$pw_lock" bash scripts/e2e/run-tests-repo-gate.sh
-    else
-      if [ "$(uname -s)" = "Darwin" ]; then
-        echo "==> ci-local: browser gate running without the Playwright lock ($pw_lock is not an executable file; RETND_PW_LOCK names another)"
-      fi
-      bash scripts/e2e/run-tests-repo-gate.sh
-    fi
+    gate_pw_locked bash scripts/e2e/run-tests-repo-gate.sh
     e2e_status=$?
     set -e
     case "$e2e_status" in
@@ -1114,6 +1245,41 @@ if [ "$FAST" != "1" ]; then
         exit "$e2e_status"
         ;;
     esac
+  fi
+fi
+}
+
+gate_seg_ui_browser() {
+# The Chromium lane (#1532, #1537). The spec files in ui/shared/e2e (131 when
+# this landed) are
+# the proof the Dashboard, Settings, Agents and suite UI work landed with, and
+# EPIC Q's assurance UI self-test is what says the glyph and wording guards can
+# still go red. Neither ran anywhere before this but on somebody's Mac, so a
+# spec could go red on main and nothing would notice (#197's shape again).
+#
+# Both run in scripts/e2e/ui-browser.sh, which starts the Playwright image the
+# other browser steps pin, with this tree mounted read-only at its own path
+# (so it works from inside scripts/ci-docker.sh on a remote daemon too), makes
+# a linux install of ui/shared inside it, and runs the command there. Every
+# run carries a hard cap and a stall check (no output for ten minutes is a
+# stalled run, and it is killed), and the specs a per-test timeout; any of
+# those is a FAILED run, not a skip. Its 3 means the machine could not run the
+# lane at all, and is ledgered. CI_LOCAL_SKIP_UI_BROWSER=1 is the out-loud
+# opt-out, and ledgers too. Non-FAST only, about 56 minutes for the specs
+# at workers: 1, so it is a shard of its own, and one that does not run on a
+# Mac unless RETND_UI_BROWSER_ALLOW_LOCAL=1 says so (see gate_ui_browser).
+if [ "$FAST" != "1" ]; then
+  if [ "${CI_LOCAL_SKIP_UI_BROWSER:-0}" = "1" ]; then
+    gate_note_skip "the ui/shared browser specs and the assurance UI mutation self-test, which are the only automated execution either of them gets (CI_LOCAL_SKIP_UI_BROWSER=1)"
+  else
+    gate_docker_step "ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)"
+    gate_ui_browser "the ui/shared browser specs" bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts
+
+    # Plants each of the assurance UI violations in a copy of ui/shared and
+    # needs the narrowed unit tests and specs to go red naming the promise.
+    # Its anchors are also checked statically by scripts/selftest/check-anchors.sh.
+    gate_docker_step "the assurance UI guards can actually fail (browser mutation self-test, #1532)"
+    gate_ui_browser "the assurance UI mutation self-test" bash scripts/e2e/ui-browser.sh run bash scripts/assurance/ui-selftest.sh
   fi
 fi
 }
@@ -1353,6 +1519,12 @@ if [ "$FAST" != "1" ]; then
   gate_step "architecture rules can actually fail (mutation self-test)"
   bash scripts/architecture/selftest.sh
 
+  # Its scratch bound (#1580): at most two tree copies alive at once, each
+  # removed right after its case, also when the case raises or is stopped.
+  # Stand-ins for the copy and every check, so it takes a second.
+  gate_step "the architecture self-test holds at most two tree copies and removes each after its case (#1580)"
+  bash scripts/tests/architecture-selftest-scratch.test.sh
+
   # The three self-tests of the gate's own machinery that sat in the tree and
   # in no step (#1533). Each runs against stand-ins for docker, ssh and rsync
   # and a throwaway repository, so there is no daemon and no network: the
@@ -1479,6 +1651,18 @@ if [ "$FAST" != "1" ]; then
   # suite has to go red naming the promise. No Docker, a few minutes.
   gate_step "the recovery guards can actually fail (mutation self-test, #976)"
   bash scripts/recovery/selftest.sh
+
+  # Issue #1528: retiring a FAILED backup. Each row of
+  # docs/conformance/issue-1528-matrix.md's RV.n ledger is planted in a
+  # scratch copy of the tree (the automatic pass skipped, absence read from
+  # any Stat error, the successor's "newer" dropped, the #662 shape, the way
+  # back, the .partial, an edge into RETIRED from COMMITTED, a record that
+  # can fail without its transition rolling back, RETIRED counted as a
+  # failure, the operator path skipping the source check, the agent
+  # acknowledgement, the list cursor), and the narrowed test has to go red
+  # naming itself and green again on the unplanted copy. No Docker.
+  gate_step "the retirement guards can actually fail (mutation self-test, #1528)"
+  bash scripts/retire/selftest.sh
 fi
 }
 
@@ -1542,7 +1726,10 @@ if [ "$FAST" != "1" ]; then
   # pinned in scripts/bdtools/<x>/lanes.txt, and the self-test probes this host
   # for each lane: a control whose lane is missing is not run, and lands in this
   # gate's skip ledger through RETND_SELFTEST_SKIP_LEDGER, so the shard ends
-  # INCOMPLETE naming it instead of ok (#1537 owns the lane that runs them all).
+  # INCOMPLETE naming it instead of ok. The browser specs, the browser contrast
+  # check and the capture rig go through the Chromium lane (scripts/e2e/ui-browser.sh,
+  # #1537, #1543), which needs only the docker daemon a gate container has; the
+  # three retnd-tests cases have no shard with the checkout yet (#1548).
   #
   # Two copycrypt controls allocate several GiB and are OOM-killed under about
   # 8 GiB, so the shard needs 9 GiB: scripts/release/run-gate-shard.sh asks for
@@ -1630,6 +1817,7 @@ gate_run_segment "js" gate_seg_js_upk
 gate_run_segment "apps" gate_seg_apps_b
 gate_run_segment "js" gate_seg_js_a
 gate_run_segment "e2e" gate_seg_e2e
+gate_run_segment "ui-browser" gate_seg_ui_browser
 gate_run_segment "two-machine" gate_seg_two_machine
 gate_run_segment "static" gate_seg_static_b
 gate_run_segment "static" gate_seg_static_c

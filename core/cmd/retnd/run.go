@@ -29,7 +29,10 @@ func cmdRun(args []string) int {
 	// openBackupDataPlane, not openService: a cycle run by this process
 	// has to go through the same reconciled workflow lifecycle the engine
 	// uses, or a workflow-configured set is backed up with no hooks and
-	// no recovery check at all (dataplane.go).
+	// no recovery check at all (dataplane.go). It also refuses a deployment
+	// still mounted at its pre-0.5.0 path before anything is read (#1558,
+	// #1609): a cycle against this release's empty path backs up nothing and
+	// says so as if that were the configuration.
 	svc, _, cleanup, err := openBackupDataPlane(ctx, *cfgPath)
 	if err != nil {
 		return fail(err)

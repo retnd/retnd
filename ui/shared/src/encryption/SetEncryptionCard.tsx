@@ -20,6 +20,7 @@
  * nothing.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
 import { Banner } from "@shared/components/Banner";
@@ -60,6 +61,7 @@ export function SetEncryptionCard({
   const [failure, setFailure] = useState<string | null>(null);
   const [ownKey, setOwnKey] = useState(false);
   const [draft, setDraft] = useState<ReferenceDraft>(EMPTY_REFERENCE);
+  const mountedRef = useMounted();
 
   const heading = (
     <InfoTooltip id="encryption.card">
@@ -111,15 +113,17 @@ export function SetEncryptionCard({
     setFailure(null);
     try {
       await work();
+      if (!mountedRef.current) return true;
       // Re-read: the card shows what the engine now resolves for this set.
       policy.reload();
       keys.reload();
       return true;
     } catch (e) {
+      if (!mountedRef.current) return false;
       setFailure(describeFailure(e, fallback).message);
       return false;
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -203,7 +207,7 @@ export function SetEncryptionCard({
                   void change(
                     () => api.setBackupSetEncryption(source, set, { mode: "required", keyProvider: { external: reference } }),
                     "the set's key reference was not saved"
-                  ).then((ok) => { if (ok) { setOwnKey(false); setDraft(EMPTY_REFERENCE); } })
+                  ).then((ok) => { if (ok && mountedRef.current) { setOwnKey(false); setDraft(EMPTY_REFERENCE); } })
                 }
               >
                 Save reference for this set

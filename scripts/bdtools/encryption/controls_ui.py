@@ -2,23 +2,22 @@
 # the contrast checker (#1331, round 2). Exec'd by selftest.py with Control and
 # PLANT defined.
 #
-# Playwright runs only through the workspace lock, one run at a time, in the
-# pinned e2e image, with the copy mounted at its own path and the real tree's
-# ui/shared/node_modules (installed by npm ci in node:22, plus
-# @playwright/test 1.62.1) linked in. vitest runs the same way in node:22.
+# The Playwright specs and the browser contrast check run in the Chromium lane
+# (scripts/e2e/ui-browser.sh) from the planted copy: the lane mounts the copy
+# read-only at its own path, makes its own linux install of ui/shared, and
+# brings the pinned Playwright image, a cap and a stall check, so nothing here
+# names a machine (#1543). vitest and tsc need node and ui/shared's
+# dependencies and no browser, so they run with the local node or the pinned
+# node image (ui_node, #1538). The pair checker is plain python.
 
 from typing import TYPE_CHECKING
+
+from bdtools import selftest_lanes
 
 if TYPE_CHECKING:
     # Only for the type checker: at run time selftest.py execs this file
     # with both names already in scope.
     from bdtools.encryption.selftest import Control
-
-UI_LOCK = "/Users/rom/workspace/xdg-pw-lock.sh"
-UI_TREE = "/Users/rom/workspace/retnd-lanes/rel080-matrix-wt"
-UI_PW_IMAGE = "mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
-UI_NODE_IMAGE = "node:22-bookworm-slim"
-UI_LINKS = ["ui/shared/node_modules"]
 
 SUITE_CONTROLS = "ui/shared/src/encryption/SuiteControls.tsx"
 TOKENS_CSS = "ui/shared/src/design-system/tokens.css"
@@ -34,17 +33,8 @@ CLIENT_TS = "ui/shared/src/api/client.ts"
 SITE_THEME = "docs/site/theme.css"
 
 
-def _mounts() -> str:
-    # The copy is at $w; the linked node_modules resolves into the real tree.
-    return f'-v "$w:$w" -v {UI_TREE}:{UI_TREE} -w "$w/ui/shared"'
-
-
-def ui_playwright(spec: str, grep: str = "") -> list[str]:
-    g = f' -g "{grep}"' if grep else ""
-    return [UI_LOCK, "sh", "-c",
-            'w=$(cd ../.. && pwd -P); docker run --rm --init --cpus 3 --memory 4g --shm-size 1g --user 501:20 '
-            f'-e HOME=/tmp/h -e CI=1 {_mounts()} {UI_PW_IMAGE} '
-            f'npx playwright test -c e2e/playwright.config.ts --output /tmp/h/pw-out {spec}{g}']
+UI_NODE_IMAGE = "node:22-bookworm-slim"
+UI_LINKS = ["ui/shared/node_modules"]
 
 
 def ui_node(exe: str, env: str) -> list[str]:
@@ -81,10 +71,8 @@ CONTROLS = [
           '            if (p.rotationNeeded) setStep("rotate");\n            else onClose();',
           '            onClose(); // PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py): no rotate step.')],
         "",
-        module="ui/shared",
-        cmd=ui_playwright("e2e/1318-encryption-suites.spec.ts", "in that order"),
+        cmd=selftest_lanes.spec("e2e/1318-encryption-suites.spec.ts", "in that order"),
         needles=["patch, rotate, download and confirm, in that order", "1 failed"],
-        links=UI_LINKS,
         timeout="20m",
     ),
     Control(
@@ -103,10 +91,8 @@ CONTROLS = [
          (ENC_CSS, '.echip[data-state="verified"] { border-color: var(--ok); background: var(--ok-quiet); }\n.echip[data-state="verified"] .echip__glyph { color: var(--ok); }',
           '/* PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py): verified draws as encrypted. */\n.echip[data-state="verified"] { border-style: solid; }')],
         "",
-        module="ui/shared",
-        cmd=ui_playwright("e2e/995-encryption-fields.spec.ts", "differ in edge, fill and glyph"),
+        cmd=selftest_lanes.spec("e2e/995-encryption-fields.spec.ts", "differ in edge, fill and glyph"),
         needles=["Encrypted and Verified recoverable differ in edge, fill and glyph in light", "2 failed"],
-        links=UI_LINKS,
         timeout="20m",
     ),
     Control(
@@ -207,7 +193,10 @@ CONTROLS = [
         [(SITE_THEME, "  --text-light: #5b5d5b;\n  --text-faint: #696b68;",
           "  --text-light: #9a9c99; /* PLANTED VIOLATION (scripts/bdtools/encryption/selftest.py) */\n  --text-faint: #696b68;")],
         "",
-        cmd=[UI_LOCK, "bash", "scripts/contrast/run-browser-check.sh", "--only", "web-ui.html"],
+        # scripts/contrast/run-browser-check.sh is this same check with its own
+        # docker run; in the lane the image is already the one it pins.
+        cmd=["bash", selftest_lanes.LANE, "run", "sh", "-c",
+             'CONTRAST_SITE="$PWD/docs/site" bash scripts/contrast/in-container.sh --only web-ui.html'],
         needles=["web-ui.html", "light"],
         timeout="20m",
     ),

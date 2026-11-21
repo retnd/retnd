@@ -19,6 +19,7 @@
  * point of that check.
  */
 import { useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import type { AsyncState } from "@shared/hooks/useAsync";
@@ -88,6 +89,7 @@ export function BackupSetsPage({
   // dialog is mounted per target so nothing typed for one row can
   // survive into another's.
   const [removeTarget, setRemoveTarget] = useState<BackupSet | null>(null);
+  const mountedRef = useMounted();
 
   const publishBusy = () => setBusy([...inFlight.current]);
 
@@ -99,7 +101,7 @@ export function BackupSetsPage({
       .setEnabled(target.source, target.set, !target.enabled)
       .finally(() => {
         inFlight.current.delete(target.id);
-        publishBusy();
+        if (mountedRef.current) publishBusy();
         // setEnabled resolves to nothing, so the only way this page can
         // show what is now true is to re-read the list. Same call
         // App.tsx wired into this prop, so the dashboard's copy of the
@@ -291,7 +293,7 @@ export function BackupSetsPage({
           open
           onCancel={() => setRemoveTarget(null)}
           onRemoved={() => {
-            setRemoveTarget(null);
+            if (mountedRef.current) setRemoveTarget(null);
             sets.reload();
           }}
         />

@@ -1,0 +1,582 @@
+{
+  "uid": "retnd-workflow-hooks",
+  "title": "Workflow hooks",
+  "description": "EPIC L's workflow hooks as Prometheus sees them: whether hooks can run, run and step outcomes, durations, truncations and remote-exec failures. Part of the example observability bundle in container/observability, which is not a supported deployment.",
+  "tags": [
+    "retnd",
+    "example"
+  ],
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "annotations": {
+    "list": []
+  },
+  "links": [],
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "backup_set",
+        "label": "Backup set",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(retnd_backup_set_state, backup_set)",
+          "refId": "backup_set"
+        },
+        "definition": "label_values(retnd_backup_set_state, backup_set)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Can hooks run",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Host runner reachable (1 when nothing is wrong)",
+      "description": "Whether this engine completed a handshake with the Host Workflow Runner that runs local hooks. No data means this deployment declares no runner, which is fine if it runs no local hooks. The version label says which runner answered.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "retnd_workflow_runner_reachable",
+          "instant": true,
+          "legendFormat": "runner {{version}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Remote execution connections proven capable (each reads 1 when nothing is wrong)",
+      "description": "One value per connection declared in workflows.exec_connections. Why a connection is not capable is on the status surface, never a label here.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "retnd_workflow_exec_connection_capable",
+          "instant": true,
+          "legendFormat": "{{connection}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Interrupted runs waiting for a person (0 when nothing is wrong)",
+      "description": "Cleanup scopes an interrupted run left behind that nobody has resumed or acknowledged yet. While this is above 0 the set's runs are refused. The run ids to resolve it are on the status surface.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(retnd_workflow_recovery_required{backup_set=~\"$backup_set\"})",
+          "instant": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Outcomes",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Finished runs by status (no failed line when nothing is wrong)",
+      "description": "Workflow runs finished per interval, by status. These counters live in the engine's memory and start again at 0 when it restarts; increase() accounts for that. A deployment that runs no workflows has no workflow series at all, so every panel below is empty there.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (increase(retnd_workflow_runs_total{backup_set=~\"$backup_set\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Runs whose hooks were deliberately bypassed (0 when nothing is wrong)",
+      "description": "Runs that finished with their hooks skipped on purpose. Not a failure, but a backup taken without its quiesce step is one somebody should know about.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (backup_set) (increase(retnd_workflow_runs_total{bypassed=\"true\", backup_set=~\"$backup_set\"}[$__rate_interval]))",
+          "legendFormat": "{{backup_set}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Hook steps that did not succeed, by stage and disposition (0 when nothing is wrong)",
+      "description": "Failed steps per interval. Skipped steps are not counted. A remote step that timed out also counts as a timeout below, and one whose connection was lost also counts as a remote-exec failure: the three answer different questions.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (phase, target, disposition) (increase(retnd_workflow_step_failures_total{backup_set=~\"$backup_set\"}[$__rate_interval]))",
+          "legendFormat": "{{phase}} {{target}}: {{disposition}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Hook steps stopped for outliving their timeout (0 when nothing is wrong)",
+      "description": "Steps this product stopped because they ran past their configured script timeout.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (phase, target) (increase(retnd_workflow_step_timeouts_total{backup_set=~\"$backup_set\"}[$__rate_interval]))",
+          "legendFormat": "{{phase}} {{target}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Remote hooks that could not run at all (0 when nothing is wrong)",
+      "description": "Remote steps whose connection would not open, whose capability could not be proven, or whose channel closed with no status. A remote hook that ran and exited non-zero is not one of these.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (backup_set, disposition) (increase(retnd_workflow_remote_exec_failures_total{backup_set=~\"$backup_set\"}[$__rate_interval]))",
+          "legendFormat": "{{backup_set}}: {{disposition}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Step output cut off at the recording bound (0 when nothing is wrong)",
+      "description": "Steps whose captured output reached the persisted-output bound. The hook kept running; only the recording stopped. This family is labelled by target alone, so it does not follow the backup set selector.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (target) (increase(retnd_workflow_log_truncations_total[$__rate_interval]))",
+          "legendFormat": "{{target}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Durations",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Whole-run duration, 95th percentile over a day (steady from day to day when nothing is wrong)",
+      "description": "From the run-duration histogram, over a sliding day because most sets run once a night. A step change is a hook that got slower; the step panel beside this says which stage.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, backup_set) (increase(retnd_workflow_run_duration_seconds_bucket{backup_set=~\"$backup_set\"}[1d])))",
+          "legendFormat": "{{backup_set}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Hook step duration, 95th percentile over a day by stage (steady from day to day when nothing is wrong)",
+      "description": "From the step-duration histogram, by phase and target, over a sliding day.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, phase, target) (increase(retnd_workflow_step_duration_seconds_bucket{backup_set=~\"$backup_set\"}[1d])))",
+          "legendFormat": "{{phase}} {{target}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Logs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Workflow warnings and errors (none when nothing is wrong)",
+      "description": "Warn and error lines from the workflow events (workflow_run_*, workflow_step_*, workflow_bypassed). Hook output can carry text an operator's script printed; see docs/observability.md before shipping these logs anywhere.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "{job=\"retnd\", level=~\"warn|error\"} | json | event=~\"workflow_.*\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { RetndError } from "@shared/api/contracts";
 import type {
@@ -194,6 +195,7 @@ function RetentionPanel({
   const [clearing, setClearing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  const mountedRef = useMounted();
 
   function apply(action: () => Promise<BackupSetRetention>, done: () => void) {
     setBusy(true);
@@ -204,10 +206,12 @@ function RetentionPanel({
         // against the draft: a chain it resolved and a calendar it
         // inherited are part of the answer, and the next comparison has
         // to be made against those.
+        if (!mountedRef.current) return;
         setR(next);
         done();
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setError(
           e instanceof RetndError
             ? e.api
@@ -218,7 +222,7 @@ function RetentionPanel({
               }
         );
       })
-      .finally(() => setBusy(false));
+      .finally(() => { if (mountedRef.current) setBusy(false); });
   }
 
   if (editing)

@@ -135,6 +135,12 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// Every reload re-reads the file, so the default workflow root is
 	// resolved again here (#1246): a mount that has appeared since the last
 	// one is picked up, and a root the write just named replaces it.
+	// The log floor follows a PATCH to observability.logs.level without a
+	// restart. Only when the level changed: a reload for any other reason
+	// must not reset a floor somebody set another way.
+	if prevInner.Config.Observability.Logs.Level != cfg.Observability.Logs.Level {
+		applyLogFloor(b.logger, cfg)
+	}
 	b.state.Store(&configState{inner: newInner, revision: revision, workflowRoot: ResolveWorkflowRoot(cfg, b.rootDefault)})
 	b.holds.forgetRemovedNamedIn(cfg)
 	// Last, once everything a woken loop would read is in place: the

@@ -83,6 +83,7 @@
  * nowhere else.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { usePlatform } from "@shared/platform/PlatformContext";
 import { useTerminalFeed } from "@shared/pages/useActivityFeed";
 import { DOCK_BUFFER } from "@shared/state/terminalStore";
@@ -542,6 +543,7 @@ export function ActivityDock() {
   const [height, setHeight] = useState(() => Number(readStored(STORAGE.height)) || DEFAULT_HEIGHT);
   const [filter, setFilter] = useState<DockFilter>(() => readStored(STORAGE.filter) ?? "all");
   const [copied, setCopied] = useState(false);
+  const mountedRef = useMounted();
   // Not stored, unlike the source chip: a filter to the problems is a
   // question about right now, and a terminal that comes back showing three
   // lines of forty with no reason on screen reads as a broken one.
@@ -648,9 +650,9 @@ export function ActivityDock() {
     // (retnd#1049); on a plain-http origin the fallback chain in
     // copyText gets there, and "Save .txt" stays the route when it cannot.
     void copyText(dockText(shown, viewer, preamble)).then((outcome) => {
-      if (outcome === "copied") setCopied(true);
+      if (outcome === "copied" && mountedRef.current) setCopied(true);
     });
-  }, [shown, viewer, preamble]);
+  }, [shown, viewer, preamble, mountedRef]);
 
   const save = useCallback(() => {
     const blob = new Blob([dockText(shown, viewer, preamble)], { type: "text/plain" });

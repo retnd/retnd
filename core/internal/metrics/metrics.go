@@ -7,7 +7,7 @@
 // internal/health already computes every fact FR-24 asks for (process
 // version info, and, per backup set, its health state, freshness, pending
 // deletes, failures, quarantine counts, free space and every timestamp it
-// tracks), and nothing renders any of it yet. This package is exactly one
+// tracks), and before this package nothing rendered any of it. This package is exactly one
 // rendering, and only the mechanical, policy-free half of "metrics and
 // alerts": turning already-computed values into a text format a scraper
 // can read. It makes no decision about what counts as alert-worthy (that
@@ -142,6 +142,12 @@ func render(report health.Report) string {
 		"Artifacts currently QUARANTINED_LOST (irrecoverable) for this backup set.",
 		func(s health.BackupSetHealth) (float64, bool) {
 			return float64(s.QuarantinedLostCount), true
+		})
+
+	writeGauge(&b, sets, "retired",
+		"Artifacts currently RETIRED for this backup set: failures nobody needs to act on any more (issue #1528).",
+		func(s health.BackupSetHealth) (float64, bool) {
+			return float64(s.RetiredCount), true
 		})
 
 	// Issue #227. A reinstated artifact never authorises deleting its

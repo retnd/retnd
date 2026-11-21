@@ -2,8 +2,54 @@
 
 ## [Unreleased]
 
+Worth reading before you upgrade:
+
+- **This release applies migration 0023 on its first start, and 0.8.0 won't open the journal
+  after that** (#1528, #1536). 0023 rebuilds the `artifacts` table so it admits the new `RETIRED`
+  state (what `retnd retire` and the engine's own retirement of a FAILED backup move a row to) and
+  adds `artifact_retirements`. It's the first schema migration a patch release has carried. Like
+  every release with a migration, 0.8.0 refuses a `state.db` this build has opened (`version 23
+  is recorded in the database but not compiled into this binary`) and writes nothing when it
+  does, so the only way back is a copy taken before the upgrade. `install --mode upgrade` takes
+  it for you; on a deployment you upgrade by hand, take it yourself and check it first. See
+  [Rolling back a release that carried a
+  migration](docs/install.md#rolling-back-a-release-that-carried-a-migration) for the steps and
+  for what a rollback costs, and decide within hours rather than days.
+
 ### Added
 
+- **`retnd encryption reencrypt --from-local`** (#1545). An artifact that still has a local copy
+  was refused by `reencrypt` (two ACTIVE copies, and the engine won't choose which one goes), so
+  after a key compromise its copy under the old key sat there until the local copy expired. With
+  `--from-local` the new copy is encrypted straight from the local copy under the active key,
+  decrypt-verified, and only then is the copy under the old key retired. Nothing is read from the
+  old remote copy, so there's no egress for it and the old key doesn't have to resolve, and the
+  local copy is read and never changed. It's off unless you ask, adds no route (it's `from_local`
+  on the two existing ones, which an agent still can't call), and needs no migration. `--dry-run`
+  now says per copy whether it's a `move` or an `upload_from_local` and prints the bytes each
+  medium would read and write. If a run is killed before it uploads and the local copy expires
+  before the re-run, the re-run with `--from-local` abandons that move by name
+  (`local_copy_gone`, also when the local file is missing or changed) rather than reading the old copy at a cost the dry run didn't show. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
+
+- **The engine keeps the journal as it was before a migration, once the migration has
+  succeeded** (#1584). Until now the copy it takes before migrating lived in memory and was
+  only used to undo a migration that failed, so someone who upgraded with `docker compose pull`
+  (no installer, so no archive) had nothing to go back to. Now a start that applies a migration
+  to an existing journal writes it to `pre-migration-<UTC time>-schema<N>/` beside `state.db`
+  (directory `0700`, files `0600`, a `MANIFEST` saying what it is), after the commit, from the
+  bytes it already held. It never reads it back. It's a courtesy: with no room (twice the journal's
+  size, at least 1 MiB extra) or a failed write it logs a warning and the migration goes ahead. It keeps the five
+  newest and removes the oldest past that, logging each path, and it never removes the newest,
+  a directory without a `MANIFEST`, or a copy of a schema newer than the running build.
+  [Rolling back a release that carried a migration](docs/install.md#when-nobody-took-an-archive-the-engines-own-copy)
+  says how to go back from it.
+- **The refusal for a schema version this build doesn't carry now says when it was applied**
+  (#1583). The engine reads `applied_at` from the `schema_migrations` row and prints it in UTC
+  (`version 23 (applied 2026-11-21T04:10:00Z) is recorded in the database but not compiled into
+  this binary`), so you can match it to the archive you took before upgrading. A row with no
+  time says so, and with several unknown versions it names the lowest. The sentinel's own text is
+  unchanged. 0.8.0 can't print it, so this helps the next release that carries a migration, not
+  the 0.8.1 door.
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
   metric families it already rendered, plus a new `retnd_scrape_rejected_total{reason}`, on
   `GET /metrics`. It is off until you turn it on (`retnd settings observability patch
@@ -19,10 +65,81 @@
   `404` and nothing else changes. **Writing `observability:` into `config.yaml` is a one-way
   door**: older builds refuse the file as an unknown field, so keep the previous `config.yaml` if
   you want a way back. Deleting the block is the rollback, and a minted token's file left behind is
-  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration:
-  `core/migrations/` stays at `0022`.
+  inert. A plaintext `observability.metrics.token` in the file is refused at load. No migration
+  of its own: the one migration in this release is 0023 (#1528), at the top of this entry.
+
+- **The log stream is a pinned schema, with a level you can set** (#900, EPIC O). The engine
+  already wrote newline-delimited JSON; now its eight reserved keys (`time`, `level`, `msg`,
+  `event`, `result`, `action`, `action_id`, `backup_set`) are a wire contract held by a golden
+  line, and all 54 event names are pinned. `observability.logs.level` (`debug`, `info`, `warn`,
+  `error`, default `info`) sets the engine's floor from Settings, the CLI or the API without a
+  restart; `RETND_DEBUG` and `LOG_LEVEL` still win, and the settings read says which decided
+  (`config` or `environment`). The `startup` line carries `log_schema` and is written at any
+  level. Promtail and Alloy pipelines label exactly `job`, `instance`, `level` and `schema`, and
+  a real Loki needs `limits_config.discover_service_name: []` to keep it to those four
+  (`docs/observability.md`). Nothing changes on a line you already parse apart from the one new
+  attribute on `startup`.
+
+- **Alerts can go to a webhook, and for the first time reach someone on a shipped deployment**
+  (#901, EPIC O). `observability.alerts.delivery: webhook` posts each alert to a URL kept by
+  reference (`url_ref`: a file, an environment variable or a command), read again at every
+  delivery and never shown, logged or put in an error. Two fixed formats: `generic` (one JSON
+  object per occurrence) and `alertmanager` (the v2 array, re-sent every `refresh_interval` so
+  Alertmanager does not expire a still-true alert, and closed with `endsAt` when it clears).
+  Only https unless `allow_insecure_http` is set, no redirect is followed, and an unreadable URL
+  is an alert on the Settings card and one `alert_destination` line in the feed rather than a
+  silence. Exactly one channel is built either way. **What an existing deployment sees:
+  nothing**: `delivery` defaults to `platform`, which is what alerting did before.
+
+- **Example Grafana dashboards and an observability bundle** (#902, EPIC O).
+  `container/observability/` is a Prometheus, Alertmanager, Loki, Promtail or Alloy, and Grafana
+  stack for one deployment, with two dashboards and alerting rules. It is an example, not a
+  supported deployment: nothing installs it, and the canonical compose file and every provider's
+  file are unchanged. A gate step fails on any metric, label or Loki field a dashboard or rule
+  names that the product does not emit.
+
+- **EPIC O's closing check, its no-secret corpus and the conformance matrix** (#903). One test
+  run loads a deployment with a repository passphrase, an S3 secret key, a scrape token, a
+  webhook credential and (where an engine could see one, since it holds none) an SMTP password,
+  runs a cycle, scrapes and delivers an alert, and fails
+  per surface (the exposition, the log, the webhook request) if any of the five reaches it.
+  `scripts/release/check-epic-o-closed.sh` refuses a moved canonical deployment, any migration, a
+  BLOCKED matrix row or an unticked exit-gate box. The shipped Promtail and Alloy pipelines now
+  run in the gate. The whole epic adds one top-level key to `config.yaml`, `observability:`, and
+  that is the one one-way door: an older build refuses a file that has it.
 
 ### Fixed
+
+- **Example observability bundle polish** (#1595). `RetndScrapeRefused` no longer fires for 15
+  minutes after every scrape-token rotation (Prometheus's own refused scrapes were counted); it
+  now only fires while Prometheus's own scrape is healthy. `observability.metrics.min_rebuild_interval`
+  has a ceiling of 2m, which the report-age alert and panel rely on, and a longer value is refused
+  at load naming the key. The bundle's secret scan now also catches credentials under JSON-quoted
+  keys, Grafana's password in JSON, an inline `Authorization: Bearer` literal and a literal `rsc_`
+  token under any key. The alerting rules now have promtool unit tests.
+
+- **A heartbeat that lands after leaving edit mode no longer puts the edit hold back** (#1606).
+  Taking and renewing an edit hold were the same call, so a renewal still in flight when you left
+  edit mode could land after the release, pause the backup set for another 90 seconds and stop a
+  run that had started in between. A hold now has a holder: `POST
+  /api/v1/backup-sets/{source}/{set}/edit-hold` answers a `token`, sending `{"token": ...}` back
+  renews that holder only, and a renewal whose hold was released or has lapsed is refused with
+  `409 EDIT_HOLD_GONE` instead of taking the set again. `.../edit-hold/release` with a token gives
+  back that holder alone, so a second tab editing the same set keeps its hold. A client that sends
+  no body gets what it always got: a take takes a hold, and a release gives back every hold on the
+  set. On the CLI, `backup-set edit-hold --take` prints the token, `--take --token T` renews it and
+  `--release --token T` gives back only that hold. The web UI does all of this for you, and
+  nothing you see changes.
+
+- **`GET /metrics` answers on the real engine, and the token command prints only the token**
+  (#1568). The scrape endpoint above was registered on the API router and tested there, but the
+  engine's serve mux never mounted it, so `retnd-web serve` answered `404` to every scrape. Now the
+  engine mounts it, the mount guard allows it because it's in the one list of root routes, and
+  `web-ui` answers `404` for it itself instead of handing a scraper the UI's `index.html`.
+  `retnd settings observability rotate-scrape-token` also printed its mode line and startup log
+  next to the token, so `> scrape-token` wrote a file Prometheus couldn't use... standard output
+  is now the token and nothing else, and `patch --json` and `--json` on the read print one
+  document.
 
 - **A deployment still mounted at its pre-0.5.0 path refuses to start instead of coming up
   empty** (#1546). Once the EPIC R adoption was gone (#1109), a compose file that still
@@ -33,6 +150,76 @@
   at the new path, or point `--config` at it). Both hold something and they're different
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
+
+- **A failed backup whose own copy doesn't match a source that is still there no longer loops on
+  retry** (#1611). With the copy at its final name and the source answering, retry compared the two,
+  saw they differed and fell through to an ordinary retry; the next cycle met the collision guard on
+  the copy and the row was FAILED again, with nothing said. Now `retnd retry` and `POST .../retry`
+  refuse it by name, `RETRY_OWN_COPY_MISMATCH` (409), and write nothing. The sentence says whether
+  the copy still matches the checksum recorded when it was verified (so the source changed) or not
+  (so it may be damaged), and the way out: move that file aside, which keeps it, then retry, and the
+  next attempt fetches a fresh copy. Nothing deletes or renames the copy for you, and the Recovery
+  card and the retire refusal say the same. A retry that can't ask the remote for its checksum is
+  unchanged.
+
+- **A failed backup with its own copy at the final name gets out of FAILED once its source is gone**
+  (#1594). That shape (#662's) used to be stuck for good: retire refused it with "retry instead", and
+  retry's rescue compares the copy with the remote object, so with the object gone it fell through to an
+  ordinary retry that the collision guard sent straight back. Now, with the source confirmed gone (the
+  same listing and `Stat` retirement uses), `retnd retry` and `POST .../retry` keep a copy that still
+  matches the checksum recorded when it was verified (or that the set's validator passes), through the
+  same reinstatement `quarantine reinstate` does, and refuse one that doesn't with
+  `RETRY_OWN_COPY_UNVERIFIED`, writing nothing. `retnd retire --accept-unverified-copy` (and
+  `accept_unverified_copy` on the API) retires that second kind and keeps the file; a copy that verifies
+  is never retired, and the cycle never retires the shape on its own. An agent may not send the
+  acknowledgement, on the retire body or on the preview's query. In the browser, Retry stays on for this shape and the Retire dialog offers the
+  acknowledgement. With the source still there, or not answering, nothing changes.
+
+- **Every other `retnd` command refuses a pre-0.5.0 mount too** (#1558, #1609). After the
+  entry above, `daemon` and `serve` refused, but the rest of the CLI still went to the new, empty
+  path: `backup-set create` wrote a second `config.yaml` (and journal) there, `ssh-key` and
+  `backup-set test-connection --candidate` set up a first-run store beside it, and the reads
+  (`sources`, `artifacts`, `retention`, `status`, `settings` and the rest) said "no backup set
+  configured yet" or "no such file". Now every command that reads or writes the local
+  configuration or journal gives the same refusal before it reads anything. `--help`, `version`
+  and `--config <old path>` are never refused, and a fresh install works as before.
+  `ssh-key list` and `ssh-key discover` on a fresh install with nothing serving also stopped
+  failing with "first run needs a state database path".
+
+  One thing to know if you run the image with plain `docker run` and fix the mount with
+  `--config <old path>` instead of moving the volume: the image's built-in health check runs
+  `/retnd status` with no `--config`, so it now reports unhealthy (it used to report healthy
+  while looking at the empty path). Mount the old directory at `/etc/retnd/config` instead, or
+  see "Health check" in `docs/deployment.md`. The shipped compose files override the health
+  check and aren't affected.
+
+- **A FAILED backup whose source is gone can be retired, and the engine retires the safe case itself**
+  (#1528). `cicd-pipeline/forge` read FAILING for two weeks with a good backup every morning, because two
+  dumps had failed, the host's own retention had since deleted them, and `retry` (the only verb that
+  touched a FAILED row) could only send them round to fail again. There is now a `RETIRED` state,
+  reached only from `FAILED`, with a record of who or what retired the backup, why, what the source
+  looked like at that moment and which newer backup replaces it. `retnd retire <source/set/artifact>`
+  and `POST /api/v1/backups/{source}/{set}/{name}/retire` retire one on request, after asking the source:
+  they refuse while the object is still there (retry it instead) unless you pass
+  `--accept-source-present`, and refuse with no newer good backup unless you pass `--no-successor`.
+  `--dry-run` and `GET` on the same route show what would happen first. A cycle retires a FAILED backup
+  by itself only when the set's listing does not show the object, a `Stat` of it answers not found, and a
+  newer durable backup exists in the same set; if the object ever reappears, the next cycle puts it back
+  into the pipeline. Health stops counting RETIRED as a failure, so a set like forge goes back to HEALTHY,
+  and reports it as `retired_count` (and a `retired` metric) so nothing is hidden. The MCP server gains
+  `retire_backup` (operate, a person confirms, and it may not send either acknowledgement) and
+  `backup_retirement_show` (read), and `GET /backups` gains a `state` filter, `limit` and a cursor, so
+  `backups_list` pages instead of answering `AGENT_RESULT_TOO_LARGE`. In the browser, a failed backup's page
+  and its row menu on the Backups page have a Retire… action whose dialog shows what the engine found
+  (the source gone or still there, the backup that replaces it, what retiring does) before anything
+  happens, a retired backup's page says who retired it and what replaces it, and a set card counts
+  retired backups apart. What an existing deployment sees:
+  FAILED rows whose source is gone and that a newer good backup supersedes are retired on the first cycle
+  after the upgrade, each as a warn-level `artifact_retired` event.
+  **One-way door:** migration 0023 rebuilds the `artifacts` table to admit `RETIRED` and adds
+  `artifact_retirements`. 0.8.0 refuses a `state.db` this build has opened, like every release with a
+  migration, so keep the upgrade archive if you might roll back (the steps are in [Rolling back a
+  release that carried a migration](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 
 ## [0.8.0] - 2026-11-14
 
@@ -56,7 +243,8 @@ A few things are worth reading before you upgrade:
   `placement_encryption`, `recovery_bundle_exports`, `recovery_bundle_confirmations`, `encrypt_existing_consents`,
   `encryption_key_suites` and `encryption_default_suite`) and changes no existing table or row, so every copy
   you already have reads as unencrypted. Like every release with a migration, 0.7.2 refuses a `state.db` this
-  build has opened, so keep the upgrade archive if you might roll back.
+  build has opened, so keep the upgrade archive if you might roll back
+  ([how](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 - Writing `retained_copy_encryption:` (and, separately, its `suite:`) into `config.yaml` is a one-way door:
   0.7.2 and older refuse the file as an unknown field. Keep the previous `config.yaml` if you want a way out.
 - If you lose the key and every copy of its recovery bundle, the encrypted copies are gone for good. Export

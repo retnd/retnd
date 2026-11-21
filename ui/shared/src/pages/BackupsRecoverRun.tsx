@@ -7,8 +7,17 @@
  * run never leaves a half-written one. The page cannot see the host's last
  * word once the connection is gone, so every line that had not finished is
  * reported as not started.
+ *
+ * Leaving the dialog closes the connection too (#1592). The dialog is the only
+ * place a run can be watched or stopped, so a run left going after it unmounts
+ * would be one nobody can see the end of, and the engine already reads a
+ * closed connection as a cancel: that is what a closed tab, a reload and Ctrl-C
+ * in `retnd recover` do. So the dialog has one rule, the run lives as long as
+ * the dialog showing it, and nothing it started touches its state once it has
+ * gone.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { StepUpOptions } from "@shared/api/contracts";
 import { sourceHostRefusal } from "@shared/assurance/useSourceRecovery";
 import { useApi } from "@shared/api/ApiContext";
@@ -57,15 +66,36 @@ export function BackupsRecoverRun({
     return () => back?.focus?.();
   }, []);
 
+  // The cleanup closes the run's connection only if the dialog is still gone
+  // once the commit is over: strict mode's rehearsal (mount, unmount, mount
+  // again, all in one commit) remounts before a microtask can run, and a
+  // recovery that cancelled itself on start in development would be no
+  // recovery at all.
+  const mountedRef = useMounted();
+  useEffect(() => {
+    const run = abort.current;
+    // The ref itself, read once the microtask runs: the value now is the
+    // wrong one to read.
+    const mounted = mountedRef;
+    return () => {
+      queueMicrotask(() => {
+        if (!mounted.current) run.abort();
+      });
+    };
+  }, [mountedRef]);
+
   useEffect(() => {
     // Strict mode runs effects twice; a recovery must start once.
     if (started.current) return;
     started.current = true;
     const stepUp = once?.() ?? {};
     void runRecoverMany(api, files.map((f) => f.id), target, acknowledged, abort.current.signal, {
-      update: (id, patch) => setItems((cur) => cur.map((x) => (x.id === id ? { ...x, ...patch } : x))),
-      progress: (done, total) => setProgress({ done, total })
+      update: (id, patch) => { if (mountedRef.current) setItems((cur) => cur.map((x) => (x.id === id ? { ...x, ...patch } : x))); },
+      progress: (done, total) => { if (mountedRef.current) setProgress({ done, total }); }
     }, stepUp).then((o) => {
+      // Gone: the run was cancelled on the way out, and there is no dialog
+      // left to tell, nor a bar to hand a refusal back to.
+      if (!mountedRef.current) return;
       if (o.refusal && target.kind === "source" && onSourceRefused && sourceHostRefusal(o.code)) {
         onSourceRefused(o.code ?? "");
         return;
@@ -77,7 +107,7 @@ export function BackupsRecoverRun({
       if (o.result) setManifest(o.result.manifestPath ?? o.result.manifestKey ?? null);
       setFinished(true);
     });
-  }, [api, files, target, acknowledged, once, onSourceRefused]);
+  }, [api, files, target, acknowledged, once, onSourceRefused, mountedRef]);
 
   const n = (s: RunItem["state"]) => items.filter((x) => x.state === s).length;
   const done = n("recovered") + n("failed") + n("restoring") + n("excluded");

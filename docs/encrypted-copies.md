@@ -248,9 +248,57 @@ line, which shows the dry run before anything moves.
   chosen for you.
 - Beside a serving engine the run is that engine's operation, and `retnd assurance cancel` and
   the browser's Cancel stop it alike.
-- When the plaintext local copy still exists, you usually need no verb at all: the next ordinary
-  move writes a fresh copy under the active suite. `reencrypt` is for copies whose local copy is
-  gone.
+- `--dry-run` also prints, per medium, the most a run would read and write (the new copy is an
+  upper bound, with the decrypt-verify read-back counted; a resumed run reads it once more), and
+  how many copies have no recorded size and so are not in the totals. Bytes read from the local
+  copies are labelled as not egress.
+
+### An artifact that still has a local copy: `--from-local`
+
+An artifact with an ACTIVE local copy and an encrypted copy on a medium has two ACTIVE
+placements, and the move engine will not choose which of them is disposable, so `reencrypt`
+refuses it and the copy under the old key stays until the local copy expires. After a
+key compromise that can be weeks. `--from-local` is for that case:
+
+```
+retnd encryption reencrypt --key kOLD --from-local --dry-run
+retnd encryption reencrypt --key kOLD --from-local --to offsite
+```
+
+- The new copy is encrypted straight from the **local** copy, under the active suite and key,
+  and uploaded to the `--to` medium. **Nothing is read from the old remote copy**, so there is
+  no egress for it and the old key does not have to resolve (a key you have lost or withdrawn is
+  no obstacle).
+- It adds no new place plaintext lands. The local file is streamed through the encrypting pass
+  and checked against the recorded digest as it goes; the only new file on disk is the
+  ciphertext in the `.moves` staging directory, which is removed after the upload. A local copy
+  that no longer matches its digest is never uploaded, and the run does not quietly fall back to
+  reading the old copy: it changes nothing and says so.
+- The new copy is decrypted back in full and verified before the copy under the old key is
+  retired, through the same guard as every move. The local copy is read and never changed, and
+  it expires on its own schedule.
+- It is off unless you ask. Without `--from-local` the refusal is exactly as before. An artifact
+  with no local copy takes the ordinary route even with the flag. `--dry-run` says per copy which
+  path it takes (`path`: `move` or `upload_from_local`) and what each medium reads and writes
+  (the local read is listed under `local`, and is not egress).
+- One run at a time, started by you, never by a rotation or a schedule. Over HTTP it is
+  `from_local` on the same two routes; it adds no route, and an agent cannot start it or plan it
+  (both routes are named refusals in the agent catalogue).
+- If a run is killed before it uploads anything and the local copy has expired before you re-run
+  it, the re-run with `--from-local` abandons the interrupted move and says so (`local_copy_gone`)
+  instead of quietly reading the old copy, so you are never billed for egress the dry run did not
+  show. The old copy is untouched. Run the dry run again, which now lists that copy as a `move`
+  with its bytes, and a run without `--from-local` reads it from the old copy (so does a re-run
+  with a different selector, which resumes the interrupted move as an ordinary one). A run killed
+  after the upload finishes without the old copy or the old key.
+- A local copy whose placement is still ACTIVE but whose file is missing, or no longer matches the
+  recorded digest, is treated the same way: the interrupted move is abandoned by name, the old copy
+  stays ACTIVE and the destination and staging are discarded, whichever way you re-run. A file that
+  cannot be read for another reason (permissions, an I/O error) is not known to be gone and is
+  retried like any failed copy. While the local placement is still ACTIVE a plain run is refused
+  (two ACTIVE copies), so restore the file and run with `--from-local` again, or wait for the local
+  copy to expire and then run without it. The old copy stays until the new
+  one verifies in every case.
 
 ## Managed keys and external keys
 
@@ -533,7 +581,7 @@ ever carries a key or a key id. A plaintext copy never reports either stage.
   Decrypt-verifying stage above is the check a copy goes through when it is made.
 - No KMS or Vault provider (an external `command` can reach either).
 - No re-encryption onto the same medium. `reencrypt` and `encrypt-existing` both write the new
-  copy to another medium, and only when you run them.
+  copy to another medium, and only when you run them (`--from-local` too).
 - No per-set suite, no `auto` suite and no automatic rotation when the default moves.
 - No FIPS build mode, and no claim of FIPS validation for any suite.
 - `retnd encryption decrypt` opens one copy at a time. There is no bulk "decrypt everything" verb,

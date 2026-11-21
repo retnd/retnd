@@ -66,7 +66,7 @@ func TestSubmitRunBackupSet_RunsOnceTheHoldIsReleased(t *testing.T) {
 	if _, err := svc.BeginBackupSetEdit(context.Background(), fixtureSetID); err != nil {
 		t.Fatalf("BeginBackupSetEdit: %v", err)
 	}
-	if err := svc.EndBackupSetEdit(context.Background(), fixtureSetID); err != nil {
+	if err := svc.EndBackupSetEdit(context.Background(), fixtureSetID, ""); err != nil {
 		t.Fatalf("EndBackupSetEdit: %v", err)
 	}
 

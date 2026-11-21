@@ -78,8 +78,9 @@ func TestIssue1147_TheCLIsListWireIsTheHandlersListFieldForField(t *testing.T) {
 	if got, want := asMap(t, service.ArtifactsWire(as)), asMap(t, api); !reflect.DeepEqual(got, want) {
 		t.Errorf("list body differs\napi: %v\ncli: %v", want, got)
 	}
-	// An empty listing is an array, never null: on both sides.
-	if got := asMap(t, service.ArtifactsWire(nil)); !reflect.DeepEqual(got, map[string]any{"artifacts": []any{}}) {
-		t.Errorf("an empty listing is %v, want {\"artifacts\":[]}", got)
+	// An empty listing is an array, never null: on both sides. next_cursor
+	// is always present and null at the end (issue #1528).
+	if got := asMap(t, service.ArtifactsWire(nil)); !reflect.DeepEqual(got, map[string]any{"artifacts": []any{}, "next_cursor": nil}) {
+		t.Errorf("an empty listing is %v, want {\"artifacts\":[],\"next_cursor\":null}", got)
 	}
 }

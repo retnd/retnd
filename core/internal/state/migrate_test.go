@@ -21,7 +21,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,8 +69,8 @@ func TestMigrate_FreshDatabase(t *testing.T) {
 		t.Fatalf("applied %d migrations, want %d", len(applied), len(known))
 	}
 	for _, m := range known {
-		if applied[m.version] != m.checksum {
-			t.Fatalf("version %d: recorded checksum %q, want %q", m.version, applied[m.version], m.checksum)
+		if applied[m.version].checksum != m.checksum {
+			t.Fatalf("version %d: recorded checksum %q, want %q", m.version, applied[m.version].checksum, m.checksum)
 		}
 	}
 
@@ -113,6 +115,77 @@ func TestMigrate_RefusesUnknownFutureVersion(t *testing.T) {
 	err := migrate(ctx, db)
 	if !errors.Is(err, ErrUnknownSchemaVersion) {
 		t.Fatalf("migrate() error = %v, want ErrUnknownSchemaVersion", err)
+	}
+}
+
+// The refusal for a version this binary doesn't carry says when that version
+// was applied (#1583), so an operator can match it to the archive they took
+// before upgrading. The sentinel's own text stays exactly as it was, and the
+// time is always printed in UTC whatever offset the row was written with.
+func TestMigrate_UnknownVersionRefusalSaysWhenItWasApplied(t *testing.T) {
+	tests := []struct {
+		name      string
+		appliedAt string
+		want      string
+	}{
+		{"utc", "2026-11-21T04:10:00Z", "version 99999 (applied 2026-11-21T04:10:00Z) is recorded in the database but not compiled into this binary"},
+		{"keeps fractional seconds", "2026-11-21T04:10:00.123456789Z", "(applied 2026-11-21T04:10:00.123456789Z)"},
+		{"offset is converted to utc", "2026-11-21T06:10:00+02:00", "(applied 2026-11-21T04:10:00Z)"},
+		{"no recorded time", "", "version 99999 (applied time not recorded) is recorded in the database but not compiled into this binary"},
+		{"long unparseable time is cut", strings.Repeat("x", 5000), `(applied "` + strings.Repeat("x", 80) + `...", not a timestamp)`},
+		{"unparseable time is shown as stored", "last tuesday", `(applied "last tuesday", not a timestamp)`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, _ := openRaw(t)
+			ctx := context.Background()
+			if err := migrate(ctx, db); err != nil {
+				t.Fatalf("migrate: %v", err)
+			}
+			if _, err := db.ExecContext(ctx,
+				`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (99999, 'from-the-future', 'deadbeef', ?)`,
+				tc.appliedAt,
+			); err != nil {
+				t.Fatalf("insert future migration row: %v", err)
+			}
+
+			err := migrate(ctx, db)
+			if !errors.Is(err, ErrUnknownSchemaVersion) {
+				t.Fatalf("migrate() error = %v, want ErrUnknownSchemaVersion", err)
+			}
+			if !strings.HasPrefix(err.Error(), ErrUnknownSchemaVersion.Error()+": version 99999 ") {
+				t.Errorf("error = %q, want the sentinel text unchanged at the front", err)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// With more than one unknown version the refusal names the lowest, so the
+// text doesn't change from one start to the next.
+func TestMigrate_UnknownVersionRefusalNamesTheLowest(t *testing.T) {
+	db, _ := openRaw(t)
+	ctx := context.Background()
+	if err := migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	for _, r := range []struct {
+		v  int
+		at string
+	}{{100000, "2026-11-23T04:10:00Z"}, {99999, "2026-11-21T04:10:00Z"}, {1000000, "2026-11-24T04:10:00Z"}} {
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, 'x', 'deadbeef', ?)`, r.v, r.at,
+		); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	for i := 0; i < 20; i++ {
+		err := migrate(ctx, db)
+		if err == nil || !strings.Contains(err.Error(), "version 99999 (applied 2026-11-21T04:10:00Z)") {
+			t.Fatalf("run %d: error = %v, want the lowest unknown version with its time", i, err)
+		}
 	}
 }
 
@@ -399,5 +472,25 @@ func TestMigrate_LeavesForeignKeyEnforcementAsItFoundIt(t *testing.T) {
 		if got != want {
 			t.Fatalf("after migrate, PRAGMA foreign_keys = %d, want %d", got, want)
 		}
+	}
+}
+
+func TestAppliedAndLatestSchemaVersion_1584(t *testing.T) {
+	ctx := context.Background()
+	missing := filepath.Join(t.TempDir(), "state.db")
+	if v, err := AppliedSchemaVersion(ctx, missing); err != nil || v != 0 {
+		t.Errorf("no journal: version %d, err %v, want 0 and no error", v, err)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("asking the version of a missing journal created it")
+	}
+	latest, err := LatestSchemaVersion()
+	if err != nil || latest < 23 {
+		t.Fatalf("LatestSchemaVersion = %d, %v", latest, err)
+	}
+	db, path := openRaw(t)
+	applyUpTo(t, ctx, db, 22)
+	if v, err := AppliedSchemaVersion(ctx, path); err != nil || v != 22 {
+		t.Errorf("journal at 22: version %d, err %v, want 22", v, err)
 	}
 }

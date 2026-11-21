@@ -187,10 +187,13 @@ export function TooltipAutoAttach({ children }: { children?: ReactNode }) {
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setActive(null);
+      if (event.key !== "Escape") return;
+      // One press closes the pop-up or the dialog around it, not both (#1619).
+      event.stopPropagation();
+      setActive(null);
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [active]);
 
   // A trigger can also leave without any event at all: the row it is in

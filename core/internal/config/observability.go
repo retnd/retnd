@@ -23,6 +23,10 @@ import "time"
 const (
 	DefaultMetricsMinRebuildInterval = 15 * time.Second
 	MinMetricsMinRebuildInterval     = time.Second
+	// MaxMetricsMinRebuildInterval is the ceiling the example bundle's
+	// RetndHealthReportNotRefreshing (stale after 5m) and report-age panel
+	// rely on (#1595): a longer cache would make a healthy report look stale.
+	MaxMetricsMinRebuildInterval = 2 * time.Minute
 
 	ObservabilityLogLevelDebug = "debug"
 	ObservabilityLogLevelInfo  = "info"
@@ -172,6 +176,8 @@ func (c *Config) resolveObservability(v *validator) {
 			d := m.MinRebuildInterval.Duration()
 			if d < MinMetricsMinRebuildInterval {
 				v.addf("%s.metrics.min_rebuild_interval: %s is below the %s floor", p, d, MinMetricsMinRebuildInterval)
+			} else if d > MaxMetricsMinRebuildInterval {
+				v.addf("%s.metrics.min_rebuild_interval: %s is above the %s ceiling, past which a healthy report would read as stale to the bundled alert", p, d, MaxMetricsMinRebuildInterval)
 			} else {
 				out.Metrics.MinRebuildInterval = d
 			}
