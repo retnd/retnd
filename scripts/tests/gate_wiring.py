@@ -48,7 +48,15 @@ EXECUTOR = re.compile(
     r"(?:exec\s+)?(?P<prog>bash|sh|python3|npx|gate_selftest_with_ledger)\s+(?P<args>.*)$"
 )
 NOT_A_RUN = ("--check-anchors", "--dry-run", "--list", "--only", "||")
+NOT_A_RUN_PREFIX = ("--only=", "--list=")
 GATE_FUNCTION = "gate_"
+
+
+def not_a_run(arg: str) -> bool:
+    """A flag or a shell shape that makes the line something other than a full run."""
+    # `; true` (alone or glued to the last word) ends the command with a status
+    # nothing checks, the way `|| true` does.
+    return arg in NOT_A_RUN or arg.startswith(NOT_A_RUN_PREFIX) or arg.startswith(";") or arg.endswith(";")
 # The Chromium lane (#1532, #1537) runs what it is handed in a container: `specs
 # <config>` runs that Playwright config, `run <command...>` runs the command.
 LANE = "scripts/e2e/ui-browser.sh"
@@ -75,7 +83,7 @@ def runs(command: str) -> str:
         args = shlex.split(m.group("args").rstrip(")").strip())
     except ValueError:
         return ""
-    if any(a in NOT_A_RUN for a in args):
+    if any(not_a_run(a) for a in args):
         return ""
     script = ""
     if m.group("prog") == "npx":

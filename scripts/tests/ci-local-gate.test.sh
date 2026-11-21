@@ -3255,6 +3255,12 @@ run_gate "$tree" STUB_UNAME_S=Linux RETND_GATE_HOST_OS=Darwin RETND_PW_LOCK="$tr
 assert_not_contains "Z12 a gate that started on a Mac runs neither step, though uname says Linux" "$UI_BROWSER_STUB" "$out"
 assert_contains "Z12 it ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
 assert_contains "Z12 and names the way to run it on MARS" 'run-gate-shard.sh ui-browser --host mars' "$out"
+# A stale RETND_GATE_HOST_OS=Linux exported in a Mac shell does not hide a
+# native Mac run: either one saying Darwin makes it a Mac.
+tree="$(make_full_tree)"
+run_gate "$tree" STUB_UNAME_S=Darwin RETND_GATE_HOST_OS=Linux -- --shard ui-browser
+assert_not_contains "Z12 a native Mac run with a stale RETND_GATE_HOST_OS=Linux still runs neither step" "$UI_BROWSER_STUB" "$out"
+assert_contains "Z12 and ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
 tree="$(make_full_tree)"
 run_gate "$tree" STUB_UNAME_S=Linux RETND_GATE_HOST_OS=Linux -- --shard ui-browser
 assert_contains "Z12 control: RETND_GATE_HOST_OS=Linux runs the specs" "$UI_BROWSER_STUB specs" "$out"

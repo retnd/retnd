@@ -4,9 +4,9 @@
 A spec run that quietly runs less must not read as green. The lane has
 Playwright write a JSON report beside the list reporter, and this reads it:
 the only skip the in-tree specs may carry is the recording one, a walkthrough's
-`test.skip(!process.env.E2E_VIDEO, "recording only, run with E2E_VIDEO=1")`.
-A skip whose reason does not name E2E_VIDEO (a bare `test.skip`, a
-`test.fixme`, a skip with no reason) is refused, and so is a report that is
+`test.skip(!process.env.E2E_VIDEO, "recording only, run with E2E_VIDEO=1")`,
+which reports as a `skip` annotation with exactly that reason. Any other skip (a
+bare `test.skip`, a `test.fixme`, another reason, no reason) is refused, and so is a report that is
 missing or does not parse, which would otherwise read as "no skips".
 
     ui_skips.py <playwright json report>     exit 0 clean, 1 refused
@@ -18,6 +18,9 @@ import json
 import sys
 
 GATE = "E2E_VIDEO"
+# The one form the walkthroughs write: test.skip(!process.env.E2E_VIDEO, "recording only, run with E2E_VIDEO=1")
+# reports as a "skip" annotation with exactly this reason (1252 and 1253).
+GATED = {"type": "skip", "description": "recording only, run with E2E_VIDEO=1"}
 
 
 def skipped(node: dict, path: str = ""):
@@ -25,7 +28,7 @@ def skipped(node: dict, path: str = ""):
     for spec in node.get("specs", []):
         for test in spec.get("tests", []):
             if test.get("status") == "skipped":
-                yield spec.get("file") or node.get("file") or path, spec.get("title", ""), test.get("annotations", [])
+                yield spec.get("file") or node.get("file") or path, spec.get("title", ""), test.get("annotations") or []
     for child in node.get("suites", []):
         yield from skipped(child, node.get("file") or path)
 
@@ -40,8 +43,12 @@ def main(argv: list[str]) -> int:
     except (OSError, ValueError) as err:
         print(f"==> ui browser lane: skip guard cannot read {argv[1]}: {err}", file=sys.stderr)
         return 1
-    found = [hit for suite in report.get("suites", []) for hit in skipped(suite)]
-    bad = [h for h in found if not any(GATE in (a.get("description") or "") for a in h[2])]
+    try:
+        found = [hit for suite in report.get("suites") or [] for hit in skipped(suite)]
+        bad = [h for h in found if not any(isinstance(a, dict) and a == GATED for a in h[2])]
+    except (AttributeError, TypeError) as err:
+        print(f"==> ui browser lane: skip guard cannot read the shape of {argv[1]}: {err}", file=sys.stderr)
+        return 1
     for file, title, ann in bad:
         kinds = ",".join(a.get("type", "?") for a in ann) or "no annotation"
         print(

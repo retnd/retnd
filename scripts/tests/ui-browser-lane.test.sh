@@ -192,6 +192,17 @@ is "S5 a test.fixme is refused" 1 "$status" "$out"
 report "$work/r5.json" skipped '[]'
 guard "$work/r5.json"
 is "S6 a skip with no reason at all is refused" 1 "$status" "$out"
+report "$work/r7.json" skipped '[{"type":"skip","description":"flaky, E2E_VIDEO=1 would fix it"}]'
+guard "$work/r7.json"
+is "S9 a reason that only mentions E2E_VIDEO is refused, the exact recording form is required" 1 "$status" "$out"
+report "$work/r8.json" skipped null
+guard "$work/r8.json"
+is "S10 annotations: null is read as no reason, a refused skip" 1 "$status" "$out"
+hasnt "S10 with no traceback" "$out" "Traceback"
+printf '{"suites": 3}' >"$work/r9.json"
+guard "$work/r9.json"
+is "S11 a report of the wrong shape is a clean refusal" 1 "$status" "$out"
+hasnt "S11 with no traceback" "$out" "Traceback"
 guard "$work/no-such-report.json"
 is "S7 a missing report is refused, never read as no skips" 1 "$status" "$out"
 printf 'not json' >"$work/r6.json"

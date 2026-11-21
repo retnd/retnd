@@ -204,6 +204,27 @@ mk "$work/c26" '  gate_ui_browser "x" bash scripts/e2e/ui-browser.sh run gate_se
   bash scripts/tests/bar.test.sh'
 expect_unwired "gate_selftest_with_ledger inside a lane run is not a run either" "$work/c26"
 
+mk "$work/c28" '  bash scripts/foo/selftest.sh --only=one-control
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a --only=x run is one control, not the self-test" "$work/c28"
+
+mk "$work/c29" '  npx playwright test -c scripts/foo/selftest.sh --list=x
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a --list=x run is a listing" "$work/c29"
+
+mk "$work/c30" '  bash scripts/foo/selftest.sh; true
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a run that ends in ; true cannot fail" "$work/c30"
+
+mk "$work/c31" '  bash scripts/foo/selftest.sh ;true
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a run that ends in ;true cannot fail either" "$work/c31"
+
+
+mk "$work/c32" '  bash scripts/foo/selftest.sh --verbose --label "a;b" --only-failed-report
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c32")" ]; then pass "control: a flag that only starts like --only, or a ; inside a word, is still a full run"; else fail "control: a flag that only starts like --only, or a ; inside a word, is still a full run" "$(problems "$work/c32")"; fi
+
 mk "$work/c27" '  gate_ui_browser "the specs" bash scripts/e2e/ui-browser.sh specs scripts/foo/selftest.sh
   bash scripts/tests/bar.test.sh'
 if [ -z "$(problems "$work/c27")" ]; then pass "control: specs <config> with nothing after it counts"; else fail "control: specs <config> with nothing after it counts" "$(problems "$work/c27")"; fi
