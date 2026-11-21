@@ -317,7 +317,11 @@ describe("every request the shared client makes is a declared operation", () => 
       ["removeSet", () => httpApi.removeSet("src", "set-1")],
       ["getEditHold", () => httpApi.getEditHold("src", "set-1")],
       ["takeEditHold", () => httpApi.takeEditHold("src", "set-1")],
+      // #1606: the renewal is the take's route with the holder's token in
+      // the body, and the release can name one holder the same way.
+      ["renewEditHold", () => httpApi.renewEditHold("src", "set-1", "hold-1")],
       ["releaseEditHold", () => httpApi.releaseEditHold("src", "set-1")],
+      ["releaseEditHold", () => httpApi.releaseEditHold("src", "set-1", "hold-1")],
       ["createBackupSet", () => httpApi.createBackupSet({
         name: "n", host: "h", port: 22, user: "u", sshKeyId: "k",
         knownHostsLine: "l", remotePath: "/r", localPath: "/l",
@@ -367,6 +371,8 @@ describe("every request the shared client makes is a declared operation", () => 
       ["revalidate", () => httpApi.revalidate("src/set-1/a.tar.gz")],
       ["retryIngestion", () => httpApi.retryIngestion("src/set-1/a.tar.gz")],
       ["retryFailedIngestion", () => httpApi.retryFailedIngestion("src/set-1/a.tar.gz", "the NAS came back")],
+      ["previewRetirement", () => httpApi.previewRetirement("src/set-1/a.tar.gz", { accept_source_present: true })],
+      ["retireArtifact", () => httpApi.retireArtifact("src/set-1/a.tar.gz", { note: "the host deleted it" })],
       ["reinstate", () => httpApi.reinstate("src/set-1/a.tar.gz")],
       // EPIC K's ten calls (issue #788): six reads, the operation read
       // beside them, and the four snapshot actions. Every one is listed
@@ -374,6 +380,10 @@ describe("every request the shared client makes is a declared operation", () => 
       // method nobody drives from this list is invisible to the whole
       // file — and each of them is also the thing that deletes its own
       // name from UNREACHED_SERVER_OPERATIONS below.
+      // EPIC O (#898): the observability block and the scrape credential's mint.
+      ["getObservabilitySettings", () => httpApi.getObservabilitySettings()],
+      ["patchObservabilitySettings", () => httpApi.patchObservabilitySettings({ metricsEnabled: true })],
+      ["mintScrapeToken", () => httpApi.mintScrapeToken()],
       ["listSnapshots", () => httpApi.listSnapshots("src", "set-1")],
       ["getSnapshot", () => httpApi.getSnapshot("src", "set-1", "run-1")],
       ["listSnapshotHolds", () => httpApi.listSnapshotHolds("src", "set-1")],

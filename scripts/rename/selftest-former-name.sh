@@ -154,8 +154,21 @@ red "the changelog is not excluded" "$tree" "CHANGELOG.md:1"
 # Staged but uncommitted, which is the state the pre-commit hook sees.
 tree="$(new_repo)"
 printf 'x %s\n' "$former_up" >"$tree/staged.txt"
-(cd "$tree" && git add -N staged.txt)
+(cd "$tree" && git add staged.txt)
 red "a staged-but-uncommitted file goes red" "$tree" "staged.txt:1"
+
+# The guard reads the staged blob (#1622), not the working tree: an unstaged
+# clean edit cannot hide a staged hit, and an unstaged hit cannot refuse a
+# clean staged blob.
+tree="$(new_repo)"
+printf 'x %s\n' "$former_up" >"$tree/staged.txt"
+(cd "$tree" && git add staged.txt && printf 'clean\n' >staged.txt)
+red "an unstaged clean edit does not hide a staged hit" "$tree" "staged.txt:1"
+
+tree="$(new_repo)"
+printf 'clean\n' >"$tree/staged.txt"
+(cd "$tree" && git add staged.txt && printf 'x %s\n' "$former_up" >staged.txt)
+green "an unstaged hit does not refuse a clean staged blob" "$tree"
 
 # Binary files are skipped.
 tree="$(new_repo)"

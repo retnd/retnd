@@ -1,0 +1,2 @@
+# Where the bundle reads the engine's log lines from by default (RETND_LOG_DIR).
+logs/

@@ -122,15 +122,15 @@ func (o *childOutput) startupErrorLines() []string {
 
 // startServeChild re-executes this test binary as `retnd-web serve` against
 // configPath, with the auth store and the journal under stateDir.
-func startServeChild(t *testing.T, configPath, stateDir string) (*exec.Cmd, *childOutput) {
+func startServeChild(t *testing.T, configPath, stateDir string, env ...string) (*exec.Cmd, *childOutput) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestServeChildProcess$")
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(append(os.Environ(),
 		serveChildEnv+"=1",
 		serveChildConfig+"="+configPath,
 		serveChildAuthStore+"="+filepath.Join(stateDir, "local-auth.json"),
 		serveChildStateDB+"="+filepath.Join(stateDir, "state.db"),
-	)
+	), env...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("StdoutPipe: %v", err)

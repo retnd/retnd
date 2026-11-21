@@ -49,6 +49,11 @@ type reencryptCopy struct {
 	plan   placement.Plan
 	source string
 	enc    state.PlacementEncryption
+	// fromLocal is true when a run would write this copy from the artifact's
+	// ACTIVE local copy (#1545); size is the artifact's recorded plaintext
+	// size, nil when the journal has none.
+	fromLocal bool
+	size      *int64
 }
 
 // reencryptStatusSelected is the --deprecated selector: a suite whose status
@@ -153,10 +158,16 @@ func (b *BackupService) prepareReencrypt(ctx context.Context, req apicontract.St
 							}
 						}
 					}
+					var hasLocal bool
+					for _, lp := range rec.Placements {
+						hasLocal = hasLocal || (lp.Medium == state.MediumLocal && lp.Status == state.PlacementActive)
+					}
 					out = append(out, reencryptCopy{
-						plan:   placement.Plan{Artifact: rec.Artifact, DestinationMedium: dest, Reencrypt: true},
-						source: p.Medium,
-						enc:    enc,
+						plan:      placement.Plan{Artifact: rec.Artifact, DestinationMedium: dest, Reencrypt: true, FromLocal: req.FromLocal},
+						source:    p.Medium,
+						enc:       enc,
+						fromLocal: req.FromLocal && hasLocal,
+						size:      p.Size,
 					})
 				}
 			}
@@ -195,12 +206,16 @@ func (b *BackupService) PlanReencrypt(ctx context.Context, req apicontract.Start
 		}
 	}
 
-	out := apicontract.ReencryptPlan{Groups: []apicontract.ReencryptGroup{}}
+	out := apicontract.ReencryptPlan{Groups: []apicontract.ReencryptGroup{}, Media: []apicontract.ReencryptMedium{}}
+	bytes := map[string]*apicontract.ReencryptMedium{}
 	index := map[[2]string]int{}
 	for i, c := range copies {
 		cand := apicontract.ReencryptCandidate{
 			ArtifactID: c.plan.Artifact.String(), SourceMedium: c.source,
-			DestinationMedium: c.plan.DestinationMedium, Verdict: "would_reencrypt",
+			DestinationMedium: c.plan.DestinationMedium, Verdict: "would_reencrypt", Path: "move",
+		}
+		if c.fromLocal {
+			cand.Path = "upload_from_local"
 		}
 		switch {
 		case c.plan.DestinationMedium == "":
@@ -216,6 +231,7 @@ func (b *BackupService) PlanReencrypt(ctx context.Context, req apicontract.Start
 			out.Refused++
 		default:
 			out.WouldReencrypt++
+			c.addBytes(bytes, &out.SizesUnknown)
 		}
 		k := [2]string{c.enc.FormatID, c.enc.KeyID}
 		g, ok := index[k]
@@ -226,6 +242,10 @@ func (b *BackupService) PlanReencrypt(ctx context.Context, req apicontract.Start
 		}
 		out.Groups[g].Candidates = append(out.Groups[g].Candidates, cand)
 	}
+	for _, m := range bytes {
+		out.Media = append(out.Media, *m)
+	}
+	sort.Slice(out.Media, func(i, j int) bool { return out.Media[i].Medium < out.Media[j].Medium })
 	sort.SliceStable(out.Groups, func(i, j int) bool {
 		if out.Groups[i].SuiteID != out.Groups[j].SuiteID {
 			return out.Groups[i].SuiteID < out.Groups[j].SuiteID
@@ -236,6 +256,38 @@ func (b *BackupService) PlanReencrypt(ctx context.Context, req apicontract.Start
 		sort.SliceStable(g.Candidates, func(i, j int) bool { return g.Candidates[i].ArtifactID < g.Candidates[j].ArtifactID })
 	}
 	return out, nil
+}
+
+// addBytes adds what a run would read and write for this copy to the
+// per-medium totals, in the shape EPIC V's V1.3 gives. P is the artifact's
+// recorded plaintext size and the destination figure is an upper bound on the
+// ciphertext (payload, a 16 byte tag per 64 KiB chunk, the nonce, a 4 KiB
+// header allowance), read once more for the decrypt-verify. A move reads the
+// old copy's recorded stored size; an upload from the local copy reads P from
+// local disk and nothing from the old medium. A copy with no recorded size
+// is counted in unknown instead.
+func (c reencryptCopy) addBytes(totals map[string]*apicontract.ReencryptMedium, unknown *int64) {
+	if c.size == nil || c.plan.DestinationMedium == "" {
+		*unknown++
+		return
+	}
+	add := func(medium string, read, written int64) {
+		m := totals[medium]
+		if m == nil {
+			m = &apicontract.ReencryptMedium{Medium: medium}
+			totals[medium] = m
+		}
+		m.BytesRead += read
+		m.BytesWritten += written
+	}
+	p := *c.size
+	bound := p + 16*max(1, (p+65535)/65536) + 16 + 4096
+	if c.fromLocal {
+		add(state.MediumLocal, p, 0)
+	} else {
+		add(c.source, c.enc.StoredSize, 0)
+	}
+	add(c.plan.DestinationMedium, bound, bound)
 }
 
 func reencryptPlans(copies []reencryptCopy) []placement.Plan {

@@ -20,7 +20,7 @@ export function Acknowledgement({
   disabled?: boolean;
 }) {
   return (
-    <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: "var(--text-sm)", color: "var(--text)", cursor: "pointer" }}>
+    <label style={{ display: "flex", gap: 8, alignItems: "flex-start", minHeight: 44, padding: "4px 0", boxSizing: "border-box", fontSize: "var(--text-sm)", color: "var(--text)", cursor: "pointer" }}>
       <input
         type="checkbox"
         checked={checked}

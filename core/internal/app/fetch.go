@@ -181,6 +181,12 @@ func (s *Service) Fetch(ctx context.Context, sourceName, setName string, dryRun 
 	// the workflow a real run WOULD execute asks for instead is the
 	// resolved plan, which core/service reports without executing
 	// anything.
+	//
+	// Issue #1541: bracketed the way RunCycle brackets a pass, so a fetch
+	// the workflow refuses, or that stops before discovery, drops the set's
+	// unreadable record (see unreadable.go).
+	since := s.unreadableState().startPass(bs.ID)
+	defer s.unreadableState().endPass(bs.ID, since)
 	return s.fetchInWorkflow(ctx, bs, func(ctx context.Context) (FetchResult, error) {
 		return s.fetchPass(ctx, source, bs)
 	})

@@ -40,6 +40,7 @@
  * every configured set, and an idle one says when its last cycle finished.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { CSSProperties } from "react";
 import type { BackupSet } from "@shared/types/backup";
 import type { ActivityResult, SetActivity, SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
@@ -705,20 +706,14 @@ function ActivityLogView({ events, label, caption }: { events: SetActivityEvent[
   }, [latest]);
 
   return (
-    <div className="activity-log" role="log" aria-live="polite" aria-label={"Terminal log for " + label} ref={scroller}>
-      {/* #1504: a log scrolled into view on its own still says whose it is.
-          Only where the page does not already say it: a set's own page has
-          its name in the header two lines up. The log is named for the set
-          either way. */}
-      {caption ? <div
-        style={{
-          position: "sticky", top: 0, margin: "calc(var(--space-2) * -1) calc(var(--space-3) * -1) var(--space-2)",
-          padding: "var(--space-1) var(--space-3)", background: "var(--accent-quiet)", color: "var(--text)",
-          fontFamily: "var(--font-sans)", fontSize: "var(--text-xs)", fontWeight: 600
-        }}
-      >
-        Terminal log for {label}
-      </div> : null}
+    <>
+      {/* #1504, #1509: a log scrolled into view on its own still says whose it
+          is. A header ABOVE the scrolling box, not a bar inside it: inside, it
+          slid over the lines as they scrolled. Only where the page does not
+          already name the set (a set's own page has its name in the header
+          two lines up). The log is named for the set either way. */}
+      {caption ? <div className="activity-log__caption">Terminal log for {label}</div> : null}
+      <div className="activity-log" role="log" aria-live="polite" aria-label={"Terminal log for " + label} ref={scroller}>
       {events.map((e) => {
         const line = activityLine(e);
         return (
@@ -730,7 +725,8 @@ function ActivityLogView({ events, label, caption }: { events: SetActivityEvent[
           </div>
         );
       })}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -754,15 +750,16 @@ function ActivityToolbar({
   setId: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const mountedRef = useMounted();
 
   const copy = useCallback(() => {
     const text = logText(events);
     // copyText works on a plain-http origin too (retnd#1049), and "copied"
     // is shown only when the text really was.
     void copyText(text).then((outcome) => {
-      if (outcome === "copied") setCopied(true);
+      if (outcome === "copied" && mountedRef.current) setCopied(true);
     });
-  }, [events]);
+  }, [events, mountedRef]);
 
   useEffect(() => {
     if (!copied) return;

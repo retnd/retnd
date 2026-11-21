@@ -12,6 +12,7 @@
  * body says nothing is backed up yet.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { Link } from "react-router-dom";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import type { FirstRunStatus, FirstRunStep, FirstRunStepState } from "@shared/api/contracts";
@@ -40,6 +41,7 @@ export function FirstRunGuide({
   onSkip(step: "email" | "backup_set"): Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const mountedRef = useMounted();
   const steps = status.steps;
   if (!steps || !status.nextStep || status.nextStep === "none") return null;
   const next = status.nextStep;
@@ -135,7 +137,8 @@ export function FirstRunGuide({
                     aria-label={"Skip for now: " + LABEL[step].toLowerCase()}
                     onClick={() => {
                       setBusy(true);
-                      void onSkip(step as "email" | "backup_set").finally(() => setBusy(false));
+                      // Skipping the last step can take the guide away with it.
+                      void onSkip(step as "email" | "backup_set").finally(() => { if (mountedRef.current) setBusy(false); });
                     }}
                   >
                     Skip for now

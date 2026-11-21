@@ -43,6 +43,7 @@ import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { insecureAckRequiredNow, useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import { useMounted } from "@shared/hooks/useMounted";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { TOOLTIPS } from "@shared/tooltips/tooltips";
@@ -64,6 +65,7 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
 }) {
   const api = useApi();
   const gate = useDestructiveGate();
+  const mountedRef = useMounted();
   const [name, setName] = useState("");
   const [scope, setScope] = useState<AgentScope>("read");
   const [fold, setFold] = useState(false);
@@ -103,8 +105,12 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
     // the answer is the one time it crosses the connection, so a connection
     // that is not encrypted gets the same question a password gets.
     const ask = await insecureAckRequiredNow(api, gate);
+    // Gone before the request went: a token minted now would have a secret
+    // nobody could ever see, so none is asked for.
+    if (!mountedRef.current) return;
     if (ask) setAsking(true);
     const yes = !ask || (await acknowledgeInsecureTransport());
+    if (!mountedRef.current) return;
     setAsking(false);
     if (!yes) {
       setError({ message: "Nothing was created. This connection is not encrypted, and the token comes back over this connection, so the request was not sent.", field: null });
@@ -114,9 +120,12 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
     const held = tokens ? tokens.filter((t) => t.name === name.trim() && t.status !== "revoked").map((t) => t.id) : null;
     try {
       const answer = await api.mintAgentToken({ name: name.trim(), scope, expiresIn: expiresIn.trim() });
+      // Gone with the page: the secret goes with the dialog, as above.
+      if (!mountedRef.current) return;
       setMinted({ answer, command: echo ?? "" });
       onMinted();
     } catch (e) {
+      if (!mountedRef.current) return;
       const message = describeFailure(e, "the token was not created").message;
       // No typed answer (no reply, an unreadable one): the token may exist, so re-read the list.
       if (apiErrorOf(e) === null) {
@@ -128,7 +137,7 @@ export function MintDialog({ tokens, onMinted, onUncertain, onClose }: {
       // Q16: every mint refusal starts with the request's field name and a colon.
       setError({ message, field: mintRefusalField(message) });
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -290,6 +299,7 @@ function RevealDialog({ minted, command, onStored }: { minted: MintedAgentToken;
   const field = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const mountedRef = useMounted();
 
   // Focus lands on the token, so a keyboard user can copy before anything else.
   useEffect(() => {
@@ -309,7 +319,8 @@ function RevealDialog({ minted, command, onStored }: { minted: MintedAgentToken;
   };
 
   const copy = async () => {
-    setCopied((await copyText(minted.secret, field.current)) === "copied");
+    const result = await copyText(minted.secret, field.current);
+    if (mountedRef.current) setCopied(result === "copied");
   };
 
   return (

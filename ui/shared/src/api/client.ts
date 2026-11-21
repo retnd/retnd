@@ -65,6 +65,9 @@ import type {
   WireActivityEvent,
   WireAssuranceDueResponse,
   WireAssuranceSettingsResponse,
+  WireMintedScrapeToken,
+  WireObservabilitySettingsResponse,
+  WireUpdateObservabilitySettingsRequest,
   WireBackupSetAssurance,
   WireRecoveryManyEvent,
   WireRecoveryManyItem,
@@ -84,6 +87,7 @@ import type {
   WireBackupSet,
   WireBackupSetRetention,
   WireBackupSetEditHold,
+  WireBackupSetEditHoldRequest,
   WireBackupSetEditHoldState,
   WireBackupSetHealth,
   WireBackupSetSpec,
@@ -196,7 +200,9 @@ import type {
   WireAgentToolsResponse,
   WireListAgentAuditResponse,
   WireMintAgentTokenRequest,
-  WireMintedAgentToken
+  WireMintedAgentToken,
+  WireRetireArtifactResponse,
+  WireRetirementPreview
 } from "./generated/contract";
 import {
   fromWireAgentAudit, fromWireAgentConfirmation, fromWireAgentToken, fromWireAgentTools,
@@ -221,6 +227,9 @@ import type {
   RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
+  ObservabilitySettings,
+  ObservabilitySettingsPatch,
+  MintedScrapeToken,
   CustomValidator,
   CustomValidatorList,
   CustomValidatorPatterns,
@@ -249,6 +258,7 @@ import type {
   RetentionSettings,
   RetentionTierSetting,
   RunningWork,
+  EditHoldTaken,
   SSHKeyImportResult,
   SSHKeyListing,
   SmtpSettingsInput,
@@ -937,10 +947,26 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     // a verdict: a health endpoint nobody could ask is not evidence this
     // set is retaining nothing.
     readOnlyRetainedCount: health?.read_only_retained_count ?? 0,
+    // Issue #1528: retired failures, counted apart so retiring one never
+    // hides it. 0 when health could not be read, for the reason above.
+    retiredCount: health?.retired_count ?? 0,
     // Spread, not `haltReason: undefined`. A key that is present and
     // undefined still reads as the mapper having an opinion; this way a
     // set with no refusal on record simply does not carry the field.
     ...(haltReason ? { haltReason } : {}),
+    // Issue #1541. Spread for the same reason as haltReason: a set with
+    // nothing waiting carries no key at all, rather than a zeroed block a
+    // card would have to know to ignore.
+    ...(health && health.pending_unreadable > 0
+      ? {
+          pendingUnreadable: {
+            count: health.pending_unreadable,
+            oldestAgeSeconds: health.pending_unreadable_oldest_age_seconds ?? 0,
+            oldestPath: health.pending_unreadable_oldest_path ?? "",
+            ...(health.pending_unreadable_warning ? { warning: health.pending_unreadable_warning } : {})
+          }
+        }
+      : {}),
     // Read, not defaulted. Absent means the report genuinely carries no
     // known-good backup for this set, which is the one case where the
     // card's "never" is the truth.
@@ -1959,6 +1985,20 @@ function fromWireArtifact(a: WireArtifact): BackupArtifact {
     // below is "pending", and a FAILED row is not quarantined, so
     // `quarantine` is null. The state is the only field that says it.
     state: a.state,
+    // Issue #1528: the record behind a RETIRED row, so the Backups table can
+    // say what replaced it and notice a retirement the engine made itself.
+    ...(a.retirement
+      ? {
+          retirement: {
+            actorKind: a.retirement.actor_kind,
+            actor: a.retirement.actor,
+            retiredAt: a.retirement.retired_at,
+            sourceCheck: a.retirement.source_check,
+            supersededBy: a.retirement.superseded_by,
+            note: a.retirement.note
+          }
+        }
+      : {}),
     validation:
       a.validation === "passed" ? "verified" : a.validation === "failed" ? "failed" : "pending",
     // The backend records which retention tier last selected an artifact,
@@ -2141,7 +2181,11 @@ type ActivityCaption = { type: ActivityEventType; severity: Severity; text: stri
  */
 const ACTIVITY_BY_TRANSITION: Record<`${string}>${string}`, ActivityCaption> = {
   "FAILED>FAILED": { type: "verification-passed", severity: "ok", text: "Durable copy matched the remote object" },
-  "FAILED>QUARANTINED": { type: "validation-failed", severity: "info", text: "Held for the reinstatement judgement" }
+  "FAILED>QUARANTINED": { type: "validation-failed", severity: "info", text: "Held for the reinstatement judgement" },
+  // Issue #1528. Neither is a failure: one closes the books on one, the
+  // other is the engine undoing a retirement because the source came back.
+  "FAILED>RETIRED": { type: "backup-discovered", severity: "info", text: "Retired: the failed backup's source is gone, record kept" },
+  "RETIRED>DISCOVERED": { type: "backup-discovered", severity: "info", text: "Source back on the host: re-entering the pipeline" }
 };
 
 /** Where a transition ended, for the moves that origin does not change. */
@@ -2522,6 +2566,11 @@ const COMPLETION_METHOD_TO_STRATEGY: Record<CompletionMethod, string> = Object.f
 function fromWireRunningWork(w: WireRunningWork | null | undefined): RunningWork | null {
   if (!w) return null;
   return { artifact: w.artifact, stage: w.stage };
+}
+
+/** A take and a renewal answer the same shape, token included (#1606). */
+function fromWireEditHold(r: WireBackupSetEditHold): EditHoldTaken {
+  return { token: r.token, expiresAt: r.expires_at, stopped: fromWireRunningWork(r.stopped) };
 }
 
 function perSetHealth(): Promise<Map<string, WireBackupSetHealth>> {
@@ -3120,6 +3169,49 @@ function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceS
       reason: k.reason ?? ""
     }))
   };
+}
+
+export function fromWireObservabilitySettings(s: WireObservabilitySettingsResponse): ObservabilitySettings {
+  return {
+    metrics: {
+      enabled: s.metrics?.enabled === true,
+      minRebuildIntervalSeconds: s.metrics?.min_rebuild_interval_seconds ?? 0,
+      scrapeToken: {
+        exists: s.metrics?.scrape_token?.exists === true,
+        prefix: s.metrics?.scrape_token?.prefix ?? "",
+        createdAt: s.metrics?.scrape_token?.created_at ?? null
+      }
+    },
+    logs: {
+      level: s.logs?.level ?? "info",
+      levelInForce: s.logs?.level_in_force ?? "info",
+      levelSource: s.logs?.level_source ?? "config"
+    },
+    alerts: {
+      delivery: s.alerts?.delivery ?? "platform",
+      webhook: {
+        dialect: s.alerts?.webhook?.dialect ?? "generic",
+        urlSet: s.alerts?.webhook?.url_set === true,
+        ...(s.alerts?.webhook?.url_status ? { urlStatus: s.alerts.webhook.url_status } : {}),
+        allowInsecureHttp: s.alerts?.webhook?.allow_insecure_http === true,
+        refreshIntervalSeconds: s.alerts?.webhook?.refresh_interval_seconds ?? 0,
+        resolveTtlSeconds: s.alerts?.webhook?.resolve_ttl_seconds ?? 0
+      }
+    }
+  };
+}
+
+function wireObservabilityPatch(p: ObservabilitySettingsPatch): WireUpdateObservabilitySettingsRequest {
+  const body: WireUpdateObservabilitySettingsRequest = {};
+  if (p.metricsEnabled !== undefined) body.metrics_enabled = p.metricsEnabled;
+  if (p.metricsMinRebuildIntervalSeconds !== undefined) body.metrics_min_rebuild_interval_seconds = p.metricsMinRebuildIntervalSeconds;
+  if (p.logsLevel !== undefined) body.logs_level = p.logsLevel as WireUpdateObservabilitySettingsRequest["logs_level"];
+  if (p.alertsDelivery !== undefined) body.alerts_delivery = p.alertsDelivery as WireUpdateObservabilitySettingsRequest["alerts_delivery"];
+  if (p.webhookDialect !== undefined) body.webhook_dialect = p.webhookDialect as WireUpdateObservabilitySettingsRequest["webhook_dialect"];
+  if (p.webhookAllowInsecureHttp !== undefined) body.webhook_allow_insecure_http = p.webhookAllowInsecureHttp;
+  if (p.webhookRefreshIntervalSeconds !== undefined) body.webhook_refresh_interval_seconds = p.webhookRefreshIntervalSeconds;
+  if (p.webhookResolveTtlSeconds !== undefined) body.webhook_resolve_ttl_seconds = p.webhookResolveTtlSeconds;
+  return body;
 }
 
 function fromWireBackupSetAssurance(s: WireBackupSetAssurance): BackupSetAssurance {
@@ -3821,9 +3913,18 @@ export const httpApi: RetndApi = {
     })),
   takeEditHold: (source, set) =>
     request<WireBackupSetEditHold>(backupSetPath(source, set) + "/edit-hold", { method: "POST" }).then(
-      (r) => ({ expiresAt: r.expires_at, stopped: fromWireRunningWork(r.stopped) })
+      fromWireEditHold
     ),
-  releaseEditHold: (source, set) => post(backupSetPath(source, set) + "/edit-hold/release"),
+  // The same route as the take, told apart by the token in the body
+  // (#1606): a renewal names its holder and is refused with
+  // EDIT_HOLD_GONE once that holder was released or lapsed.
+  renewEditHold: (source, set, token) =>
+    request<WireBackupSetEditHold>(backupSetPath(source, set) + "/edit-hold", {
+      method: "POST",
+      body: JSON.stringify({ token } satisfies WireBackupSetEditHoldRequest)
+    }).then(fromWireEditHold),
+  releaseEditHold: (source, set, token) =>
+    post(backupSetPath(source, set) + "/edit-hold/release", token ? ({ token } satisfies WireBackupSetEditHoldRequest) : undefined),
 
   createBackupSet: (req) =>
     request<WireCreateBackupSetResponse>("/backup-sets", {
@@ -3945,6 +4046,22 @@ export const httpApi: RetndApi = {
       method: "POST",
       body: JSON.stringify(note ? { note } : {})
     }).then(() => undefined),
+  // Issue #1528. The preview takes the acknowledgements as query parameters
+  // so the dialog can ask "and with this?" before acting.
+  previewRetirement: async (id, ack) => {
+    const q = new URLSearchParams();
+    if (ack?.superseded_by) q.set("superseded_by", ack.superseded_by);
+    if (ack?.no_successor) q.set("no_successor", "true");
+    if (ack?.accept_source_present) q.set("accept_source_present", "true");
+    if (ack?.accept_unverified_copy) q.set("accept_unverified_copy", "true");
+    const qs = q.toString();
+    return request<WireRetirementPreview>(artifactPath(id) + "/retire" + (qs ? "?" + qs : ""));
+  },
+  retireArtifact: async (id, req) =>
+    request<WireRetireArtifactResponse>(artifactPath(id) + "/retire", {
+      method: "POST",
+      body: JSON.stringify(req ?? {})
+    }),
   // Unlike its two siblings this one reads its response. A reinstate that
   // reaches the backend and comes back saying the copy is bad is a 200,
   // not a rejection, so a caller that ignored the body could not tell that
@@ -4521,6 +4638,20 @@ export const httpApi: RetndApi = {
       method: "PATCH",
       body: JSON.stringify(wireAssurancePatch(patch))
     }).then(fromWireAssuranceSettings),
+  getObservabilitySettings: () =>
+    request<WireObservabilitySettingsResponse>("/settings/observability").then(fromWireObservabilitySettings),
+  patchObservabilitySettings: (patch) =>
+    request<WireObservabilitySettingsResponse>("/settings/observability", {
+      method: "PATCH",
+      body: JSON.stringify(wireObservabilityPatch(patch))
+    }).then(fromWireObservabilitySettings),
+  mintScrapeToken: () =>
+    request<WireMintedScrapeToken>("/settings/observability/scrape-token", { method: "POST" }).then(
+      (m): MintedScrapeToken => ({
+        token: m.token,
+        scrapeToken: { exists: m.scrape_token.exists, prefix: m.scrape_token.prefix, createdAt: m.scrape_token.created_at ?? null }
+      })
+    ),
   listCustomValidators: (filter) => {
     const q = new URLSearchParams();
     if (filter?.backupSetId) q.set("backup_set", filter.backupSetId);

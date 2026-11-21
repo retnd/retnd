@@ -155,6 +155,36 @@ cases("agents/agentCommands", [
   ["auditCommand", "one token since a week", { tokenId: "agt_0123456789abcdef", since: "7d" }]
 ]);
 
+cases("observability/observabilityCommands", [
+  ["metricsEnabledCommand", "turning it on", true],
+  ["metricsEnabledCommand", "turning it off", false],
+  ["metricsIntervalCommand", "half a minute", 30],
+  ["metricsIntervalCommand", "a minute and a half", 90],
+  ["metricsIntervalCommand", "an hour and ten seconds", 3610],
+  ["metricsIntervalCommand", "a whole hour", 3600],
+  ["mintScrapeTokenCommand", "the mint"],
+  // One line per level the select offers, read from the module rather than
+  // spelled here: core/cmd/retnd's TestLogsLevelTwinIsTheSchema_900 holds
+  // this set to the levels config accepts and each line to cliecho's.
+  ...((modules["observability/observabilityCommands"].LOG_LEVELS ?? []) as string[]).map(
+    (level): [string, string, string] => ["logsLevelCommand", "the " + level + " floor", level]
+  ),
+  // The alert inputs (#1604). core/cmd/retnd's TestAlertTwinsAreTheEcho_1604
+  // holds each of these lines to the one core/cliecho prints for the same
+  // PATCH, byte for byte.
+  ["alertsDeliveryCommand", "the platform notifier", "platform"],
+  ["alertsDeliveryCommand", "a webhook", "webhook"],
+  ["alertsDeliveryCommand", "a hostile delivery", HOSTILE],
+  ["webhookDialectCommand", "one object per alert", "generic"],
+  ["webhookDialectCommand", "the Alertmanager array", "alertmanager"],
+  ["webhookAllowInsecureHttpCommand", "plain http allowed", true],
+  ["webhookAllowInsecureHttpCommand", "plain http refused", false],
+  ["webhookRefreshIntervalCommand", "the default four minutes", 240],
+  ["webhookRefreshIntervalCommand", "a minute and a half", 90],
+  ["webhookResolveTtlCommand", "the default ten minutes", 600],
+  ["webhookResolveTtlCommand", "an hour and ten seconds", 3610]
+]);
+
 cases("assurance/assuranceCommands", [
   ["scrubCommand", "a set", SET],
   ["scrubCommand", "a hostile set id", HOSTILE_SET],
@@ -164,6 +194,7 @@ cases("assurance/assuranceCommands", [
   ["recoveryTestArtifactCommand", "hostile ids", HOSTILE_SET, HOSTILE_ARTIFACT],
   ["recoveryTestFollowCommand", "a set", SET],
   ["retryCommand", "one backup", ARTIFACT],
+  ["retireCommand", "one backup", ARTIFACT],
   ["artifactCommand", "one backup", ARTIFACT],
   ["artifactsInSetCommand", "a set", SET],
   ["artifactsListCommand", "no filter", {}],
@@ -439,7 +470,7 @@ function flagsSpelledIn(src: string): string[] {
 
 /** The flags a module spells that none of its lines carries. */
 function unreachedFlags(src: string, lines: string[]): string[] {
-  const words = new Set(lines.flatMap((l) => l.split(/\s+/)));
+  const words = new Set(lines.flatMap((l) => l.split(/[\s=]+/)));
   return flagsSpelledIn(src).filter((f) => !words.has(f));
 }
 

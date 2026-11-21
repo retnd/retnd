@@ -53,6 +53,7 @@
  * says so rather than leaving it to be inferred from an empty box.
  */
 import { useId, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type {
   ApiError,
@@ -173,6 +174,7 @@ export function S3DestinationWizard({
   const [report, setReport] = useState<MediumPreflight | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<ApiError | null>(null);
+  const mountedRef = useMounted();
 
   const credentials = credentialsOf(mode, { credentialsId, file, env, command });
   const spec: StorageMediumSpec = {
@@ -194,6 +196,7 @@ export function S3DestinationWizard({
       let ref = credentialsId;
       if (mode === "import" && !ref) {
         ref = await api.importStorageCredentials(accessKeyId, secretAccessKey);
+        if (!mountedRef.current) return;
         setCredentialsId(ref);
         // Cleared the instant the id comes back. From here on this
         // component holds a reference and the material is gone from the
@@ -207,12 +210,13 @@ export function S3DestinationWizard({
         ...spec,
         credentials: mode === "import" ? { credentialsId: ref } : credentials
       });
-      setReport(checked);
+      if (mountedRef.current) setReport(checked);
     } catch (e) {
+      if (!mountedRef.current) return;
       setFailure(apiErrorOf(e));
       setStep(2);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
@@ -221,11 +225,12 @@ export function S3DestinationWizard({
     setFailure(null);
     setReport(null);
     try {
-      setReport(await api.preflightStorageMediumCandidate(spec));
+      const checked = await api.preflightStorageMediumCandidate(spec);
+      if (mountedRef.current) setReport(checked);
     } catch (e) {
-      setFailure(apiErrorOf(e));
+      if (mountedRef.current) setFailure(apiErrorOf(e));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
@@ -238,9 +243,9 @@ export function S3DestinationWizard({
         : await api.createStorageMedium(spec);
       onSaved(saved);
     } catch (e) {
-      setFailure(apiErrorOf(e));
+      if (mountedRef.current) setFailure(apiErrorOf(e));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 

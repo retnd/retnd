@@ -34,6 +34,8 @@ describe("AuditRegion Show older against a changed filter (#1367)", () => {
       </ApiProvider>
     );
     await screen.findByText("first_page_tool");
+    // #1525: the region is collapsed until asked for.
+    await user.click(screen.getByRole("button", { name: /^Audit/ }));
     await user.click(screen.getByRole("button", { name: "Show older" }));
     expect(listAgentAudit).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "cur-1" }));
 

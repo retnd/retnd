@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { CSSProperties, ReactNode } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -164,6 +165,7 @@ function OpenWizard({
   const [ackedFingerprint, setAckedFingerprint] = useState<string | null>(null);
 
   const [outcome, setOutcome] = useState<ConnectionTestOutcome | null>(null);
+  const mountedRef = useMounted();
   // What the four greens were about. Apply reads this rather than the
   // current selection, so changing either value after a pass disarms it.
   const [verifiedAgainst, setVerifiedAgainst] = useState<string | null>(null);
@@ -259,6 +261,7 @@ function OpenWizard({
       // alone. That is the same promise --ssh-key-file makes, and the
       // wizard must not answer it differently from the CLI.
       const ref = await api.importSSHKeyCandidate(c.id);
+      if (!mountedRef.current) return;
       setChosen({
         keyId: ref.id,
         algorithm: ref.algorithm,
@@ -270,9 +273,9 @@ function OpenWizard({
       setVerifiedAgainst(null);
       setReloadToken((n) => n + 1);
     } catch (e) {
-      setError(describeFailure(e, "That key could not be imported from where it was found.").message);
+      if (mountedRef.current) setError(describeFailure(e, "That key could not be imported from where it was found.").message);
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   };
 
@@ -281,6 +284,7 @@ function OpenWizard({
     setBusy("Importing the pasted key");
     try {
       const ref = await api.importSSHKey(pastedKey);
+      if (!mountedRef.current) return;
       setChosen({
         keyId: ref.id,
         algorithm: ref.algorithm,
@@ -301,9 +305,9 @@ function OpenWizard({
       setVerifiedAgainst(null);
       setReloadToken((n) => n + 1);
     } catch (e) {
-      setError(describeFailure(e, "That key could not be imported.").message);
+      if (mountedRef.current) setError(describeFailure(e, "That key could not be imported.").message);
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   };
 
@@ -312,6 +316,7 @@ function OpenWizard({
     setBusy("Asking " + hostAddress + " for its host key");
     try {
       const result = await api.probeHostKey(set.host, set.port);
+      if (!mountedRef.current) return;
       setProbed(result);
       // A probe that returns a key other than the acknowledged one clears
       // the acknowledgement. The answer belonged to the fingerprint it
@@ -320,9 +325,9 @@ function OpenWizard({
       setOutcome(null);
       setVerifiedAgainst(null);
     } catch (e) {
-      setError(describeFailure(e, "The server could not be asked for its host key.").message);
+      if (mountedRef.current) setError(describeFailure(e, "The server could not be asked for its host key.").message);
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   };
 
@@ -345,12 +350,13 @@ function OpenWizard({
         knownHostsLine: probed.knownHostsLine,
         remotePath: set.remoteFolder
       });
+      if (!mountedRef.current) return;
       setOutcome(result);
       setVerifiedAgainst(signature);
     } catch (e) {
-      setError(describeFailure(e, "The verification could not be run.").message);
+      if (mountedRef.current) setError(describeFailure(e, "The verification could not be run.").message);
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   };
 
@@ -369,6 +375,7 @@ function OpenWizard({
       });
       onApplied(updated);
     } catch (e) {
+      if (!mountedRef.current) return;
       const apiError = apiErrorOf(e);
       if (apiError?.code === "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED") {
         // The refusal #572 built, arriving here rather than being
@@ -380,7 +387,7 @@ function OpenWizard({
       }
       setError(describeFailure(e, "This backup set's authentication was not changed.").message);
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   };
 

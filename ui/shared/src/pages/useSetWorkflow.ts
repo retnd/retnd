@@ -10,6 +10,7 @@
  * control sent it.
  */
 import { useCallback, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 
 import { useApi } from "@shared/api/ApiContext";
 import { apiErrorOf, describeFailure, workflowScriptRefusalOf } from "@shared/api/failure";
@@ -44,29 +45,34 @@ export function useSetWorkflow(source: string, set: string): SetWorkflowModel {
   const api = useApi();
   const workflow = useAsync(() => api.getBackupSetWorkflow(source, set), [api, source, set]);
   const [refusal, setRefusal] = useState<SetWorkflowModel["refusal"]>(null);
+  const mountedRef = useMounted();
   const reload = workflow.reload;
   const write = useCallback(
     (patch: BackupSetWorkflowPatch) =>
       api
         .patchBackupSetWorkflow(source, set, patch)
         .then((result) => {
-          setRefusal(null);
-          reload();
+          if (mountedRef.current) {
+            setRefusal(null);
+            reload();
+          }
           return result;
         })
         .catch((e: unknown) => {
-          const failure = describeFailure(e, "this workflow configuration was not saved");
-          setRefusal(
-            apiErrorOf(e)?.code === "WORKFLOW_SCRIPT_REJECTED"
-              ? { blocking: workflowScriptRefusalOf(e), message: failure.message }
-              : null
-          );
+          if (mountedRef.current) {
+            const failure = describeFailure(e, "this workflow configuration was not saved");
+            setRefusal(
+              apiErrorOf(e)?.code === "WORKFLOW_SCRIPT_REJECTED"
+                ? { blocking: workflowScriptRefusalOf(e), message: failure.message }
+                : null
+            );
+          }
           throw e;
         }),
     // `reload` is a fresh closure per render, but it only ever bumps a
     // counter, so the newest one and an older one do the same thing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [api, source, set]
+    [api, source, set, mountedRef]
   );
   return { workflow, refusal, write };
 }

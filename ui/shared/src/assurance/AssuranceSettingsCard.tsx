@@ -16,6 +16,7 @@
 import { rememberAssuranceSettings } from "./assuranceSettings";
 import "./assurance.css";
 import { useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { AssuranceSettings, AssuranceSettingsPatch } from "@shared/api/contracts";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
@@ -47,6 +48,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useMounted();
   const [notConfigured, setNotConfigured] = useState(false);
 
   useEffect(() => {
@@ -88,15 +90,18 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
     setError(null);
     try {
       const s = await api.patchAssuranceSettings(changes());
-      setSettings(s);
-      setDraft(draftOf(s));
+      if (mountedRef.current) {
+        setSettings(s);
+        setDraft(draftOf(s));
+      }
       // The screens that only show the settings read them once (#1190); this
       // is what they read next.
       rememberAssuranceSettings(api, s);
       // Every set that follows the default now resolves to something else.
       noteAssuranceChanged();
-      setSaved(true);
+      if (mountedRef.current) setSaved(true);
     } catch (e) {
+      if (!mountedRef.current) return;
       setSaved(false);
       setError(describeFailure(e, "could not save").message);
     }

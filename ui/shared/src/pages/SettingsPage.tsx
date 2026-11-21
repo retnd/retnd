@@ -17,6 +17,7 @@
  * banner above it cannot name two different versions.
  */
 import { useEffect, useId, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { RefObject } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -44,6 +45,7 @@ import { CustomValidatorsCard } from "@shared/assurance/CustomValidatorsCard";
 import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
 import { EncryptionCard } from "@shared/encryption/EncryptionCard";
 import { AgentsCard } from "@shared/agents/AgentsCard";
+import { ObservabilityCard } from "@shared/observability/ObservabilityCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -185,6 +187,14 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               around a copy", and agents are "who else can ask". Design:
               docs/design/1350-agents.html section 1. */}
           <Anchored section="agents"><AgentsCard readOnly={readOnly} /></Anchored>
+
+          {/* EPIC O (issue #899). The scrape endpoint, the log floor and the
+              alert channel: what leaves this deployment for somebody else's
+              tools. It sits after the agents card, which is the other thing
+              that reads this deployment from outside. The first commit of
+              the epic lands the shell; each of the three issues that fill
+              it in adds its own sub-section. */}
+          <Anchored section="observability"><ObservabilityCard readOnly={readOnly} /></Anchored>
 
           {/* EPIC L (issue #814). Beside the destinations card rather
               than on a page of its own: a hook directory is deployment
@@ -454,6 +464,7 @@ function ChangePasswordCard({ readOnly }: { readOnly: boolean }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<OperatorFailure | null>(null);
   const [success, setSuccess] = useState(false);
+  const mountedRef = useMounted();
 
   const tooShort = next.length > 0 && next.length < MIN_PASSWORD_LENGTH;
   const mismatch = confirm.length > 0 && confirm !== next;
@@ -473,13 +484,14 @@ function ChangePasswordCard({ readOnly }: { readOnly: boolean }) {
     api
       .rotatePassword(current, next)
       .then(() => {
+        if (!mountedRef.current) return;
         setSuccess(true);
         setCurrent("");
         setNext("");
         setConfirm("");
       })
-      .catch((e: unknown) => setFailure(describeRotationFailure(e)))
-      .finally(() => setBusy(false));
+      .catch((e: unknown) => { if (mountedRef.current) setFailure(describeRotationFailure(e)); })
+      .finally(() => { if (mountedRef.current) setBusy(false); });
   };
 
   return (
@@ -686,6 +698,7 @@ function RecoveryEditor({ loaded, readOnly }: { loaded: RecoverySettings; readOn
   const [saved, setSaved] = useState<string | null>(null);
   const [tested, setTested] = useState<string | null>(null);
   const [failure, setFailure] = useState<OperatorFailure | null>(null);
+  const mountedRef = useMounted();
 
   const badEmailId = useId();
   const badEmail = email.length > 0 && !looksLikeEmail(email);
@@ -705,21 +718,25 @@ function RecoveryEditor({ loaded, readOnly }: { loaded: RecoverySettings; readOn
         // Re-rendered from the answer, including the password field, which
         // goes back to blank: whatever was typed is stored now and there
         // is nothing to show in its place.
-        setCurrent(next);
-        setEmail(next.recoveryEmail);
-        setSmtp(smtpFieldsOf(next.smtp));
-        // The administrator's own password is not kept for a second
-        // save: it is a credential, this form has no reason to hold one
-        // after the write it authorised, and re-typing it is the point
-        // of asking.
-        setPassword("");
+        if (mountedRef.current) {
+          setCurrent(next);
+          setEmail(next.recoveryEmail);
+          setSmtp(smtpFieldsOf(next.smtp));
+          // The administrator's own password is not kept for a second
+          // save: it is a credential, this form has no reason to hold one
+          // after the write it authorised, and re-typing it is the point
+          // of asking.
+          setPassword("");
+        }
         // And published, because this answer is also what the unverified
         // banner above every page is drawn from (#830 §§8-9). A changed
         // address comes back UNVERIFIED - a verification link was just
         // mailed to it and nobody has opened it - so without this the
         // banner would keep reporting the previous address's proof until
-        // the next full page load.
+        // the next full page load. Published even once this form has gone,
+        // since the banner is still there.
         publishRecoverySettings(next);
+        if (!mountedRef.current) return;
         setSaved(
           addressChanged
             ? "Saved. A verification link has been delivered to " + next.recoveryEmail + "."
@@ -727,14 +744,14 @@ function RecoveryEditor({ loaded, readOnly }: { loaded: RecoverySettings; readOn
         );
       })
       .catch((e: unknown) =>
-        setFailure(
+        mountedRef.current && setFailure(
           describeRecoveryFailure(e, {
             fallback: "The recovery settings were not saved.",
             sendFailed: "The confirmation email could not be sent, so nothing was saved."
           })
         )
       )
-      .finally(() => setSaving(false));
+      .finally(() => { if (mountedRef.current) setSaving(false); });
   };
 
   const sendTest = () => {
@@ -745,16 +762,16 @@ function RecoveryEditor({ loaded, readOnly }: { loaded: RecoverySettings; readOn
     setTested(null);
     api
       .sendRecoveryTestEmail()
-      .then(() => setTested("Test message sent to " + current.recoveryEmail + "."))
+      .then(() => { if (mountedRef.current) setTested("Test message sent to " + current.recoveryEmail + "."); })
       .catch((e: unknown) =>
-        setFailure(
+        mountedRef.current && setFailure(
           describeRecoveryFailure(e, {
             fallback: "The test message could not be sent.",
             sendFailed: "The mail server refused the test message, so recovery mail would not arrive either."
           })
         )
       )
-      .finally(() => setTesting(false));
+      .finally(() => { if (mountedRef.current) setTesting(false); });
   };
 
   return (

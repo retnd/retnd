@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { RetndError } from "@shared/api/contracts";
 import type { ApiError, AppSettings, CapacitySettings, UpdateCapacitySettings } from "@shared/api/contracts";
@@ -253,6 +254,7 @@ function CapacityEditor({ loaded, readOnly }: { loaded: CapacitySettings; readOn
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<ApiError | null>(null);
   const [saved, setSaved] = useState(false);
+  const mountedRef = useMounted();
 
   const errors = fieldErrors(cap, warning, critical);
   const invalid = Object.keys(errors).length > 0;
@@ -290,6 +292,7 @@ function CapacityEditor({ loaded, readOnly }: { loaded: CapacitySettings; readOn
         // answer, and the next "has anything changed" comparison has to
         // be made against those, the same reasoning RetentionPolicyCard
         // gives for doing this after every one of its own saves.
+        if (!mountedRef.current) return;
         setBaseline(next.capacity);
         setCap(bytesToDraft(next.capacity.capBytes));
         setWarning(bytesToDraft(next.capacity.warningFreeBytes));
@@ -297,6 +300,7 @@ function CapacityEditor({ loaded, readOnly }: { loaded: CapacitySettings; readOn
         setSaved(true);
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setSaveError(
           e instanceof RetndError
             ? e.api
@@ -307,7 +311,7 @@ function CapacityEditor({ loaded, readOnly }: { loaded: CapacitySettings; readOn
               }
         );
       })
-      .finally(() => setBusy(false));
+      .finally(() => { if (mountedRef.current) setBusy(false); });
   }
 
   return (

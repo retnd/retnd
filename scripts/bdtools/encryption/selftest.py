@@ -57,7 +57,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from bdtools import harness, selftest_swap
+from bdtools import harness, selftest_lanes, selftest_swap
+
+# Which controls need a lane beyond Go, pinned (bdtools/selftest_lanes.py).
+LANES_FILE = Path(__file__).resolve().parent / "lanes.txt"
 
 PROGRAM = "encryption selftest"
 
@@ -358,7 +361,12 @@ def gate(work: Path, c: Control, race: bool) -> tuple[int, str]:
     env["GOWORK"] = "off"
     if c.cmd:
         cwd = work if c.module == "core" else work / c.module
-        proc = harness.sh(c.cmd, check=False, capture=True, cwd=cwd, env=env)
+        cmd = c.cmd
+        if selftest_lanes.in_lane(cmd):
+            # On a Mac, through the Playwright lock (body() leaves the lane
+            # controls out when there is none); elsewhere, as it is.
+            cmd = [*(selftest_lanes.lock_prefix() or []), *cmd]
+        proc = harness.sh(cmd, check=False, capture=True, cwd=cwd, env=env)
         return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
     tops = sorted({n.split("/", 1)[0] for n in c.names})
     pattern = "^(" + "|".join(re.escape(t) for t in tops) + ")$" if tops else "^$"
@@ -412,6 +420,15 @@ def commit_of(root: Path) -> str:
 def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | None) -> int:
     tally = selftest_swap.Tally()
     controls = [c for c in CONTROLS if selected(c, only)]
+    pinned = selftest_lanes.load_pinned(LANES_FILE)
+    lane_problems = selftest_lanes.pin_problems({c.label: c.cmd for c in CONTROLS}, pinned)
+    if lane_problems:
+        harness.die(f"the controls that need a lane disagree with {LANES_FILE.name}; edit it in the same change, it is the reviewed list",
+                    *lane_problems)
+    have = {} if dry_run or record is not None else selftest_lanes.host_lanes(root)
+    controls, skipped = selftest_lanes.plan(controls, pinned, have, dry_run=dry_run, recording=record is not None)
+    skip_code = selftest_lanes.report(skipped, "encryption", os.environ.get("RETND_SELFTEST_SKIP_LEDGER", ""))
+    late: list[tuple[Control, list[str]]] = []
     labels = [c.label for c in CONTROLS]
     dupes = sorted({x for x in labels if labels.count(x) > 1})
     if dupes:
@@ -439,6 +456,12 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 if tracker.stale_verdict(c.label) or tracker.anchors_only(c.label):
                     continue
                 code, out = gate(work, c, race)
+                if c.cmd and selftest_lanes.in_lane(c.cmd) and code == harness.EXIT_INCOMPLETE:
+                    # The lane's 3: this machine could not run it (no daemon,
+                    # no image, the install inside failed). Not a verdict.
+                    print(f"    the Chromium lane could not run on this machine:\n{out[-2000:]}")
+                    late.append((c, [selftest_lanes.LANE_CHROMIUM + " (it could not run on this host)"]))
+                    continue
                 if EXPLORE:
                     fails = [x.strip() for x in out.splitlines() if "--- FAIL" in x or "build failed" in x or x.startswith("FAIL")]
                     print("EXPLORE " + c.label + ":\n    " + "\n    ".join(fails[:40]))
@@ -455,6 +478,10 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
                 verdict, green = "NOT CAUGHT", "-"
             else:
                 gcode, gout = gate(work, c, race)
+                if c.cmd and selftest_lanes.in_lane(c.cmd) and gcode == harness.EXIT_INCOMPLETE:
+                    print(f"    the Chromium lane could not run the unplanted tree on this machine:\n{gout[-2000:]}")
+                    late.append((c, [selftest_lanes.LANE_CHROMIUM + " (it could not run on this host)"]))
+                    continue
                 if gcode != 0:
                     tally.bad(f"{c.label}. The narrowed test FAILED on the unplanted tree, so its red means nothing.", gout[-6000:])
                     verdict, green = "RED ON A CLEAN TREE", "red"
@@ -485,11 +512,16 @@ def body(root: Path, dry_run: bool, only: list[str], race: bool, record: Path | 
             file=sys.stderr,
         )
         return harness.EXIT_FAILED
+    # A lane that answered 3 mid-run is a skip like any other (#1543).
+    skip_code = selftest_lanes.report(late, "encryption", os.environ.get("RETND_SELFTEST_SKIP_LEDGER", "")) or skip_code
     print()
     if dry_run:
         print(f"OK: all {checked} encryption mutation anchors still name code that is in this tree.")
     else:
         print(f"OK: all {tally.passed} encryption controls went red naming their test and green again unplanted.")
+        if skip_code:
+            print(f"INCOMPLETE: {len(skipped) + len(late)} controls were not run on this host (listed above).", file=sys.stderr)
+            return harness.EXIT_CANNOT_RUN
     return harness.EXIT_OK
 
 

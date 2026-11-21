@@ -36,6 +36,16 @@
 # CI_LOCAL_SKIP_JS=1 leaves it out on purpose). The full gate, under
 # CI_LOCAL_FULL=1, still refuses as it always did (#160).
 #
+# THE QUEUE (#1544). Every worktree of this clone runs this hook, so the fast
+# tier's heavy part (go vet, golangci-lint, go test, the JS checks) queues
+# behind other worktrees' runs: it waits while the load is above the core
+# count (10 minutes at most), then takes one lock shared by every worktree
+# and runs at nice 10. A commit that seems stuck is usually waiting its turn,
+# and it says for whom. To see who holds the lock:
+#   readlink "$(git rev-parse --git-common-dir)/ci-fast.lock"
+# and the pid and worktree are in the directory it names. CI_FAST_LOCK=0
+# skips the queue (scripts/ci-fast.sh's header has the rest).
+#
 # Three outcomes, and this hook has to make its own decision about the
 # middle one rather than inherit it by accident:
 #
@@ -78,7 +88,9 @@
 # then stamps `Local-Gate: red <why>` on the commit, so a reviewer sees why
 # the gate did not run, right in the history. A product file riding along
 # with the red tests is a fix, and the gate exists to run on fixes, so it
-# is refused by name.
+# is refused by name. The red route still runs the former-name scan, on every
+# red commit and over the staged blobs (#1618, #1622): a red commit used to
+# carry the name onto main.
 #
 # --no-verify still exists and nothing can stop it, but it is not the
 # documented route any more: git runs prepare-commit-msg even then, and it
@@ -181,6 +193,19 @@ EOF
     echo "    Commit the red tests on their own with CI_LOCAL_RED, then the fix without it." >&2
     exit 1
   fi
+  # The one check the red route still runs (#1618, #1622). A red commit skips
+  # the tier, and the fix that follows it usually touches other files, so a
+  # test file spelling the former name went in here and nothing ever looked at
+  # it again until main was red. It runs for EVERY commit that gets this far,
+  # not for a list of test-shaped paths: the offender check above has already
+  # refused anything that is not a test file, so "a staged test file" and "any
+  # staged file" are the same set here, and a second copy of the admit-list
+  # would only be one more thing to keep in step. The scan is git grep over
+  # the staged blobs (--cached), about 0.3 s.
+  if ! bash scripts/rename/check-no-former-name.sh; then
+    echo "==> pre-commit: refusing a red commit: a test file spells the former name (#1618). Red tests skip the gate, not this scan." >&2
+    exit 1
+  fi
   printf 'red %s %s\n' "$tree" "$reason" >"$marker"
   echo "==> pre-commit: red commit, the gate did not run. Reason: $reason"
   echo "    Only test files are staged, this is $branch, and the commit will carry Local-Gate: red."
@@ -207,6 +232,22 @@ fi
 # shellcheck disable=SC2086
 { set +e; bash $gate_cmd 2>&1; echo "$?" >"$gate_status_file"; } | tee "$gate_log"
 gate_status="$(cat "$gate_status_file" 2>/dev/null || echo 1)"
+
+# A fast run that scoped to 0 paths checked nothing, and that is only right
+# when the commit changes nothing. A pathspec commit used to get exactly
+# that: the tier read the real index instead of the commit's and passed a
+# commit it never looked at (#1554). This hook still has git's index for the
+# commit, so it asks it directly, whatever the tier said about itself.
+if [ "$gate_tier" = fast ] && { [ "$gate_status" -eq 0 ] || [ "$gate_status" -eq 3 ]; }; then
+  scoped="$(sed -n 's/^==> ci-fast: the fast tier, scoped to \([0-9][0-9]*\) changed path.*/\1/p' "$gate_log" 2>/dev/null | head -1)"
+  if [ "$scoped" = 0 ] && ! git diff --cached --quiet; then
+    echo "" >&2
+    echo "==> pre-commit: refusing this commit: the fast tier scoped to 0 changed paths, but the commit changes" >&2
+    echo "    files, so nothing checked them (#1554). Stage the paths with git add and commit again, and if this" >&2
+    echo "    keeps happening the tier is reading the wrong index: say so on #1554." >&2
+    exit 1
+  fi
+fi
 
 # The gate ran on the working tree; the commit is the index. When the two
 # differ the gate checked something other than what is being committed,

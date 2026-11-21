@@ -182,8 +182,8 @@ CONTROLS = [
     Control(
         "a file name put into the tool result's message text",
         ("UV.17", "UC-02"),
-        [(SERVER, "res := Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated,",
-          "res := Result{OK: true, Code: CodeOK, Message: staticOKMessage + fmt.Sprint(untrusted), CorrelationID: correlated,")],
+        [(SERVER, "data, untrusted := splitUntrusted(decoded, t.Untrusted)\n\t\t\tres := Result{OK: true, Code: CodeOK, Message: staticOKMessage, CorrelationID: correlated,",
+          "data, untrusted := splitUntrusted(decoded, t.Untrusted)\n\t\t\tres := Result{OK: true, Code: CodeOK, Message: staticOKMessage + fmt.Sprint(untrusted), CorrelationID: correlated,")],
         INJ,
         ["TestAnUntrustedStringArrivesOnlyAsData", "TestAnUntrustedStringArrivesOnlyAsData_AllOriginsAtOnce"],
         timeout="25m",

@@ -68,6 +68,33 @@ var ErrQuarantineIrrecoverable = errors.New("app: quarantined artifact has no re
 // waiting for your judgement", the other is "this backup is not stuck".
 var ErrNotFailed = errors.New("app: artifact is not failed")
 
+// RefusalRetryOwnCopyUnverified is RetryFailedIngestion's refusal for issue
+// #1594's shape: the row's own copy sits at its final name, the source is
+// confirmed gone, and the copy cannot be verified, so a retry has nothing to
+// fetch and nothing it may keep. It is a wire code.
+const RefusalRetryOwnCopyUnverified = "RETRY_OWN_COPY_UNVERIFIED"
+
+// RefusalRetryOwnCopyMismatch is RetryFailedIngestion's refusal for issue
+// #1611's shape: the row's own copy sits at its final name, the source is
+// still there, and the copy does not match the remote object. It is a wire
+// code.
+const RefusalRetryOwnCopyMismatch = "RETRY_OWN_COPY_MISMATCH"
+
+// RetryRefusal is a named reason a retry was not made. Code is the wire code;
+// Sentence is what an operator reads and names the way out.
+type RetryRefusal struct {
+	Code     string
+	Sentence string
+}
+
+func (r *RetryRefusal) Error() string { return "app: retry refused (" + r.Code + "): " + r.Sentence }
+
+// AsRetryRefusal reports whether err is, or wraps, a *RetryRefusal.
+func AsRetryRefusal(err error) (*RetryRefusal, bool) {
+	var r *RetryRefusal
+	return r, errors.As(err, &r)
+}
+
 // unconfiguredSet is the refusal all three actions below share for an
 // artifact whose backup set the configuration no longer names (issue
 // #391): the same *NotFoundError ListArtifacts returns for a filter over
@@ -259,6 +286,17 @@ func (s *Service) RetryFailedIngestion(ctx context.Context, id model.ArtifactID,
 		return nil
 	}
 
+	// Issue #1594: the same shape with the source gone. The comparison
+	// above had nothing to compare against, and an ordinary retry can only
+	// meet the collision guard again, so the row is settled here on local
+	// evidence or refused by name. Only a source confirmed gone gets this:
+	// one that is there, or not answering, keeps today's ordinary retry.
+	if ownCopyAtFinalName(rec, bs) {
+		if s.probe(ctx, src, bs, rec.RemotePath, nil).Result == state.SourceAbsent {
+			return s.keepOwnCopyOnLocalEvidence(ctx, rec, note)
+		}
+	}
+
 	var recoveringFrom string
 	if detail, err := s.GetArtifactDetail(ctx, id); err == nil {
 		recoveringFrom = detail.FailureReason
@@ -372,6 +410,16 @@ func (s *Service) ReinstateQuarantined(ctx context.Context, id model.ArtifactID,
 		return result, nil
 	}
 
+	// A pass that could not have failed (no recorded hash, no validator)
+	// or that a recorded validator rejection outweighs is refused here,
+	// before the hop below, by the same rule ReinstateFromQuarantine
+	// applies after it. Refusing only there left a FAILED artifact moved
+	// to QUARANTINED by a reinstatement that was never going to happen
+	// (issue #1594, which reaches this from retry).
+	if err := lifecycle.CheckReinstatementEvidence(rec, checks.evidence()); err != nil {
+		return result, err
+	}
+
 	// A FAILED artifact has to be held for the judgement before the
 	// judgement can be recorded: reinstatement is only reachable from a
 	// quarantine state, and deliberately so (lifecycle.Transitions
@@ -450,6 +498,93 @@ func (s *Service) ReinstateQuarantined(ctx context.Context, id model.ArtifactID,
 // together that have no reason to move in step.
 func holdsAJudgementCall(s lifecycle.State) bool {
 	return lifecycle.IsQuarantineState(s) || s == lifecycle.Failed
+}
+
+// ownCopyAtFinalName reports whether rec is issue #662's shape: its own
+// recorded local path is its final name and a file is there. Only the durable
+// commit records that path, which is what makes the file this artifact's own
+// copy rather than a stray one.
+func ownCopyAtFinalName(rec state.Record, bs config.BackupSet) bool {
+	final, err := lifecycle.FinalArtifactPath(bs.LocalPath, rec.Artifact)
+	if err != nil || rec.LocalPath != final {
+		return false
+	}
+	_, err = os.Stat(final)
+	return err == nil
+}
+
+// keepOwnCopyOnLocalEvidence is retry's answer to issue #1594: a FAILED row
+// whose own copy sits at its final name and whose source is confirmed gone.
+//
+// The copy is kept if it verifies on the evidence `quarantine reinstate`
+// already accepts (it still hashes to what was recorded at verification, or
+// the set's validator runs and passes on it now), through that same
+// reinstatement path, so it returns to the durable state it was quarantined
+// from and its remote delete is forfeited for good. Nothing new is trusted:
+// this is the reinstatement an operator could have asked for by hand, reached
+// from the verb they actually pressed.
+//
+// A copy that does not verify is refused with RETRY_OWN_COPY_UNVERIFIED and
+// nothing is written. Sending the row round an ordinary retry instead is the
+// loop: there is nothing left to fetch, and the collision guard refuses the
+// file in the way. The sentence names both ways out.
+func (s *Service) keepOwnCopyOnLocalEvidence(ctx context.Context, rec state.Record, note string) error {
+	id := rec.Artifact
+	refuse := func(reason string) error {
+		return &RetryRefusal{Code: RefusalRetryOwnCopyUnverified, Sentence: "This backup's source is gone from the host and its own copy " +
+			"at the final name could not be verified (" + reason + "), so there is nothing to fetch it from and nothing a retry may keep. " +
+			"If the copy is good, add a validator for this backup set that passes on it and retry. Otherwise retire it with the " +
+			"unverified-copy acknowledgement (--accept-unverified-copy), which keeps the file where it is."}
+	}
+	res, err := s.ReinstateQuarantined(ctx, id, note)
+	if err != nil {
+		if e, ok := lifecycle.AsInsufficientEvidence(err); ok {
+			return refuse(e.Reason)
+		}
+		// A second retry got there first: the row has moved on, at one of the
+		// three places that can notice. That is "not stuck", a 409, and not
+		// an internal error.
+		_, notQuarantined := lifecycle.AsNotQuarantined(err)
+		if notQuarantined || errors.Is(err, ErrNotQuarantined) || errors.Is(err, state.ErrStateMismatch) {
+			return fmt.Errorf("%w: %s changed state while it was being retried", ErrNotFailed, id)
+		}
+		return fmt.Errorf("app: retry failed ingestion: keeping %s's own copy with its source gone: %w", id, err)
+	}
+	if !res.Reinstated {
+		return refuse(res.Reason)
+	}
+	return nil
+}
+
+// ownCopyMismatchRefusal is retry's answer to issue #1611: the row's own copy
+// sits at its final name, the source is still there and answered, and the two
+// do not match. Falling through to an ordinary retry is the loop: the next
+// cycle meets the collision guard on the copy and the row is FAILED again.
+// So nothing is written and the sentence says what was found and the way out.
+//
+// What was found is only what this manager measured on its own disk: whether
+// the copy still matches the checksum recorded when it was verified. The remote
+// object's checksum and path are source-chosen, so the sentence does not quote
+// them. The way out is the operator's hand, not this manager's: the file is
+// the only copy of what the source held when it was backed up, so nothing here
+// deletes or renames it. Once it has been moved aside, the collision is gone
+// and a retry is an ordinary one. Outside the set's directory, because that
+// is the one place nothing could mistake it for the set's own file (the
+// catalog rebuild scans the directory for sidecar manifests and the staging
+// sweep removes files with its own temp prefix; neither touches another name,
+// but neither is a promise worth leaning on).
+func ownCopyMismatchRefusal(rec state.Record, final, localHash string) *RetryRefusal {
+	found := "still matches the checksum recorded when it was verified, so the object on the source has changed since"
+	switch {
+	case rec.LocalHash == "":
+		found = "has no checksum recorded to compare it with"
+	case !strings.EqualFold(localHash, rec.LocalHash):
+		found = "does not match the checksum recorded when it was verified, so it may be damaged"
+	}
+	return &RetryRefusal{Code: RefusalRetryOwnCopyMismatch, Sentence: "This backup's own copy at " + final + " " + found +
+		", and it does not match the object on the source, so a retry can neither keep it nor fetch a fresh copy past it. " +
+		"Move that file aside, to a directory outside this backup set's local directory, then retry: the next attempt fetches a new copy from the source. " +
+		"Nothing here deletes the moved file, and retention and the capacity guard do not track it, so it stays yours to keep or remove."}
 }
 
 // completeIngestionInPlace finishes an ingestion whose only remaining
@@ -532,7 +667,7 @@ func (s *Service) completeIngestionInPlace(
 		s.logger().Error(ctx, "retry-failed", fmt.Errorf(
 			"%s hashes to %s and the remote object %s hashes to %s, so the file at the final name is not this artifact's remote copy",
 			final, localHash, rec.RemotePath, remoteHash))
-		return "", nil
+		return "", ownCopyMismatchRefusal(rec, final, localHash)
 	}
 
 	// The comparison FR-13 would have made has been made, and it passed.

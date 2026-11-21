@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/artifactstore"
 	"github.com/retnd/retnd/core/internal/copycrypt"
 	"github.com/retnd/retnd/core/internal/keycustody"
 	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // This file is the operator's way out of a refusal EPIC N left standing
@@ -140,6 +143,10 @@ var (
 	// The copy is left exactly as it is. It also wraps ErrClassUnavailable,
 	// the class every key problem already is (#1317).
 	ErrReencryptSourceKeyUnavailable = errors.New("placement: the key the copy was written under cannot be resolved")
+
+	// ErrReencryptLocalCopyGone: a --from-local run resumed a move that had
+	// uploaded nothing, and the artifact's local copy is gone (#1545).
+	ErrReencryptLocalCopyGone = errors.New("placement: the local copy this re-encryption was to be written from is gone")
 )
 
 // consentJournal is the slice of the journal the opt-in lives in. *state.Journal
@@ -184,6 +191,11 @@ func (e *Engine) CheckEncryptExisting(ctx context.Context, p Plan) error {
 		return fmt.Errorf("%w: %w", ErrEncryptExistingNoKey, err)
 	}
 
+	if p.FromLocal && !p.Reencrypt {
+		return fmt.Errorf("%w: %s: writing the new copy from the local copy is a mode of re-encryption, and this plan did not ask to re-encrypt",
+			ErrNotEligible, p.Artifact)
+	}
+
 	var src state.Placement
 	var found bool
 	for _, pl := range rec.Placements {
@@ -200,8 +212,10 @@ func (e *Engine) CheckEncryptExisting(ctx context.Context, p Plan) error {
 	if err != nil {
 		return err
 	}
+	local, hasLocal := activeLocal(rec)
+	fromLocal := p.FromLocal && encrypted && hasLocal
 	if encrypted {
-		if err := e.checkReencryptSource(ctx, p, src, enc, key); err != nil {
+		if err := e.checkReencryptSource(ctx, p, src, enc, key, fromLocal); err != nil {
 			return err
 		}
 	}
@@ -223,22 +237,38 @@ func (e *Engine) CheckEncryptExisting(ctx context.Context, p Plan) error {
 
 	// The move engine's own eligibility: COMPLETE, one ACTIVE copy, a recorded
 	// SHA-256, a destination that is not the source's medium, somewhere to stage.
-	if _, err := e.eligibleSource(rec, p.DestinationMedium); err != nil {
+	if _, err := e.eligibleSource(rec, p.DestinationMedium, fromLocal); err != nil {
 		return err
 	}
 
-	source, _, err := e.resolve(src.Medium)
-	if err != nil {
-		return err
-	}
-	if err := e.sourceCanBeStaged(ctx, source, src); err != nil {
-		return fmt.Errorf("%w: %w", ErrEncryptExistingSourceUnreadable, err)
+	// What is read: the old remote copy, or (#1545) the local copy.
+	read := src
+	if fromLocal {
+		read = local
+		if !strings.EqualFold(local.HashAlg, string(transport.SHA256)) || local.Hash == "" {
+			return fmt.Errorf("%w: the local copy of %s records no %s digest, so what is read from it could not be checked",
+				ErrEncryptExistingSourceUnreadable, p.Artifact, transport.SHA256)
+		}
+		if e.Local == nil {
+			return fmt.Errorf("%w: no local store is configured", ErrEncryptExistingSourceUnreadable)
+		}
+		if _, err := e.Local.Stat(ctx, local.Location); err != nil {
+			return fmt.Errorf("%w: the local copy of %s cannot be read: %w", ErrEncryptExistingSourceUnreadable, p.Artifact, err)
+		}
+	} else {
+		source, _, err := e.resolve(src.Medium)
+		if err != nil {
+			return err
+		}
+		if err := e.sourceCanBeStaged(ctx, source, src); err != nil {
+			return fmt.Errorf("%w: %w", ErrEncryptExistingSourceUnreadable, err)
+		}
 	}
 	staged, err := e.stagingPath(p.Artifact)
 	if err != nil {
 		return err
 	}
-	if err := e.roomToStage(staged, src); err != nil {
+	if err := e.roomToStage(staged, read); err != nil {
 		return fmt.Errorf("%w: %w", ErrEncryptExistingNoRoom, err)
 	}
 	return nil
@@ -249,13 +279,20 @@ func (e *Engine) CheckEncryptExisting(ctx context.Context, p Plan) error {
 // under something other than the active suite and key, and unless the copy
 // can be opened (its suite is one this build reads and its key resolves). It
 // reads no object: resolving the key is a callback that returns at once.
-func (e *Engine) checkReencryptSource(ctx context.Context, p Plan, src state.Placement, enc state.PlacementEncryption, active keycustody.KeyRecord) error {
+//
+// With fromLocal (#1545) nothing is read from the old copy, so whether its
+// suite is readable and its key resolves is beside the point, and a key that
+// is lost or withdrawn is no obstacle.
+func (e *Engine) checkReencryptSource(ctx context.Context, p Plan, src state.Placement, enc state.PlacementEncryption, active keycustody.KeyRecord, fromLocal bool) error {
 	if !p.Reencrypt {
 		return fmt.Errorf("%w: the copy of %s on %q is ciphertext already", ErrEncryptExistingAlreadyEncrypted, p.Artifact, src.Medium)
 	}
 	if enc.FormatID == keySuite(active) && enc.KeyID == active.ID {
 		return fmt.Errorf("%w: the copy of %s on %q is under suite %s and key %s, which are the active ones",
 			ErrReencryptAlreadyCurrent, p.Artifact, src.Medium, enc.FormatID, enc.KeyID)
+	}
+	if fromLocal {
+		return nil
 	}
 	if _, ok := copycrypt.Lookup(enc.FormatID); !ok {
 		return fmt.Errorf("%w: the copy of %s on %q records suite %q, which this build cannot read, so it is left as it is",
@@ -333,6 +370,12 @@ func (e *Engine) EncryptExisting(ctx context.Context, plans []Plan) (CycleReport
 		budget--
 		report.Resumed++
 		handled[mv.Artifact.String()] = true
+		if out, gone, err := e.abandonIfLocalCopyGone(ctx, mv, wanted); err != nil {
+			return report, err
+		} else if gone {
+			report.record(out)
+			continue
+		}
 		report.record(e.advanceEncryptExisting(ctx, mv, true))
 	}
 
@@ -397,6 +440,11 @@ func (e *Engine) adoptable(ctx context.Context, mv state.Move, wanted map[string
 // avoid.
 func (e *Engine) advanceEncryptExisting(ctx context.Context, mv state.Move, resumed bool) Outcome {
 	out := e.advance(ctx, mv, resumed)
+	if out.Phase == Abandoned && out.Err == nil && out.Refused == localCopyGoneWhy {
+		// Abandoned in the copy phase (#1545): the same named refusal as the
+		// resume check, so the run report and the CLI say local_copy_gone.
+		out.Err = fmt.Errorf("%w: %s", ErrReencryptLocalCopyGone, mv.Artifact)
+	}
 	if ctx.Err() == nil {
 		return out
 	}
@@ -573,4 +621,116 @@ func (e *Engine) openEncryptionSource(ctx context.Context, src state.Placement) 
 		return nil, err
 	}
 	return e.Store.OpenObject(ctx, medium, src.Location)
+}
+
+// activeLocal is the artifact's ACTIVE local copy, if it has one.
+func activeLocal(rec state.Record) (state.Placement, bool) {
+	for _, p := range rec.Placements {
+		if p.Medium == state.MediumLocal && p.Status == state.PlacementActive && p.Location != "" {
+			return p, true
+		}
+	}
+	return state.Placement{}, false
+}
+
+// fromLocalSource says whether this move writes its new copy from the
+// artifact's local copy (#1545), and returns that copy.
+//
+// It is derived from the journal each time rather than stored, so it needs no
+// migration and cannot disagree with the journal: the move carries the
+// operator's opt-in, its source is an encrypted remote copy (a re-encryption),
+// and the artifact has an ACTIVE local copy. The ordinary retention cycle
+// never writes the opt-in, so it never answers yes. If the local copy has gone
+// by the time a crashed run is resumed, this answers no and the run is an
+// ordinary re-encryption that reads the old copy (safe, but it costs the
+// egress the dry run said it would not).
+func (e *Engine) fromLocalSource(ctx context.Context, mv state.Move, rec state.Record) (state.Placement, bool, error) {
+	if mv.SourceMedium == state.MediumLocal || mv.DestinationMedium == state.MediumLocal {
+		return state.Placement{}, false, nil
+	}
+	local, ok := activeLocal(rec)
+	if !ok {
+		return state.Placement{}, false, nil
+	}
+	consented, err := e.retroConsented(ctx, mv)
+	if err != nil || !consented {
+		return state.Placement{}, false, err
+	}
+	_, encrypted, err := e.encryptionOf(ctx, mv.Artifact, mv.SourceMedium)
+	if err != nil || !encrypted {
+		return state.Placement{}, false, err
+	}
+	return local, true, nil
+}
+
+// copyFromLocal is the copy phase of a re-encryption written from the local
+// copy: the same encrypting pass a local-to-medium copy under a required set
+// makes, with the move's source (the old remote copy) left alone. The local
+// file is streamed through the pass and checked against the recorded digest as
+// it goes, so a local copy that has changed is never uploaded, and the only
+// new file on disk is the ciphertext in the staging directory.
+func (e *Engine) copyFromLocal(ctx context.Context, mv state.Move, local state.Placement) (int64, error) {
+	on, err := e.encryptedSet(mv.Artifact.Set)
+	if err != nil {
+		return 0, err
+	}
+	if !on {
+		return 0, fmt.Errorf("%w: %w: %s was opted in to be re-encrypted, and its backup set no longer requires encryption",
+			ErrClassRefused, ErrEncryptExistingNotRequired, mv.Artifact)
+	}
+	bytes, err := e.copyEncryptedToMedium(ctx, mv, local)
+	// How the local copy is told apart from a hiccup: the store answered "not
+	// there" (artifactstore.ErrNotPresent), or the bytes it served failed the
+	// recorded digest (copycrypt.ErrDigestMismatch). Both are deterministic, so
+	// the move is abandoned by name. Anything else (permissions, an I/O error)
+	// is not known to be gone and is retried like any failed copy.
+	if errors.Is(err, artifactstore.ErrNotPresent) || errors.Is(err, copycrypt.ErrDigestMismatch) {
+		return 0, fmt.Errorf("%w: %w", ErrReencryptLocalCopyGone, err)
+	}
+	return bytes, err
+}
+
+// localCopyGoneWhy is what an abandoned from-local move says. The last clause
+// is true in both of its halves: while the local placement is still ACTIVE the
+// plain run is refused (two ACTIVE copies), and once it is not, the plain run is
+// an ordinary re-encryption that reads the old copy.
+const localCopyGoneWhy = "the local copy this re-encryption was to be written from is missing, changed or gone, so the move was abandoned rather than read from the old copy; fix or restore the local copy and run with --from-local again, or, once the artifact has no ACTIVE local copy, run the dry run again and run without --from-local to read it from the old copy"
+
+// abandonIfLocalCopyGone is #1545's rule for a resumed move. A run that asked
+// for --from-local and finds a consented re-encryption that has uploaded
+// nothing yet (PLANNED or COPYING), whose artifact no longer has an ACTIVE
+// local copy, abandons it by name instead of carrying it on as an ordinary
+// re-encryption: that would read the old copy, which is egress the dry run did
+// not show. The destination and staging are discarded and the old copy is
+// untouched (the documented cancel state). From COPIED on the upload already
+// happened and finishing it reads nothing from the old copy, so those moves
+// are left to finish. The way to read the old copy is a run without
+// --from-local, which the sentence names.
+func (e *Engine) abandonIfLocalCopyGone(ctx context.Context, mv state.Move, wanted map[string]Plan) (Outcome, bool, error) {
+	p, ok := wanted[mv.Artifact.String()]
+	if !ok || !p.FromLocal || !p.Reencrypt || mv.SourceMedium == state.MediumLocal {
+		return Outcome{}, false, nil
+	}
+	if ph := Phase(mv.Phase); ph != Planned && ph != Copying {
+		return Outcome{}, false, nil
+	}
+	encrypted, err := e.sourceIsEncrypted(ctx, mv.Artifact, mv.SourceMedium)
+	if err != nil || !encrypted {
+		return Outcome{}, false, err
+	}
+	rec, err := e.Journal.Get(ctx, mv.Artifact)
+	if err != nil {
+		return Outcome{}, false, err
+	}
+	if _, has := activeLocal(rec); has {
+		return Outcome{}, false, nil
+	}
+	next, err := e.abandon(ctx, mv, localCopyGoneWhy)
+	if err != nil {
+		return Outcome{}, false, err
+	}
+	return Outcome{
+		Artifact: mv.Artifact, MoveID: mv.ID, Resumed: true, Phase: Phase(next.Phase),
+		Refused: localCopyGoneWhy, Err: fmt.Errorf("%w: %s", ErrReencryptLocalCopyGone, mv.Artifact),
+	}, true, nil
 }

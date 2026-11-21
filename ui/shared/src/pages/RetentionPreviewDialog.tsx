@@ -14,6 +14,7 @@
  * they care about is on the wrong side of the line.
  */
 import { useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { RetndError } from "@shared/api/contracts";
 import type { ApiError } from "@shared/api/contracts";
@@ -80,6 +81,7 @@ export function RetentionPreviewDialog({
   // change it, so it is drawn as its own notice with the terminal command
   // rather than as "Could not apply retention".
   const [gateNotice, setGateNotice] = useState<GateRefusalNotice | null>(null);
+  const mountedRef = useMounted();
 
   const plan = useResource<RetentionPlan>(
     retentionPlanNode,
@@ -171,10 +173,12 @@ export function RetentionPreviewDialog({
     api
       .applyRetention(source, set, p.planId)
       .then(() => {
+        if (!mountedRef.current) return;
         setConfirming(false);
         onClose();
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setConfirming(false);
         const refused = describeApplyError(e);
         setApplyError(refused);

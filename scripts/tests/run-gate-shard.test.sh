@@ -189,6 +189,53 @@ else
 fi
 run_runner env FAKE_VERDICT="==> ci-local: ok (shard core-docker)" CI_DOCKER_MEMORY=6g CI_DOCKER_CPUS=4 bash "$runner" core-docker --host mars --out "$work/out"
 grep -q 'memory=6g cpus=4' "$work/log/ci-docker-env" && pass "M2 the per-shard fence (CI_DOCKER_MEMORY, CI_DOCKER_CPUS) reaches ci-docker" || fail "M2 fence" "$(cat "$work/log/ci-docker-env")"
+# The ui-browser shard drives a Chromium through 127 spec files, and heavy
+# retnd steps stay off the Mac (#1532, #1537): with no --host it goes to mars,
+# and --host mac takes an explicit opt-in.
+run_runner env -u RETND_UI_BROWSER_ALLOW_LOCAL FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --out "$work/out"
+if [ "$(rc)" = 0 ] && grep -q -- '--host devshell@192.168.0.100' "$work/log/ci-docker" && [ ! -s "$work/log/ci-local" ] && result_has "host=mars" ui-browser; then
+  pass "M3 the ui-browser shard with no --host runs on mars, not on this machine"
+else
+  fail "M3 ui-browser default host" "rc=$(rc) $(cat "$work/log/ci-local" "$work/stdout")"
+fi
+run_runner env -u RETND_UI_BROWSER_ALLOW_LOCAL bash "$runner" ui-browser --host mac --out "$work/out"
+if [ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-local" ] && [ ! -s "$work/log/ci-docker" ] && grep -q -- '--host mars' "$work/stdout"; then
+  pass "M4 --host mac is refused for the ui-browser shard, naming --host mars, and nothing runs"
+else
+  fail "M4 ui-browser on the mac" "rc=$(rc) $(cat "$work/stdout")"
+fi
+run_runner env RETND_UI_BROWSER_ALLOW_LOCAL=1 FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --host mac --out "$work/out"
+if [ "$(rc)" = 0 ] && grep -q 'stand-in ci-local --shard ui-browser' "$work/log/ci-local" && [ ! -s "$work/log/ci-docker" ]; then
+  pass "M5 RETND_UI_BROWSER_ALLOW_LOCAL=1 runs it on this machine (the gate then takes the Playwright lock)"
+else
+  fail "M5 ui-browser opt-in" "rc=$(rc) $(cat "$work/stdout")"
+fi
+
+# M8: the ui-browser shard holds a gate container that mostly waits plus the
+# lane's own 4g sibling, so its gate fence defaults small (#1588): 2 cpus and
+# 3g. A fence the caller sets wins, and no other shard's sizing moves.
+run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS -u RETND_UI_BROWSER_ALLOW_LOCAL FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --host mars --out "$work/out"
+grep -q 'memory=3g cpus=2' "$work/log/ci-docker-env" && pass "M8 the ui-browser shard asks ci-docker for a 3g, 2 cpu gate fence by default" || fail "M8 ui-browser fence" "$(cat "$work/log/ci-docker-env")"
+run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS -u RETND_UI_BROWSER_ALLOW_LOCAL CI_DOCKER_MEMORY=6g CI_DOCKER_CPUS=4 FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --host mars --out "$work/out"
+grep -q 'memory=6g cpus=4' "$work/log/ci-docker-env" && pass "M8 a fence the caller names wins" || fail "M8 ui-browser caller fence" "$(cat "$work/log/ci-docker-env")"
+run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS FAKE_VERDICT="==> ci-local: ok (shard core-docker)" bash "$runner" core-docker --host mars --out "$work/out"
+grep -q 'memory=unset cpus=unset' "$work/log/ci-docker-env" && pass "M8 control: another shard keeps ci-docker's own default" || fail "M8 other shard fence" "$(cat "$work/log/ci-docker-env")"
+# M3-M6: a shard with a minimum memory (selftest-encryption, 9g: its two copycrypt
+# controls allocate several GiB and were OOM-killed at 4g, the #1538 review B3).
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=6g bash "$runner" selftest-encryption --host mars --out "$work/out"
+if [ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && grep -q 'at least 9g' "$work/stdout" && result_has status=incomplete selftest-encryption; then
+  pass "M3 selftest-encryption under a 6g fence: INCOMPLETE before anything ships, naming the 9g it needs"
+else
+  fail "M3 encryption fence too small" "rc=$(rc) $(head -c 400 "$work/stdout")"
+fi
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=8192m bash "$runner" selftest-encryption --host mars --out "$work/out"
+[ "$(rc)" = 3 ] && [ ! -s "$work/log/ci-docker" ] && pass "M4 8192m is still under 9g and refused the same way" || fail "M4 8192m" "rc=$(rc)"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=9g bash "$runner" selftest-encryption --host mars --out "$work/out"
+[ "$(rc)" = 0 ] && grep -q 'memory=9g' "$work/log/ci-docker-env" && pass "M5 control: a 9g fence runs it" || fail "M5 9g" "rc=$(rc) $(cat "$work/log/ci-docker-env")"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" bash "$runner" selftest-encryption --host mars --out "$work/out"
+[ "$(rc)" = 0 ] && grep -q 'memory=9g' "$work/log/ci-docker-env" && pass "M6 no fence asked for: the runner asks ci-docker for the shard's 9g" || fail "M6 default" "rc=$(rc) $(cat "$work/log/ci-docker-env")"
+run_runner env FAKE_VERDICT="==> ci-local: ok (shard core-docker)" CI_DOCKER_MEMORY=6g bash "$runner" core-docker --host mars --out "$work/out"
+[ "$(rc)" = 0 ] && pass "M7 control: a shard with no minimum still takes a 6g fence" || fail "M7 other shard" "rc=$(rc)"
 
 # --- R what a reader of the result can trust ---------------------------------
 run_runner env FAKE_VERDICT="==> ci-local: ok (shard static)" bash "$runner" static --host mars --out "$work/out"
