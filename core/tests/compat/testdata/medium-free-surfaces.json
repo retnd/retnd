@@ -4414,6 +4414,7 @@
         "schema ApiErrorCode enum value=RETIRE_SOURCE_PRESENT",
         "schema ApiErrorCode enum value=RETIRE_SOURCE_UNCONFIRMED",
         "schema ApiErrorCode enum value=RETIRE_SUCCESSOR_INVALID",
+        "schema ApiErrorCode enum value=RETRY_OWN_COPY_MISMATCH",
         "schema ApiErrorCode enum value=RETRY_OWN_COPY_UNVERIFIED",
         "schema ApiErrorCode enum value=SMTP_SEND_FAILED",
         "schema ApiErrorCode enum value=SNAPSHOT_HOLD_NOT_FOUND",

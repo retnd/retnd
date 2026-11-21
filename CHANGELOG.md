@@ -119,6 +119,17 @@ Worth reading before you upgrade:
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
 
+- **A failed backup whose own copy doesn't match a source that is still there no longer loops on
+  retry** (#1611). With the copy at its final name and the source answering, retry compared the two,
+  saw they differed and fell through to an ordinary retry; the next cycle met the collision guard on
+  the copy and the row was FAILED again, with nothing said. Now `retnd retry` and `POST .../retry`
+  refuse it by name, `RETRY_OWN_COPY_MISMATCH` (409), and write nothing. The sentence says whether
+  the copy still matches the checksum recorded when it was verified (so the source changed) or not
+  (so it may be damaged), and the way out: move that file aside, which keeps it, then retry, and the
+  next attempt fetches a fresh copy. Nothing deletes or renames the copy for you, and the Recovery
+  card and the retire refusal say the same. A retry that can't ask the remote for its checksum is
+  unchanged.
+
 - **A failed backup with its own copy at the final name gets out of FAILED once its source is gone**
   (#1594). That shape (#662's) used to be stuck for good: retire refused it with "retry instead", and
   retry's rescue compares the copy with the remote object, so with the object gone it fell through to an
