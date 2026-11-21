@@ -31,6 +31,18 @@ Worth reading before you upgrade:
   before the re-run, the re-run with `--from-local` abandons that move by name
   (`local_copy_gone`, also when the local file is missing or changed) rather than reading the old copy at a cost the dry run didn't show. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
 
+- **The engine keeps the journal as it was before a migration, once the migration has
+  succeeded** (#1584). Until now the copy it takes before migrating lived in memory and was
+  only used to undo a migration that failed, so someone who upgraded with `docker compose pull`
+  (no installer, so no archive) had nothing to go back to. Now a start that applies a migration
+  to an existing journal writes it to `pre-migration-<UTC time>-schema<N>/` beside `state.db`
+  (directory `0700`, files `0600`, a `MANIFEST` saying what it is), after the commit, from the
+  bytes it already held. It never reads it back. It's a courtesy: with no room (twice the journal's
+  size, at least 1 MiB extra) or a failed write it logs a warning and the migration goes ahead. It keeps the five
+  newest and removes the oldest past that, logging each path, and it never removes the newest,
+  a directory without a `MANIFEST`, or a copy of a schema newer than the running build.
+  [Rolling back a release that carried a migration](docs/install.md#when-nobody-took-an-archive-the-engines-own-copy)
+  says how to go back from it.
 - **The refusal for a schema version this build doesn't carry now says when it was applied**
   (#1583). The engine reads `applied_at` from the `schema_migrations` row and prints it in UTC
   (`version 23 (applied 2026-11-21T04:10:00Z) is recorded in the database but not compiled into
