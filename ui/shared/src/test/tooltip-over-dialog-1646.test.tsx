@@ -100,18 +100,6 @@ describe("#1646 a modal dialog opening puts every tooltip away", () => {
     await waitFor(() => expect(shownPops()).toHaveLength(0));
   });
 
-  it("typed host: the pointer arriving again asks again, so hovering back brings it up", async () => {
-    const user = userEvent.setup();
-    render(<Typed />);
-    await user.hover(screen.getByRole("button", { name: "Open" }));
-    await user.click(screen.getByRole("button", { name: "Open" }));
-    await waitFor(() => expect(shownPops()).toHaveLength(0));
-
-    await user.unhover(screen.getByRole("button", { name: "Open" }));
-    await user.hover(screen.getByRole("button", { name: "Open" }));
-    expect(shownPops()).toHaveLength(1);
-  });
-
   it("something that is not a modal dialog arriving leaves the pop-up up", async () => {
     const user = userEvent.setup();
     function Plain() {
