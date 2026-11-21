@@ -865,8 +865,33 @@ func cmdEncryptionReencrypt(args []string) int {
 					fmt.Printf("  %s on %s: would be re-encrypted onto %s (%s)\n", c.ArtifactID, c.SourceMedium, c.DestinationMedium, how)
 				}
 			}
+			size := func(n int64) string {
+				switch {
+				case n >= 1e12:
+					return fmt.Sprintf("%.1f TB", float64(n)/1e12)
+				case n >= 1e9:
+					return fmt.Sprintf("%.1f GB", float64(n)/1e9)
+				case n >= 1e6:
+					return fmt.Sprintf("%.1f MB", float64(n)/1e6)
+				case n >= 1e3:
+					return fmt.Sprintf("%.1f kB", float64(n)/1e3)
+				}
+				return fmt.Sprintf("%d bytes", n)
+			}
+			var written bool
 			for _, m := range plan.Media {
-				fmt.Printf("  %s: up to %d bytes read, %d bytes written\n", m.Medium, m.BytesRead, m.BytesWritten)
+				switch {
+				case m.Medium == "local":
+					fmt.Printf("  would read %s from the local copies on disk, which is not egress\n", size(m.BytesRead))
+				case m.BytesWritten > 0:
+					written = true
+					fmt.Printf("  would write at most %s to %s, and read it back once to verify it\n", size(m.BytesWritten), m.Medium)
+				default:
+					fmt.Printf("  would read %s from %s (the copies as stored)\n", size(m.BytesRead), m.Medium)
+				}
+			}
+			if written {
+				fmt.Println("  a resumed run reads the destination once more before it retires the old copy")
 			}
 			if plan.SizesUnknown > 0 {
 				fmt.Printf("  %d copies have no recorded size and are not in these totals\n", plan.SizesUnknown)

@@ -9881,7 +9881,7 @@
       },
       "ReencryptCandidate": {
         "type": "object",
-        "description": "One encrypted copy and what a run would do with it. destination_medium is the medium a run would write the new copy to (the one asked for, or, when none was, the first other configured medium); verdict is would_reencrypt or refused; refusal is the stable reason code of a refusal (already_current, source_key_unavailable, same_medium, no_destination, not_required, key_unavailable, destination_unverifiable, no_room, source_unreadable or not_eligible) and reason is the sentence the run would refuse with. path is how a run would write the new copy: move (read the old remote copy through its own key) or upload_from_local (read the artifact's ACTIVE local copy, only when from_local was asked for).",
+        "description": "One encrypted copy and what a run would do with it. destination_medium is the medium a run would write the new copy to (the one asked for, or, when none was, the first other configured medium); verdict is would_reencrypt or refused; refusal is the stable reason code of a refusal (already_current, source_key_unavailable, same_medium, no_destination, not_required, key_unavailable, destination_unverifiable, no_room, source_unreadable, local_copy_gone or not_eligible) and reason is the sentence the run would refuse with. path is how a run would write the new copy: move (read the old remote copy through its own key) or upload_from_local (read the artifact's ACTIVE local copy, only when from_local was asked for).",
         "additionalProperties": false,
         "properties": {
           "artifact_id": {

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "36823937c94c658259d7bb4ccbfcc946d0f83b4083ab365795d20ff94de4293e";
+export const CONTRACT_SHA256 = "cad2d7a0be96a31039ce97e38b6defb585b74f554850a6d77a851e9d58e46892";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -5659,11 +5659,11 @@ export interface WireRecoveryTestStarted {
  *  stable reason code of a refusal (already_current,
  *  source_key_unavailable, same_medium, no_destination, not_required,
  *  key_unavailable, destination_unverifiable, no_room,
- *  source_unreadable or not_eligible) and reason is the sentence the
- *  run would refuse with. path is how a run would write the new copy:
- *  move (read the old remote copy through its own key) or
- *  upload_from_local (read the artifact's ACTIVE local copy, only
- *  when from_local was asked for). */
+ *  source_unreadable, local_copy_gone or not_eligible) and reason is
+ *  the sentence the run would refuse with. path is how a run would
+ *  write the new copy: move (read the old remote copy through its own
+ *  key) or upload_from_local (read the artifact's ACTIVE local copy,
+ *  only when from_local was asked for). */
 export interface WireReencryptCandidate {
   artifact_id: string;
   destination_medium?: string;

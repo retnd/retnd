@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "36823937c94c658259d7bb4ccbfcc946d0f83b4083ab365795d20ff94de4293e"
+const ContractSHA256 = "cad2d7a0be96a31039ce97e38b6defb585b74f554850a6d77a851e9d58e46892"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -4424,11 +4424,11 @@ type RecoveryTestStarted struct {
 // stable reason code of a refusal (already_current,
 // source_key_unavailable, same_medium, no_destination, not_required,
 // key_unavailable, destination_unverifiable, no_room,
-// source_unreadable or not_eligible) and reason is the sentence the
-// run would refuse with. path is how a run would write the new copy:
-// move (read the old remote copy through its own key) or
-// upload_from_local (read the artifact's ACTIVE local copy, only
-// when from_local was asked for).
+// source_unreadable, local_copy_gone or not_eligible) and reason is
+// the sentence the run would refuse with. path is how a run would
+// write the new copy: move (read the old remote copy through its own
+// key) or upload_from_local (read the artifact's ACTIVE local copy,
+// only when from_local was asked for).
 type ReencryptCandidate struct {
 	ArtifactID        string `json:"artifact_id"`
 	DestinationMedium string `json:"destination_medium,omitempty"`

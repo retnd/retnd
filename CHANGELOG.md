@@ -27,7 +27,9 @@ Worth reading before you upgrade:
   local copy is read and never changed. It's off unless you ask, adds no route (it's `from_local`
   on the two existing ones, which an agent still can't call), and needs no migration. `--dry-run`
   now says per copy whether it's a `move` or an `upload_from_local` and prints the bytes each
-  medium would read and write. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
+  medium would read and write. If a run is killed before it uploads and the local copy expires
+  before the re-run, the re-run with `--from-local` abandons that move by name
+  (`local_copy_gone`) rather than reading the old copy at a cost the dry run didn't show. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
 
 - **The refusal for a schema version this build doesn't carry now says when it was applied**
   (#1583). The engine reads `applied_at` from the `schema_migrations` row and prints it in UTC

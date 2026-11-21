@@ -142,6 +142,10 @@ var (
 	// The copy is left exactly as it is. It also wraps ErrClassUnavailable,
 	// the class every key problem already is (#1317).
 	ErrReencryptSourceKeyUnavailable = errors.New("placement: the key the copy was written under cannot be resolved")
+
+	// ErrReencryptLocalCopyGone: a --from-local run resumed a move that had
+	// uploaded nothing, and the artifact's local copy is gone (#1545).
+	ErrReencryptLocalCopyGone = errors.New("placement: the local copy this re-encryption was to be written from is gone")
 )
 
 // consentJournal is the slice of the journal the opt-in lives in. *state.Journal
@@ -365,6 +369,12 @@ func (e *Engine) EncryptExisting(ctx context.Context, plans []Plan) (CycleReport
 		budget--
 		report.Resumed++
 		handled[mv.Artifact.String()] = true
+		if out, gone, err := e.abandonIfLocalCopyGone(ctx, mv, wanted); err != nil {
+			return report, err
+		} else if gone {
+			report.record(out)
+			continue
+		}
 		report.record(e.advanceEncryptExisting(ctx, mv, true))
 	}
 
@@ -663,4 +673,44 @@ func (e *Engine) copyFromLocal(ctx context.Context, mv state.Move, local state.P
 			ErrClassRefused, ErrEncryptExistingNotRequired, mv.Artifact)
 	}
 	return e.copyEncryptedToMedium(ctx, mv, local)
+}
+
+// abandonIfLocalCopyGone is #1545's rule for a resumed move. A run that asked
+// for --from-local and finds a consented re-encryption that has uploaded
+// nothing yet (PLANNED or COPYING), whose artifact no longer has an ACTIVE
+// local copy, abandons it by name instead of carrying it on as an ordinary
+// re-encryption: that would read the old copy, which is egress the dry run did
+// not show. The destination and staging are discarded and the old copy is
+// untouched (the documented cancel state). From COPIED on the upload already
+// happened and finishing it reads nothing from the old copy, so those moves
+// are left to finish. The way to read the old copy is a run without
+// --from-local, which the sentence names.
+func (e *Engine) abandonIfLocalCopyGone(ctx context.Context, mv state.Move, wanted map[string]Plan) (Outcome, bool, error) {
+	p, ok := wanted[mv.Artifact.String()]
+	if !ok || !p.FromLocal || !p.Reencrypt || mv.SourceMedium == state.MediumLocal {
+		return Outcome{}, false, nil
+	}
+	if ph := Phase(mv.Phase); ph != Planned && ph != Copying {
+		return Outcome{}, false, nil
+	}
+	encrypted, err := e.sourceIsEncrypted(ctx, mv.Artifact, mv.SourceMedium)
+	if err != nil || !encrypted {
+		return Outcome{}, false, err
+	}
+	rec, err := e.Journal.Get(ctx, mv.Artifact)
+	if err != nil {
+		return Outcome{}, false, err
+	}
+	if _, has := activeLocal(rec); has {
+		return Outcome{}, false, nil
+	}
+	why := "the local copy this re-encryption was to be written from is gone, so the move was abandoned rather than read from the old copy; run the dry run again, and run without --from-local to read it from the old copy"
+	next, err := e.abandon(ctx, mv, why)
+	if err != nil {
+		return Outcome{}, false, err
+	}
+	return Outcome{
+		Artifact: mv.Artifact, MoveID: mv.ID, Resumed: true, Phase: Phase(next.Phase),
+		Refused: why, Err: fmt.Errorf("%w: %s", ErrReencryptLocalCopyGone, mv.Artifact),
+	}, true, nil
 }

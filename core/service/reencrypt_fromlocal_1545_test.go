@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -174,5 +176,14 @@ func TestARunWithFromLocalWritesTheNewCopyFromTheLocalCopy_1545(t *testing.T) {
 	enc, ok, err := f.b.journal.PlacementEncryption(ctx, kept, "other")
 	if err != nil || !ok || enc.KeyID == oldKey {
 		t.Fatalf("the new copy's record is %+v (ok=%v err=%v), want it under the active key", enc, ok, err)
+	}
+}
+
+// The abandon of D4 has its own stable refusal code, shared by the run report
+// and the dry-run vocabulary.
+func TestTheLocalCopyGoneRefusalHasItsOwnCode_1545(t *testing.T) {
+	err := fmt.Errorf("%w: a/b/c", placement.ErrReencryptLocalCopyGone)
+	if code, ok := encryptExistingRefusal(err); !ok || code != "local_copy_gone" {
+		t.Fatalf("code %q ok=%v, want local_copy_gone", code, ok)
 	}
 }

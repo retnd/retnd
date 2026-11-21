@@ -249,8 +249,9 @@ line, which shows the dry run before anything moves.
 - Beside a serving engine the run is that engine's operation, and `retnd assurance cancel` and
   the browser's Cancel stop it alike.
 - `--dry-run` also prints, per medium, the most a run would read and write (the new copy is an
-  upper bound, with the decrypt-verify read-back counted), and how many copies have no recorded
-  size and so are not in the totals.
+  upper bound, with the decrypt-verify read-back counted; a resumed run reads it once more), and
+  how many copies have no recorded size and so are not in the totals. Bytes read from the local
+  copies are labelled as not egress.
 
 ### An artifact that still has a local copy: `--from-local`
 
@@ -283,9 +284,14 @@ retnd encryption reencrypt --key kOLD --from-local --to offsite
 - One run at a time, started by you, never by a rotation or a schedule. Over HTTP it is
   `from_local` on the same two routes; it adds no route, and an agent cannot start it or plan it
   (both routes are named refusals in the agent catalogue).
-- If a run is killed and the local copy has expired before you re-run it, the re-run is an
-  ordinary re-encryption that reads the old copy, so it needs the old key and pays the egress.
-  The old copy stays until the new one verifies in every case.
+- If a run is killed before it uploads anything and the local copy has expired before you re-run
+  it, the re-run with `--from-local` abandons the interrupted move and says so (`local_copy_gone`)
+  instead of quietly reading the old copy, so you are never billed for egress the dry run did not
+  show. The old copy is untouched. Run the dry run again, which now lists that copy as a `move`
+  with its bytes, and a run without `--from-local` reads it from the old copy (so does a re-run
+  with a different selector, which resumes the interrupted move as an ordinary one). A run killed
+  after the upload finishes without the old copy or the old key. The old copy stays until the new
+  one verifies in every case.
 
 ## Managed keys and external keys
 
