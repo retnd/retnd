@@ -91,7 +91,7 @@ func insertRetirement(ctx context.Context, tx *sql.Tx, artifactRowID int64, t Tr
 		`INSERT INTO artifact_retirements
 		   (artifact_id, transition_key, retired_at, actor_kind, actor, source_check, superseded_by, failure_reason, note)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		artifactRowID, t.Key, formatTime(t.OccurredAt), r.ActorKind, r.Actor, r.SourceCheck, r.SupersededBy,
+		artifactRowID, t.Key, formatTime(t.OccurredAt), r.ActorKind, r.Actor, r.SourceCheck, redact.Filter(r.SupersededBy),
 		redact.Filter(r.FailureReason), redact.Filter(r.Note),
 	); err != nil {
 		return fmt.Errorf("state: record retirement: %w", err)

@@ -105,6 +105,9 @@ func cmdUnconfigured(args []string) int {
 func printUnconfiguredSet(u app.UnconfiguredSet) {
 	fmt.Printf("%s: %d artifact(s), %d retained, %d stranded, %d quarantined, %d failed, %d byte(s) on storage\n",
 		u.Set, u.Artifacts, u.Retained, u.Stranded, u.Quarantined, u.Failed, u.Bytes)
+	if u.Retired > 0 {
+		fmt.Printf("  %d of them retired (a failure nobody needs to act on any more).\n", u.Retired)
+	}
 	fmt.Println("  retention policy: none. This backup set's configuration was removed, so no policy ages these")
 	fmt.Println("  backups out and nothing here will ever delete them. Create the set again to put them back")
 	fmt.Println("  under a policy, or remove the files yourself.")

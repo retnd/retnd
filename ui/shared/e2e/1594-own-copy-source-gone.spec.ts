@@ -117,7 +117,7 @@ test.describe("#1594 a failed backup with its own copy at the final name and its
     await openRetire(page);
     const row = dialog(page).getByTestId("retire-row-" + WEEK34);
     await dialog(page).getByRole("checkbox", { name: /could not be verified/ }).check();
-    await expect(dialog(page).getByTestId("retire-reask-error")).toContainText("Retire stays off until it answers");
+    await expect(dialog(page).getByTestId("retire-reask-error")).toContainText("Retire is off");
     await expect(dialog(page).getByRole("button", { name: /^Retire/ }).last()).toBeDisabled();
     await expect(row).toContainText("its own copy is at its final name");
     await expect(row.getByRole("button", { name: "Retry instead" })).toBeVisible();
