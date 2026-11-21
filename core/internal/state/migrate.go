@@ -296,6 +296,11 @@ func describeAppliedAt(raw string) string {
 	}
 	t, err := parseTime(raw)
 	if err != nil {
+		if r := []rune(raw); len(r) > 80 {
+			// A damaged row can hold anything; keep the refusal one readable line.
+			return fmt.Sprintf("applied %q, not a timestamp", string(r[:80])+"...")
+		}
+
 		return fmt.Sprintf("applied %q, not a timestamp", raw)
 	}
 

@@ -131,6 +131,7 @@ func TestMigrate_UnknownVersionRefusalSaysWhenItWasApplied(t *testing.T) {
 		{"keeps fractional seconds", "2026-11-21T04:10:00.123456789Z", "(applied 2026-11-21T04:10:00.123456789Z)"},
 		{"offset is converted to utc", "2026-11-21T06:10:00+02:00", "(applied 2026-11-21T04:10:00Z)"},
 		{"no recorded time", "", "version 99999 (applied time not recorded) is recorded in the database but not compiled into this binary"},
+		{"long unparseable time is cut", strings.Repeat("x", 5000), `(applied "` + strings.Repeat("x", 80) + `...", not a timestamp)`},
 		{"unparseable time is shown as stored", "last tuesday", `(applied "last tuesday", not a timestamp)`},
 	}
 	for _, tc := range tests {
@@ -172,7 +173,7 @@ func TestMigrate_UnknownVersionRefusalNamesTheLowest(t *testing.T) {
 	for _, r := range []struct {
 		v  int
 		at string
-	}{{99998, "2026-11-21T04:10:00Z"}, {99999, "2026-11-22T04:10:00Z"}} {
+	}{{100000, "2026-11-23T04:10:00Z"}, {99999, "2026-11-21T04:10:00Z"}, {1000000, "2026-11-24T04:10:00Z"}} {
 		if _, err := db.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, 'x', 'deadbeef', ?)`, r.v, r.at,
 		); err != nil {
@@ -181,7 +182,7 @@ func TestMigrate_UnknownVersionRefusalNamesTheLowest(t *testing.T) {
 	}
 	for i := 0; i < 20; i++ {
 		err := migrate(ctx, db)
-		if err == nil || !strings.Contains(err.Error(), "version 99998 (applied 2026-11-21T04:10:00Z)") {
+		if err == nil || !strings.Contains(err.Error(), "version 99999 (applied 2026-11-21T04:10:00Z)") {
 			t.Fatalf("run %d: error = %v, want the lowest unknown version with its time", i, err)
 		}
 	}
