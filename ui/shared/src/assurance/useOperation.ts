@@ -16,6 +16,7 @@
  * The cursor only moves forward.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { describeFailure } from "@shared/api/failure";
 import { NotOnRecord } from "./realAssurance";
 import type { AssuranceApi, Operation, OperationEvent } from "./types";
@@ -193,17 +194,18 @@ export function useOperation(
   // The service accepted a cancel, which the next reading will confirm; it
   // is said now rather than a poll later, on this holder's view.
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const mountedRef = useMounted();
 
   const cancel = useCallback(async () => {
     if (!api || !operationId) return;
     setRefusal(null);
     try {
       await api.cancelOperation(operationId);
-      setCancelling(operationId);
+      if (mountedRef.current) setCancelling(operationId);
     } catch (e) {
-      setRefusal({ id: operationId, message: describeFailure(e, "could not cancel").message });
+      if (mountedRef.current) setRefusal({ id: operationId, message: describeFailure(e, "could not cancel").message });
     }
-  }, [api, operationId]);
+  }, [api, operationId, mountedRef]);
 
   const shown = operation && cancelling === operationId && operation.state === "running" && !operation.cancelling
     ? { ...operation, cancelling: true }

@@ -36,6 +36,7 @@ import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/RetentionBadge";
 import { StatusBadge } from "@shared/components/StatusBadge";
+import { Banner } from "@shared/components/Banner";
 import { Icon } from "@shared/design-system/icons";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { isNotConfigured } from "@shared/api/failure";
@@ -74,6 +75,7 @@ import { filterEcho, rowMenuGroups } from "./backupRowMenu";
 import type { MenuRun } from "./backupRowMenu";
 import { useBatchedSearchParams } from "./useBatchedSearchParams";
 import { useRowMenuRuns } from "./useRowMenuRuns";
+import { RetireDialog } from "./RetireDialog";
 
 /** Called "Backups", never "Restore points" — the product does not perform
  *  application restore (§13). */
@@ -184,6 +186,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const startTest = useStable((a: BackupArtifact) => void rowRuns.test(a));
   const startScrub = useStable((a: BackupArtifact) => void rowRuns.scrub(a));
   const startRetry = useStable((a: BackupArtifact) => void rowRuns.retry(a));
+  // Issue #1528: the backup the Retire dialog is open for, from its row menu.
+  const [retiring, setRetiring] = useState<BackupArtifact | null>(null);
+  const openRetire = useStable((a: BackupArtifact) => setRetiring(a));
   // Adjusted while rendering rather than in an effect: it is derived from the
   // list and has nothing outside React to synchronise with.
   const unfilteredCount = !setFilter && artifacts.data ? artifacts.data.length : null;
@@ -285,6 +290,24 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
 
   return (
     <>
+      {retiring ? (
+        <RetireDialog
+          artifactId={retiring.id}
+          readOnly={readOnly}
+          onRetry={() => {
+            const a = retiring;
+            setRetiring(null);
+            startRetry(a);
+          }}
+          onClose={(changed) => {
+            setRetiring(null);
+            // The selection is left alone: the dialog is opened from one
+            // row's menu, and an operator may have ticked other backups to
+            // recover before retiring this one.
+            if (changed) artifacts.reload();
+          }}
+        />
+      ) : null}
       <PageHeader
         title="Backups"
         tip="nav.backups"
@@ -351,6 +374,22 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           </>
         }
       />
+      {/* Issue #1528, the design's "When retnd does it for you": a retirement
+          the engine made on its own is said here once, with a way to the
+          backup, so a set turning Healthy by itself is never a surprise. */}
+      {(() => {
+        const auto = (artifacts.data ?? []).filter((a) => a.state === "RETIRED" && a.retirement?.actorKind === "automatic");
+        if (auto.length === 0) return null;
+        return (
+          <Banner tone="info" dismissKey={"auto-retired:" + auto.map((a) => a.id).join(",")} style={{ marginBottom: 12 }}>
+            <span data-testid="auto-retired-notice">
+              <strong>{"retnd retired " + auto.length + (auto.length === 1 ? " failed backup" : " failed backups") + " on its own."}</strong>{" "}
+              {"The source file was gone from the host and a newer good backup exists, so the record is kept as Retired. "}
+              <Link to={artifactPath(auto[0].id)}>See it</Link>
+            </span>
+          </Banner>
+        );
+      })()}
 
       {/*
         artifacts.data is null while still loading and [] once genuinely
@@ -497,6 +536,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                     onTest={startTest}
                     onScrub={startScrub}
                     onRetry={startRetry}
+                    onRetire={openRetire}
                   />
                 ))}
               </tbody>
@@ -618,7 +658,7 @@ const NO_GROUPS: never[] = [];
  *  and a table of a hundred rows should not be rebuilt each time (#1202). */
 const BackupRow = memo(function BackupRow({
   a, canRecover, showsMedium, showsEncryption, ticked, facts, claimsAvailable, menuAt, menuCtx,
-  onOpenBackup, onToggle, onOpenMenu, onCloseMenu, onRecover, onTest, onScrub, onRetry
+  onOpenBackup, onToggle, onOpenMenu, onCloseMenu, onRecover, onTest, onScrub, onRetry, onRetire
 }: {
   a: BackupArtifact;
   canRecover: boolean;
@@ -637,6 +677,7 @@ const BackupRow = memo(function BackupRow({
   onTest(a: BackupArtifact): void;
   onScrub(a: BackupArtifact): void;
   onRetry(a: BackupArtifact): void;
+  onRetire(a: BackupArtifact): void;
 }) {
   const open = menuAt !== null;
   return (
@@ -693,7 +734,19 @@ const BackupRow = memo(function BackupRow({
         <td data-encryption-list-cell=""><PlacementEncryptionChips placements={a.placements} /></td>
       ) : null}
       <td style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", whiteSpace: "nowrap" }}>
-        {a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
+        {/* Issue #1528: a retired or failed backup says so here, since it has
+            no remote-source story to tell. */}
+        {a.state === "RETIRED" ? (
+          <span style={{ display: "grid", gap: 2 }}>
+            <span><StatusBadge tone="neutral" icon="status-idle">Retired</StatusBadge></span>
+            <span>
+              {a.retirement?.supersededBy ? "Replaced by " + a.retirement.supersededBy : "Nothing replaces it"}
+              {a.retirement?.actorKind === "automatic" ? " (retired automatically)" : ""}
+            </span>
+          </span>
+        ) : a.state === "FAILED" ? (
+          <StatusBadge tone="danger" icon="failure">Failed</StatusBadge>
+        ) : a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
       </td>
       {/* The trigger's cell never navigates: the row's click is stopped here,
           like the checkbox cell's. It is also the one cell whose right-click
@@ -717,6 +770,7 @@ const BackupRow = memo(function BackupRow({
             onTest: () => onTest(a),
             onScrub: () => onScrub(a),
             onRetry: () => onRetry(a),
+            onRetire: () => onRetire(a),
             onOpen: () => onOpenBackup(a)
           }) : NO_GROUPS}
         />

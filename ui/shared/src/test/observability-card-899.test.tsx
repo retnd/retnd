@@ -4,7 +4,7 @@
  * scrape credential's one-time reveal.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
@@ -27,9 +27,13 @@ describe("the Observability card on Settings", () => {
     const box = await screen.findByLabelText("Serve the scrape endpoint");
     expect((box as HTMLInputElement).checked).toBe(false);
     expect(screen.getByTestId("scrape-token-state").textContent).toMatch(/No scrape token has been minted/);
-    const summary = screen.getByTestId("observability-summary");
-    expect(within(summary).getByText("info (from config)")).toBeTruthy();
-    expect(within(summary).getByText("platform")).toBeTruthy();
+    // The log level is the select LogLevelControl renders (#900) and the
+    // in-force line under it, not a read-only row above them (#1591), the
+    // same way the delivery is the select AlertDeliveryControls renders (#901).
+    expect(((screen.getByLabelText("Log level", { exact: true })) as HTMLSelectElement).value).toBe("info");
+    expect(screen.getByTestId("logs-level-in-force").textContent).toContain("In force: info (from config)");
+    expect(((await screen.findByLabelText("Alert delivery")) as HTMLSelectElement).value).toBe("platform");
+    expect(screen.queryByTestId("observability-summary")).toBeNull();
   });
 
   it("turns the endpoint on through the engine and reports what the engine now says", async () => {

@@ -14,6 +14,7 @@
  * rules out.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
@@ -42,15 +43,16 @@ export function CatalogRecoveryPage({ readOnly }: { readOnly: boolean }) {
   // refused.
   const [failure, setFailure] = useState<OperatorFailure | null>(null);
   const configured = useCausl(configuredNode);
+  const mountedRef = useMounted();
 
   const scan = () => {
     setScanning(true);
     setFailure(null);
     api
       .scanCatalog()
-      .then(setPreview)
-      .catch((e: unknown) => setFailure(describeFailure(e, "The scan of backup storage did not run.")))
-      .finally(() => setScanning(false));
+      .then((p) => { if (mountedRef.current) setPreview(p); })
+      .catch((e: unknown) => { if (mountedRef.current) setFailure(describeFailure(e, "The scan of backup storage did not run.")); })
+      .finally(() => { if (mountedRef.current) setScanning(false); });
   };
 
   return (
@@ -183,12 +185,15 @@ export function CatalogRecoveryPage({ readOnly }: { readOnly: boolean }) {
           api
             .rebuildCatalog()
             .then(() => {
+              // Gone already: whoever left the page isn't taken to Backups.
+              if (!mountedRef.current) return;
               setConfirming(false);
               navigate("/backups");
             })
             // Same silent-failure shape as the scan above: a refused
             // rebuild left the dialog open with no explanation.
             .catch((e: unknown) => {
+              if (!mountedRef.current) return;
               setConfirming(false);
               setFailure(describeFailure(e, "The catalog was not rebuilt."));
             })

@@ -308,8 +308,10 @@ def body(root: Path, dry_run: bool) -> int:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 
-        def mutant(name: str) -> Path:
-            return selftest_swap.mutant(root, tmp, name, dry_run=dry_run)
+        # One copy on disk at a time (#1580): the next case's copy replaces this one.
+        mutant = selftest_swap.one_at_a_time(
+            lambda name: selftest_swap.mutant(root, tmp, name, dry_run=dry_run), root
+        )
 
         print("==> R1 negative control: the racing test is clean under -race on the real tree")
         expect_gate_passes(tracker, tally, "core/service under -race, unmutated", root)

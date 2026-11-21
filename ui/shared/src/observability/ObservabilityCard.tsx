@@ -4,11 +4,17 @@
  * Three integrations an operator points other software at: a Prometheus
  * scrape endpoint, a log stream and an alert channel. #899 lands the first
  * sub-section (the endpoint's switch, its report cache and its credential);
- * the log level (#900) and the alert delivery (#901) are added under their
- * own tooltip prefixes (`observability.logs.*`, `observability.alerts.*`) so
- * the registry diff does not conflict. Until then those two are read-only
- * statements of fact, which need no tooltip: a field whose effect cannot yet
- * be stated gets no pop-up (docs/epic-checklist.md section 5).
+ * the log level (#900, LogLevelControl) and the alert delivery (#901,
+ * AlertDeliveryControls) sit under their own tooltip prefixes
+ * (`observability.logs.*`, `observability.alerts.*`). Each is shown once, as
+ * its control: the read-only rows that stood in for them before they were
+ * controls are gone (#1518, #1591).
+ *
+ * Every input has a three-part field help entry, and its visible label
+ * carries its registry tooltip (#1604), the shape the metrics controls here
+ * and the suite picker in encryption/SuiteControls.tsx already use: the
+ * tooltip on the label and the field help on the control, so one hover never
+ * opens two pop-ups over each other.
  *
  * Nothing here is per backup set: a scrape endpoint, a log stream and an alert
  * channel are properties of a deployment.
@@ -22,9 +28,11 @@
  * browser has to be able to wire Prometheus.
  */
 import { useEffect, useId, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
 import type { MintedScrapeToken, ObservabilitySettings } from "@shared/api/contracts";
+import { AlertDeliveryControls } from "@shared/observability/AlertDeliveryControls";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -32,6 +40,7 @@ import { insecureAckRequiredNow, useDestructiveGate } from "@shared/hooks/useDes
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
+import { LogLevelControl } from "./LogLevelControl";
 import { metricsEnabledCommand, mintScrapeTokenCommand, metricsIntervalCommand } from "./observabilityCommands";
 
 export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
@@ -47,6 +56,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
   const enabledId = useId();
   const intervalId = useId();
   const tokenField = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useMounted();
 
   useEffect(() => {
     let live = true;
@@ -66,12 +76,13 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
     setError(null);
     try {
       const s = await api.patchObservabilitySettings(patch);
+      if (!mountedRef.current) return;
       setSettings(s);
       setInterval(String(s.metrics.minRebuildIntervalSeconds));
     } catch (e) {
-      setError(describeFailure(e, "could not save").message);
+      if (mountedRef.current) setError(describeFailure(e, "could not save").message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -82,19 +93,25 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
     // encrypted gets the same question a password gets.
     const ask = await insecureAckRequiredNow(api, gate);
     if (ask && !(await acknowledgeInsecureTransport())) {
+      if (!mountedRef.current) return;
       setError("Nothing was minted. This connection is not encrypted, and the token comes back over this connection, so the request was not sent.");
       setBusy(false);
       return;
     }
+    // Gone before the request went: a token minted now would have a secret
+    // nobody could ever see, so none is asked for.
+    if (!mountedRef.current) return;
     try {
       const answer = await api.mintScrapeToken();
+      if (!mountedRef.current) return;
       setMinted(answer);
       setCopied(false);
-      setSettings(await api.getObservabilitySettings());
+      const s = await api.getObservabilitySettings();
+      if (mountedRef.current) setSettings(s);
     } catch (e) {
-      setError(describeFailure(e, "the scrape token was not minted").message);
+      if (mountedRef.current) setError(describeFailure(e, "the scrape token was not minted").message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -111,7 +128,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
       </div>
       <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <p style={{ margin: 0, color: "var(--text-2)" }}>
-          What this deployment offers to Prometheus, a log shipper and an alert receiver. All of it is off until you turn it on, and none of it is per backup set.
+          What this deployment offers to Prometheus, a log shipper and an alert receiver. The engine always writes its log, at info unless you choose another level here or RETND_DEBUG or LOG_LEVEL says otherwise. The scrape endpoint is off until you turn it on, alerts go through the platform's own notifier until you choose a webhook, and none of it is per backup set.
         </p>
         {notConfigured ? (
           <p style={{ margin: 0 }} data-testid="observability-not-configured">Nothing is configured yet, so there are no observability settings to show.</p>
@@ -203,7 +220,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
                       onFocus={(e) => e.currentTarget.select()}
                     />
                     <InfoTooltip id="observability.metrics.copy">
-                      <button type="button" className="btn btn--strong-edge" onClick={() => void copyText(minted.token, tokenField.current).then((r) => setCopied(r === "copied"))}>Copy</button>
+                      <button type="button" className="btn btn--strong-edge" onClick={() => void copyText(minted.token, tokenField.current).then((r) => { if (mountedRef.current) setCopied(r === "copied"); })}>Copy</button>
                     </InfoTooltip>
                   </div>
                   <span role="status" aria-live="polite" className="visually-hidden">{copied ? "Copied" : ""}</span>
@@ -218,14 +235,11 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
                 </div>
               ) : null}
             </div>
-
-            <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "max-content 1fr", gap: "6px 16px" }} data-testid="observability-summary">
-              <dt style={{ color: "var(--text-2)" }}>Log level</dt>
-              <dd style={{ margin: 0 }} data-observability-row="logs">{settings.logs.levelInForce + " (from " + settings.logs.levelSource + ")"}</dd>
-              <dt style={{ color: "var(--text-2)" }}>Alert delivery</dt>
-              <dd style={{ margin: 0 }} data-observability-row="alerts">{settings.alerts.delivery}</dd>
-            </dl>
           </>
+        )}
+        {settings ? <LogLevelControl logs={settings.logs} readOnly={readOnly} onSaved={setSettings} /> : null}
+        {settings && (
+          <AlertDeliveryControls alerts={settings.alerts} readOnly={readOnly} onSaved={setSettings} />
         )}
         {error ? (
           <div role="alert" style={{ color: "var(--text)", border: "1px solid var(--danger)", background: "var(--danger-quiet)", borderRadius: "var(--radius-md)", padding: 8 }} data-testid="observability-error">{error}</div>

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // EPIC O's settings surface (#898; FR-103): the deployment-wide
@@ -67,8 +68,12 @@ type ObservabilityAlertsSettings struct {
 // ObservabilityWebhookSettings is `observability.alerts.webhook`. The URL is
 // a credential, so a read says only whether one is set.
 type ObservabilityWebhookSettings struct {
-	Dialect           string
-	URLSet            bool
+	Dialect string
+	URLSet  bool
+	// URLStatus is what the last read of the URL found (ok, unresolvable,
+	// invalid, unknown), or empty when delivery is not the webhook or
+	// alerting is off. It is a state, never the URL.
+	URLStatus         string
 	AllowInsecureHTTP bool
 	RefreshInterval   time.Duration
 	ResolveTTL        time.Duration
@@ -95,10 +100,22 @@ func (r UpdateObservabilitySettingsRequest) isEmpty() bool {
 
 // ObservabilitySettings reports the block as this process is running it.
 func (b *BackupService) ObservabilitySettings(_ context.Context) (ObservabilitySettings, error) {
-	s := observabilitySettingsOf(b.state.Load().inner.Config)
+	s := b.currentAlertSettings()
 	s.Metrics.ScrapeToken = b.ScrapeTokenState()
 
 	return s, nil
+}
+
+// currentAlertSettings is the resolved block plus the one fact only the
+// running dispatcher knows: whether the webhook URL can be read right now.
+func (b *BackupService) currentAlertSettings() ObservabilitySettings {
+	inner := b.state.Load().inner
+	out := observabilitySettingsOf(inner.Config)
+	if out.Alerts.Delivery == config.ObservabilityDeliveryWebhook {
+		out.Alerts.Webhook.URLStatus = inner.Alerts.DestinationStatus()
+	}
+
+	return out
 }
 
 func observabilitySettingsOf(cfg *config.Config) ObservabilitySettings {
@@ -109,11 +126,7 @@ func observabilitySettingsOf(cfg *config.Config) ObservabilitySettings {
 			Enabled:            o.Metrics.Enabled,
 			MinRebuildInterval: o.Metrics.MinRebuildInterval,
 		},
-		Logs: ObservabilityLogsSettings{
-			Level:        o.Logs.Level,
-			LevelInForce: o.Logs.Level,
-			LevelSource:  LogLevelSourceConfig,
-		},
+		Logs: logsSettingsOf(o.Logs.Level),
 		Alerts: ObservabilityAlertsSettings{
 			Delivery: o.Alerts.Delivery,
 			Webhook: ObservabilityWebhookSettings{
@@ -125,6 +138,60 @@ func observabilitySettingsOf(cfg *config.Config) ObservabilitySettings {
 			},
 		},
 	}
+}
+
+// configuredLogFloor parses observability.logs.level. Validate has already
+// refused anything but the four names, so the default arm is unreachable for
+// a loaded config and is INFO, the default floor, for a hand-built one.
+func configuredLogFloor(level string) obs.Level {
+	switch level {
+	case config.ObservabilityLogLevelDebug:
+		return obs.LevelDebug
+	case config.ObservabilityLogLevelWarn:
+		return obs.LevelWarn
+	case config.ObservabilityLogLevelError:
+		return obs.LevelError
+	default:
+		return obs.LevelInfo
+	}
+}
+
+// logsSettingsOf reports the configured floor, the one in force once the
+// environment has had its say (obs.ResolveLevel), and which of the two won.
+func logsSettingsOf(configured string) ObservabilityLogsSettings {
+	level, src := obs.ResolveLevel(configuredLogFloor(configured))
+	source := LogLevelSourceEnvironment
+	if src == obs.LevelSourceConfig {
+		source = LogLevelSourceConfig
+	}
+	return ObservabilityLogsSettings{
+		Level:        configured,
+		LevelInForce: levelName(level),
+		LevelSource:  source,
+	}
+}
+
+func levelName(l obs.Level) string {
+	switch l {
+	case obs.LevelDebug:
+		return config.ObservabilityLogLevelDebug
+	case obs.LevelWarn:
+		return config.ObservabilityLogLevelWarn
+	case obs.LevelError:
+		return config.ObservabilityLogLevelError
+	default:
+		return config.ObservabilityLogLevelInfo
+	}
+}
+
+// applyLogFloor puts the floor this configuration resolves to on logger.
+// It runs where the configuration is first read (OpenWith) and on a reload
+// that changed the configured level, so the logger the process already holds
+// follows a PATCH with no restart. It governs the engine only: the web-ui
+// container has no config.yaml and reads the environment alone.
+func applyLogFloor(logger *obs.Logger, cfg *config.Config) {
+	level, _ := obs.ResolveLevel(configuredLogFloor(cfg.Observability.Logs.Level))
+	logger.SetFloor(level)
 }
 
 // UpdateObservabilitySettings patches the block and hot-reloads this
@@ -202,7 +269,7 @@ func (b *BackupService) UpdateObservabilitySettings(_ context.Context, req Updat
 		return ObservabilitySettings{}, err
 	}
 
-	s := observabilitySettingsOf(b.state.Load().inner.Config)
+	s := b.currentAlertSettings()
 	s.Metrics.ScrapeToken = b.ScrapeTokenState()
 
 	return s, nil

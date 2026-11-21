@@ -41,18 +41,44 @@ import (
 // read. RETND_DEBUG is the only spelling this product writes or documents.
 // The previous product name's spelling is not read at all.
 func LevelFromEnv() Level {
+	level, _ := ResolveLevel(LevelInfo)
+	return level
+}
+
+// Where ResolveLevel's answer came from, reported by GET
+// /settings/observability so "why is it not debug" is never a guess.
+const (
+	LevelSourceRetndDebug = "RETND_DEBUG"
+	LevelSourceLogLevel   = "LOG_LEVEL"
+	LevelSourceConfig     = "config"
+)
+
+// ResolveLevel ranks the three places a log floor can come from (FR-100):
+// RETND_DEBUG=1 (and its deprecated alias RM_DEBUG=1) first, then a parseable
+// LOG_LEVEL, then the configured floor (observability.logs.level). It returns
+// the level and which of the three it came from.
+//
+// The environment wins because a diagnostic knob an operator reaches for
+// during an incident must not need a config edit and a reload. An unset or
+// unparseable LOG_LEVEL defers to the configured floor rather than to INFO,
+// which is the same answer whenever nothing is configured (the floor
+// defaults to info), so a deployment that never writes the block sees no
+// change. "info" is a real LOG_LEVEL answer and beats a quieter floor.
+func ResolveLevel(configured Level) (Level, string) {
 	if debugShortcut() {
-		return LevelDebug
+		return LevelDebug, LevelSourceRetndDebug
 	}
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))) {
 	case "debug":
-		return LevelDebug
+		return LevelDebug, LevelSourceLogLevel
+	case "info":
+		return LevelInfo, LevelSourceLogLevel
 	case "warn":
-		return LevelWarn
+		return LevelWarn, LevelSourceLogLevel
 	case "error":
-		return LevelError
+		return LevelError, LevelSourceLogLevel
 	default:
-		return LevelInfo
+		return configured, LevelSourceConfig
 	}
 }
 

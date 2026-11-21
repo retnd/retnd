@@ -1,0 +1,18 @@
+# encryption self-test controls that need more than Go, and which lanes (bdtools/selftest_lanes.py).
+# A gate host without a lane skips those controls into the gate's skip ledger. Edit this
+# file in the same change as a control that starts or stops needing a lane.
+chromium-lane	CAP the capture clock left unpinned
+chromium-lane	CAP a post-quantum recipient drawn in a captured still
+chromium-lane	CAP a post-quantum recipient drawn in a GIF frame
+retnd-tests	RT any suite id passes Validate, under Suite A
+retnd-tests	RT the policy line always reports age-pq/v1 as the suite in force, under Suite A
+chromium-lane	UI the suite change saves without the rotate step
+chromium-lane	UI Verified recoverable drawn with the glyph and colours of Encrypted
+node	UI the per-set encryption control taken off the set card
+node	UI a tooltip entry that nothing in the app names
+node	UI the suite field help without its effect
+node	UI pop-ups that never open with tooltips on
+node	UI the Encrypting stage dropped from the progress checklist
+node	UI following a running decrypt-verify starts a second one
+node	UI the exported key material kept in local storage
+chromium-lane	docs site the secondary text lightened under 4.5 to 1 in the light theme

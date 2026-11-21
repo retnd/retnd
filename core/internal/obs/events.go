@@ -155,6 +155,18 @@ const (
 	// reconciler did about a mismatch.
 	EventReconciliation = "reconciliation"
 
+	// EventArtifactRetired records a FAILED artifact moving to RETIRED
+	// (issue #1528), with who or what retired it, what the source looked
+	// like and which artifact supersedes it. An automatic retirement is a
+	// warn line, so `activity --severity warn` finds every one the engine
+	// made by itself; an operator's is info.
+	EventArtifactRetired = "artifact_retired"
+
+	// EventArtifactUnretired records a RETIRED artifact going back into the
+	// pipeline because the object its retirement called gone was listed
+	// again (issue #1528).
+	EventArtifactUnretired = "artifact_unretired"
+
 	// EventRetention records one FR-18/FR-19 GFS retention verdict for a
 	// single artifact.
 	EventRetention = "retention"
@@ -188,6 +200,15 @@ const (
 	// so the log answers "who was told what, and when" rather than
 	// re-stating a still-unresolved condition on every poll.
 	EventAlert = "alert"
+
+	// EventAlertDestination records the alert destination changing between
+	// readable and not (EPIC O, #901): a webhook URL reference that stopped
+	// reading, or read and is not an acceptable URL, and the moment it reads
+	// again. One line per CHANGE, never one per pass, for EventAlert's
+	// reason: the feed has to answer "since when has nobody been told
+	// anything", and a line per poll buries that answer. It carries the
+	// state and the reason, never the URL.
+	EventAlertDestination = "alert_destination"
 
 	// EventAPIAction records one action somebody took through the
 	// /api/v1 surface: what was asked, by whom, what came back, and the
@@ -435,11 +456,18 @@ const (
 // runtime.Version(). None of these are secret; they exist to make "which
 // build is this" answerable from a log line alone, without shelling into
 // the host to run `retnd version`.
+//
+// log_schema is the version of the log line's field schema (FR-100,
+// LogSchemaVersion). It lives here and in the shipped pipelines' schema
+// stream label, and is deliberately not a field of every line. So the line
+// is written whatever the floor is: at warn or error it would otherwise be
+// the one line a deployment never sees, and with it the schema version.
 func (l *Logger) Startup(ctx context.Context, binaryVersion, commit, goVersion string) {
-	l.emit(ctx, LevelInfo, EventStartup, cliecho.Binary+" starting",
+	l.emitMarked(ctx, LevelInfo, mark{pastFloor: true}, EventStartup, cliecho.Binary+" starting",
 		slog.String("version", binaryVersion),
 		slog.String("commit", commit),
 		slog.String("go_version", goVersion),
+		slog.String("log_schema", LogSchemaVersion),
 	)
 }
 
@@ -657,6 +685,29 @@ func (l *Logger) Reconciliation(ctx context.Context, artifact, scenario, action 
 	)
 }
 
+// ArtifactRetired logs EventArtifactRetired (issue #1528). automatic picks
+// the level: warn for the engine's own retirement, info for a person's.
+func (l *Logger) ArtifactRetired(ctx context.Context, artifact, actorKind, actor, sourceCheck, supersededBy string, automatic bool) {
+	level, result := LevelInfo, ResultInfo
+	if automatic {
+		level, result = LevelWarn, ResultWarn
+	}
+	l.emitMarked(ctx, level, mark{result: result}, EventArtifactRetired, "failed backup retired",
+		slog.String("artifact", artifact),
+		slog.String("actor_kind", actorKind),
+		slog.String("actor", actor),
+		slog.String("source_check", sourceCheck),
+		slog.String("superseded_by", supersededBy),
+	)
+}
+
+// ArtifactUnretired logs EventArtifactUnretired (issue #1528).
+func (l *Logger) ArtifactUnretired(ctx context.Context, artifact string) {
+	l.emitMarked(ctx, LevelWarn, mark{result: ResultWarn}, EventArtifactUnretired, "retired backup's source object is back; re-entering the pipeline",
+		slog.String("artifact", artifact),
+	)
+}
+
 // Retention logs EventRetention for one FR-18/FR-19 GFS retention verdict.
 // tier is the bucket the artifact was classified into ("daily", "weekly",
 // "monthly", "protected", or "" for none); decision is the resulting policy
@@ -813,6 +864,26 @@ func (l *Logger) Alert(ctx context.Context, kind, backupSet, detail string) {
 	l.emitMarked(ctx, LevelWarn, mark{result: ResultWarn}, EventAlert, "proactive alert delivered",
 		slog.String("alert_kind", kind),
 		slog.String("backup_set", backupSet),
+		slog.String("detail", detail),
+	)
+}
+
+// AlertDestination logs EventAlertDestination: the alert destination is now
+// in status ("ok", "unresolvable" or "invalid"), and detail says why when it
+// is not ok. A destination that cannot be read is the manager failing at the
+// one thing alerting is for, so it is LevelError with ResultError, unlike
+// Alert, which is the manager correctly reporting a problem it found. The
+// heal is a success at info. detail must already be free of the URL; the
+// sink's errors are built that way (internal/alert/httpsink.go).
+func (l *Logger) AlertDestination(ctx context.Context, status, detail string) {
+	if status == "ok" {
+		l.emitMarked(ctx, LevelInfo, mark{result: ResultSuccess}, EventAlertDestination, "alert destination readable again",
+			slog.String("status", status),
+		)
+		return
+	}
+	l.emitMarked(ctx, LevelError, mark{result: ResultError}, EventAlertDestination, "alert destination cannot be used, alerts are held and retried",
+		slog.String("status", status),
 		slog.String("detail", detail),
 	)
 }

@@ -9,7 +9,7 @@ import type { GateRefusalNotice } from "@shared/api/gate";
 import { NO_VALIDATOR_REASON, recoveryTestWouldBeRefused } from "@shared/assurance/verificationModel";
 import type { BackupFacts } from "@shared/assurance/verificationModel";
 import type { AssuranceApi, Operation } from "@shared/assurance/types";
-import { artifactCommand, artifactsListCommand, recoverCommand, recoveryTestArtifactCommand, retryCommand, scrubCommand } from "@shared/assurance/assuranceCommands";
+import { artifactCommand, artifactsListCommand, recoverCommand, recoveryTestArtifactCommand, retireCommand, retryCommand, scrubCommand } from "@shared/assurance/assuranceCommands";
 import type { BackupArtifact } from "@shared/types/backup";
 import { BUCKETS } from "@shared/assurance/claims";
 import { isRetryable } from "./retryIngestion";
@@ -41,6 +41,9 @@ export interface RowMenuContext {
   onTest(): void;
   onScrub(): void;
   onRetry(): void;
+  /** Issue #1528: opens the Retire dialog. Optional, so a surface without
+   *  the dialog simply does not offer the item. */
+  onRetire?(): void;
   onOpen(): void;
 }
 
@@ -140,7 +143,14 @@ export function rowMenuGroups(a: BackupArtifact, ctx: RowMenuContext): ActionMen
         disabledReason: ro("re-attempt a backup") ?? (busyRetry ? "A retry of this backup is on its way to the service." : null),
         echo: retryCommand(a.id),
         onSelect: ctx.onRetry
-      }]
+      }, ...(ctx.onRetire ? [{
+        id: "retire",
+        label: "Retire…",
+        description: "For a failed backup whose source is gone: keep the record, stop counting it as a failure. Asks the host first.",
+        disabledReason: ro("retire a backup"),
+        echo: retireCommand(a.id),
+        onSelect: ctx.onRetire
+      }] : [])]
     });
   }
   groups.push({

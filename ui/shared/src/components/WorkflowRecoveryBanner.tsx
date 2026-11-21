@@ -37,6 +37,7 @@
  * set and changes nothing on the machine.
  */
 import { useCallback, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 
 import { useApi } from "@shared/api/ApiContext";
 import { WarningBanner } from "@shared/components/WarningBanner";
@@ -98,6 +99,7 @@ export function WorkflowRecoveryBanner({
   const [failure, setFailure] = useState<string | null>(null);
   const [acknowledging, setAcknowledging] = useState(false);
   const [reason, setReason] = useState("");
+  const mountedRef = useMounted();
 
   const resume = useCallback(() => {
     setBusy("resume");
@@ -105,10 +107,12 @@ export function WorkflowRecoveryBanner({
     api
       .resumeWorkflowCleanup(hold.runId)
       .then(() => {
+        if (!mountedRef.current) return;
         setBusy(null);
         onSettled();
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setBusy(null);
         // The service's own sentence, which for this route is the
         // interesting half: a resume can be refused because the spool no
@@ -117,7 +121,7 @@ export function WorkflowRecoveryBanner({
         // reached the service from being reported as a refusal.
         setFailure(describeFailure(e, "the cleanup could not be resumed").message);
       });
-  }, [api, hold.runId, onSettled]);
+  }, [api, hold.runId, onSettled, mountedRef]);
 
   const acknowledge = useCallback(() => {
     setBusy("acknowledge");
@@ -125,16 +129,18 @@ export function WorkflowRecoveryBanner({
     api
       .acknowledgeWorkflowRecovery(hold.runId, reason)
       .then(() => {
+        if (!mountedRef.current) return;
         setBusy(null);
         setAcknowledging(false);
         setReason("");
         onSettled();
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setBusy(null);
         setFailure(describeFailure(e, "the acknowledgement was not recorded").message);
       });
-  }, [api, hold.runId, onSettled, reason]);
+  }, [api, hold.runId, onSettled, reason, mountedRef]);
 
   return (
     <WarningBanner

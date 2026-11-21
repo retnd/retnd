@@ -64,6 +64,9 @@ import (
 // The probe comes first, before the journal is opened, so a refused
 // invocation has touched nothing at all.
 func openBackupDataPlane(ctx context.Context, configPath string) (*app.Service, *config.Config, func(), error) {
+	if err := checkPreRenamePath(configPath); err != nil {
+		return nil, nil, func() {}, err
+	}
 	engine, err := detectRunningEngine(configPath)
 	if err != nil {
 		return nil, nil, func() {}, cannotTellRunError(err)

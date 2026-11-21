@@ -20,8 +20,8 @@ import (
 // copy: a tool added to or dropped from the table without the spec moving
 // fails here.
 var (
-	specRead      = []string{"status", "backup_sets_list", "backup_set_show", "backups_list", "backup_show", "copies_show", "encryption_state", "assurance_due", "assurance_show", "activity", "activity_live", "quarantine_list", "operations_list", "operation_show", "storage_mediums_list", "storage_usage", "retention_preview", "workflow_runs_list", "workflow_run_show", "confirmation_status"}
-	specOperate   = []string{"run_cycle", "run_backup_set", "recovery_test_start", "verify_copy", "scrub_start", "retry_backup", "quarantine_revalidate"}
+	specRead      = []string{"status", "backup_sets_list", "backup_set_show", "backups_list", "backup_retirement_show", "backup_show", "copies_show", "encryption_state", "assurance_due", "assurance_show", "activity", "activity_live", "quarantine_list", "operations_list", "operation_show", "storage_mediums_list", "storage_usage", "retention_preview", "workflow_runs_list", "workflow_run_show", "confirmation_status"}
+	specOperate   = []string{"run_cycle", "run_backup_set", "recovery_test_start", "verify_copy", "scrub_start", "retry_backup", "retire_backup", "quarantine_revalidate"}
 	specConfigure = []string{"backup_set_enabled", "backup_set_retention_set", "backup_set_retention_clear", "backup_set_assurance_set"}
 	specResources = []string{"retnd://status", "retnd://backup-sets", "retnd://backup-sets/{source}/{set}", "retnd://backups/{source}/{set}/{name}", "retnd://activity", "retnd://encryption", "retnd://assurance/due"}
 	specPrompts   = []string{"triage-health", "explain-backup", "prepare-recovery-test"}
@@ -182,6 +182,9 @@ func TestTheDenyListHoldsTheMaterialBearingRoutes(t *testing.T) {
 		{"GET", "/system/first-run"}, {"POST", "/system/first-run/skip"},
 		{"POST", "/recoveries"}, {"GET", "/recoveries/g1"}, {"POST", "/backups/src/set/name/recovery"},
 		{"GET", "/agent/tokens"}, {"POST", "/agent/tokens/agt_1/revoke"},
+		// EPIC O's scrape credential (#899, #903): no token mints one, as no
+		// token mints a token.
+		{"POST", "/settings/observability/scrape-token"},
 		{"GET", "/agent/audit"}, {"GET", "/agent/confirmations"}, {"POST", "/agent/confirmations/c1/approve"}, {"POST", "/agent/confirmations/c1/deny"},
 		{"GET", "/encryption/keys"}, {"POST", "/encryption/keys/rotate"}, {"POST", "/encryption/keys/k1/export"},
 		{"POST", "/encryption/keys/k1/confirm"}, {"POST", "/encryption/keys/k1/retire"},
@@ -330,21 +333,22 @@ var rows = []Row{{Tool: "a", Description: "Read " + setName}, {Tool: "b", Descri
 // output, an activity message, a remote hostname. Each field named here has to
 // be in the tool's Untrusted list.
 var outsideOrigins = map[string][]string{
-	"status":               {"backup_sets[].reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
-	"backup_sets_list":     {"backup_sets[].host", "backup_sets[].remote_path"},
-	"backup_set_show":      {"host", "remote_path"},
-	"backups_list":         {"artifacts[].id", "artifacts[].name", "artifacts[].validation_detail", "artifacts[].remote_path"},
-	"backup_show":          {"id", "name", "validation_detail", "remote_path"},
-	"assurance_due":        {"items[].artifact_name"},
-	"activity":             {"events[].artifact_id", "events[].artifact_name", "events[].detail"},
-	"activity_live":        {"sets[].events[].message", "deployment.events[].message"},
-	"quarantine_list":      {"artifacts[].id", "artifacts[].name", "artifacts[].quarantine_reason"},
-	"operations_list":      {"operations[].error", "operations[].result"},
-	"operation_show":       {"error", "result"},
-	"storage_mediums_list": {"mediums[].endpoint"},
-	"retention_preview":    {"verdicts[].artifact", "verdicts[].reason"},
-	"workflow_runs_list":   {"runs[].failed_script", "runs[].steps[].script_name"},
-	"workflow_run_show":    {"failed_script", "steps[].script_name"},
+	"status":                 {"backup_sets[].reason", "backup_sets[].pending_unreadable_oldest_path", "backup_sets[].pending_unreadable_warning"},
+	"backup_sets_list":       {"backup_sets[].host", "backup_sets[].remote_path"},
+	"backup_set_show":        {"host", "remote_path"},
+	"backups_list":           {"artifacts[].id", "artifacts[].name", "artifacts[].validation_detail", "artifacts[].remote_path", "artifacts[].retirement.superseded_by", "artifacts[].retirement.failure_reason"},
+	"backup_show":            {"id", "name", "validation_detail", "remote_path", "retirement.superseded_by", "retirement.failure_reason"},
+	"backup_retirement_show": {"failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.failure_reason", "effects[]"},
+	"assurance_due":          {"items[].artifact_name"},
+	"activity":               {"events[].artifact_id", "events[].artifact_name", "events[].detail"},
+	"activity_live":          {"sets[].events[].message", "deployment.events[].message"},
+	"quarantine_list":        {"artifacts[].id", "artifacts[].name", "artifacts[].quarantine_reason"},
+	"operations_list":        {"operations[].error", "operations[].result"},
+	"operation_show":         {"error", "result"},
+	"storage_mediums_list":   {"mediums[].endpoint"},
+	"retention_preview":      {"verdicts[].artifact", "verdicts[].reason"},
+	"workflow_runs_list":     {"runs[].failed_script", "runs[].steps[].script_name"},
+	"workflow_run_show":      {"failed_script", "steps[].script_name"},
 }
 
 func missingUntrusted(rows []Row) []string {

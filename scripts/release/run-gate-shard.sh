@@ -11,6 +11,12 @@
 # passes none), runs the same command directly in this tree. mercury is refused:
 # gate work stays off it (benchmarks own it, through bench-queue.sh).
 #
+# The ui-browser shard (#1532, #1537) is the exception to that default: it
+# drives a Chromium through every spec file in ui/shared/e2e, and heavy retnd
+# steps stay off the Mac, so with no --host it goes to mars. `--host mac` for
+# it is refused unless RETND_UI_BROWSER_ALLOW_LOCAL=1 is set, and the gate then
+# runs it through the Playwright lock.
+#
 # What comes back, in DIR (default $TMPDIR/retnd-shard-runs, outside the git
 # dir ci-docker.sh ships, and refused inside the tree, which it would dirty):
 #   <shard>.log      everything the run printed (also streamed to stdout)
@@ -42,6 +48,13 @@
 # host runs `tar -x` into that scratch directory and nothing else of its own.
 #
 #   CI_DOCKER_MEMORY / CI_DOCKER_CPUS   the shard's container fence, passed on
+#
+# A shard can have a minimum memory, in shard_min_gib below (the manifest has
+# no columns, the fence is this runner's business). selftest-encryption needs
+# 9g: two copycrypt controls allocate several GiB and were OOM-killed at 4g. No
+# CI_DOCKER_MEMORY asks ci-docker.sh for that minimum, and a smaller one is
+# refused as INCOMPLETE before anything ships. The gate itself refuses the step
+# in less than 9 GiB too, for a daemon that clamps the fence to its own memory.
 #   CI_DOCKER_SH                        test seam: a stand-in for ci-docker.sh
 set -uo pipefail
 
@@ -50,7 +63,7 @@ usage() { echo "usage: run-gate-shard.sh <shard> [--host <mars|nas|mac>] [--out 
 
 shard="${1:-}"; [ -n "$shard" ] || usage
 shift
-host=mac; out=""
+host=""; out=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --host) [ "$#" -ge 2 ] || usage; host="$2"; shift 2 ;;
@@ -60,6 +73,16 @@ while [ "$#" -gt 0 ]; do
 done
 case "$shard" in [a-z0-9]*) ;; *) echo "run-gate-shard: bad shard name [$shard]" >&2; exit 2 ;; esac
 case "$shard" in *[!a-z0-9-]*) echo "run-gate-shard: bad shard name [$shard]" >&2; exit 2 ;; esac
+if [ -z "$host" ]; then
+  case "$shard" in
+    ui-browser) host=mars; echo "run-gate-shard: no --host given, so the ui-browser shard runs on mars (heavy steps stay off the Mac)" >&2 ;;
+    *) host=mac ;;
+  esac
+fi
+if [ "$shard" = ui-browser ] && [ "$host" = mac ] && [ "${RETND_UI_BROWSER_ALLOW_LOCAL:-0}" != 1 ]; then
+  echo "run-gate-shard: the ui-browser shard does not run on the Mac, where heavy steps do not run. Use --host mars, or set RETND_UI_BROWSER_ALLOW_LOCAL=1 to run it here through the Playwright lock" >&2
+  exit 2
+fi
 case "$host" in
   mars) target=devshell@192.168.0.100; platform=linux/amd64 ;;
   nas) target=rom@192.168.0.10; platform=linux/amd64 ;;
@@ -124,6 +147,37 @@ if [ -n "$want_default" ]; then
   if [ -n "${RCM_CI_PLATFORM:-}" ] && [ "$RCM_CI_PLATFORM" != "$want_default" ]; then
     incomplete "RCM_CI_PLATFORM=$RCM_CI_PLATFORM would run emulated on $host, which is $want_default native"
   fi
+fi
+
+# --- per-shard minimum memory (#1531) --------------------------------------------
+shard_min_gib() { case "$1" in selftest-encryption) echo 9 ;; *) echo 0 ;; esac; }
+mem_mib() { # a docker --memory value as MiB, or nothing when it cannot be read
+  case "$1" in
+    *[gG]) n="${1%[gG]}"; unit=1024 ;;
+    *[mM]) n="${1%[mM]}"; unit=1 ;;
+    *[kK]) n="${1%[kK]}"; echo $(( n / 1024 )); return ;;
+    *) n="$1"; unit=0 ;;
+  esac
+  case "$n" in ''|*[!0-9]*) return ;; esac
+  if [ "$unit" = 0 ]; then echo $(( n / 1048576 )); else echo $(( n * unit )); fi
+}
+min_gib="$(shard_min_gib "$shard")"
+if [ "$min_gib" -gt 0 ] && [ "$host" != mac ]; then
+  if [ -z "${CI_DOCKER_MEMORY:-}" ]; then
+    export CI_DOCKER_MEMORY="${min_gib}g"
+  else
+    have_mib="$(mem_mib "$CI_DOCKER_MEMORY")"
+    if [ -z "$have_mib" ] || [ "$have_mib" -lt $(( min_gib * 1024 )) ]; then
+      incomplete "shard $shard needs a fence of at least ${min_gib}g (two copycrypt controls allocate several GiB), and CI_DOCKER_MEMORY=$CI_DOCKER_MEMORY is less or unreadable"
+    fi
+  fi
+fi
+
+# The ui-browser shard holds a gate container that mostly waits and the lane's
+# own 4g sibling, so the gate's fence defaults small (#1588), not ci-docker's
+# 12g / 6 cpus. A fence the caller names wins.
+if [ "$shard" = ui-browser ] && [ "$host" != mac ]; then
+  export CI_DOCKER_MEMORY="${CI_DOCKER_MEMORY:-3g}" CI_DOCKER_CPUS="${CI_DOCKER_CPUS:-2}"
 fi
 
 # --- run ------------------------------------------------------------------------

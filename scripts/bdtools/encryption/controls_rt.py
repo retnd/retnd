@@ -5,10 +5,13 @@
 # T2.4's Suite A controls run scripts/bdtools/encryption/retnd_tests_case.sh,
 # which builds retnd from the planted copy and runs one case of the
 # retnd-tests checkout at the pinned sha against it. They need RETND_TESTS_DIR
-# (that checkout) and RETND_COMMIT in the environment. EPIC N's control is plain
-# go test: N's suites are proved in this repository, because retnd-tests
-# cannot make an encrypted retained copy (its suites/cli/COVERAGE.md, Known
-# gaps).
+# (that checkout) and RETND_COMMIT in the environment.
+# scripts/bdtools/encryption/lanes.txt pins them to the retnd-tests lane, so a
+# host without that checkout skips them into the gate's skip ledger (#1538).
+# No gate shard hands them one yet (#1548). EPIC N's control is plain go test
+# and needs no lane: N's suites are proved in this repository, because
+# retnd-tests cannot make an encrypted retained copy (its suites/cli/
+# COVERAGE.md, Known gaps).
 
 from typing import TYPE_CHECKING
 

@@ -35,6 +35,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/backend"
 	"github.com/retnd/retnd/core/internal/config"
@@ -253,6 +254,12 @@ type BackupService struct {
 	// alerting is off. It is written under configMu, which is also the
 	// lock CreateBackupSet reads it under.
 	alertSink AlertSink
+
+	// sinkBuilt, when set, is told about every alert.Sink alertSinkFor
+	// constructs. It exists so a test can count constructions and assert
+	// that exactly one sink is built per configuration (EPIC O, FR-101:
+	// selection, never fan-out). Nothing in production sets it.
+	sinkBuilt func(alert.Sink)
 
 	// releaseJournal drops the SHARED journal lock runStartupSequence took
 	// on this BackupService's behalf (startup.go, lock_unix.go), and is
@@ -682,6 +689,9 @@ func OpenWith(ctx context.Context, configPath string, opts OpenOptions) (*Backup
 		return nil, nil, err
 	}
 
+	// The floor was the environment's alone until the configuration could be
+	// read; now the configured level takes its place under the environment.
+	applyLogFloor(logger, cfg)
 	svc := New(cfg, journal, rclone.New(), logger)
 	svc.useWorkflowRootDefault(opts.WorkflowRoot)
 	// Resolved, not as supplied: --config may name the configuration

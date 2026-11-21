@@ -10,6 +10,7 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -181,6 +182,13 @@ type Artifact struct {
 	// internal/revalidate quarantined. See attachQuarantineReason.
 	QuarantineReason string
 
+	// Retirement is the latest retirement record of a RETIRED backup (issue
+	// #1528): who or what retired it, the source check and what replaced it.
+	// Nil for every other state, so the Backups table can say "Retired,
+	// replaced by X" and notice a retirement the engine made on its own
+	// without asking the preview route once per row.
+	Retirement *Retirement
+
 	// RetentionTier is the tier that most recently selected this artifact
 	// for retention, or empty.
 	RetentionTier string
@@ -286,6 +294,18 @@ func (b *BackupService) ListArtifacts(ctx context.Context, filter ArtifactFilter
 		return nil, fmt.Errorf("service: listing artifacts: %w", err)
 	}
 
+	// Issue #1528: every RETIRED row's record, read once for the whole list
+	// rather than once per row, and only when the list has one.
+	var retirements map[model.ArtifactID]state.Retirement
+	for _, rec := range records {
+		if rec.State == state.RetiredState {
+			if retirements, err = b.journal.LatestRetirements(ctx); err != nil {
+				return nil, fmt.Errorf("service: reading retirements: %w", err)
+			}
+			break
+		}
+	}
+
 	out := make([]Artifact, 0, len(records))
 	for _, rec := range records {
 		a := toServiceArtifact(rec, mediums, configured)
@@ -293,6 +313,10 @@ func (b *BackupService) ListArtifacts(ctx context.Context, filter ArtifactFilter
 			if err := b.attachQuarantineReason(ctx, &a, rec); err != nil {
 				return nil, err
 			}
+		}
+		if r, ok := retirements[rec.Artifact]; ok && rec.State == state.RetiredState {
+			sr := toServiceRetirement(r)
+			a.Retirement = &sr
 		}
 		if filter.QuarantinedOnly && !a.Quarantined {
 			continue
@@ -324,9 +348,31 @@ func (b *BackupService) GetArtifact(ctx context.Context, id string) (Artifact, e
 			return Artifact{}, err
 		}
 	}
+	if err := b.attachRetirement(ctx, &a, rec); err != nil {
+		return Artifact{}, err
+	}
 	one := []Artifact{a}
 	b.annotateEncryption(ctx, one)
 	return one[0], nil
+}
+
+// attachRetirement fills a.Retirement for a RETIRED row (issue #1528). Any
+// other state is left with none, and a RETIRED row with no record (which
+// only a hand-edited journal could produce) is left with none too rather
+// than failing the whole list.
+func (b *BackupService) attachRetirement(ctx context.Context, a *Artifact, rec state.Record) error {
+	if rec.State != state.RetiredState {
+		return nil
+	}
+	r, found, err := b.journal.LatestRetirement(ctx, rec.Artifact)
+	if err != nil {
+		return fmt.Errorf("service: reading the retirement of %s: %w", rec.Artifact, err)
+	}
+	if found {
+		sr := toServiceRetirement(r)
+		a.Retirement = &sr
+	}
+	return nil
 }
 
 // attachQuarantineReason populates a.QuarantineReason with the literal
@@ -416,6 +462,12 @@ func (b *BackupService) RetryFailedArtifact(ctx context.Context, id, note string
 	}
 
 	err = b.state.Load().inner.RetryFailedIngestion(ctx, artifactID, note)
+	if r, ok := app.AsRetryRefusal(err); ok {
+		// Issue #1594: a refusal the engine names, with a sentence built
+		// from its own fixed text and its own measurement of the local
+		// copy, never from a remote string.
+		return &RetryRefusal{Code: r.Code, Sentence: r.Sentence}
+	}
 	switch {
 	case errors.Is(err, state.ErrArtifactNotFound):
 		return fmt.Errorf("%w: %s", ErrArtifactNotFound, id)

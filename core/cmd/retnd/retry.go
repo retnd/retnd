@@ -27,6 +27,10 @@ import (
 // one is what left `validate` refusing every moved artifact in every
 // deployment for a reason no operator could act on; the same mistake here
 // would put this artifact straight back into #662's loop.
+//
+// With the source gone (issue #1594) there is nothing to compare against,
+// so the copy is kept on the hash recorded when it was verified, or the
+// retry is refused by name when the copy does not verify.
 func cmdRetry(args []string) int {
 	fs, cfgPath := newFlagSet("retry")
 	note := fs.String("note", "", "operator note recorded with the retry, so a later failure of the same artifact carries what was tried last time")
@@ -53,6 +57,12 @@ func cmdRetry(args []string) int {
 	logStartup(ctx, svc.Logger, app.BuildVersionInfo(version, commit))
 
 	if err := svc.RetryFailedIngestion(ctx, id, *note); err != nil {
+		// Issue #1594: a refusal the engine names says what to do instead,
+		// so it is printed as the engine says it, like retire's refusals.
+		if r, ok := app.AsRetryRefusal(err); ok {
+			fmt.Printf("%s: refused (%s): %s\n", id, r.Code, r.Sentence)
+			return 1
+		}
 		return fail(err)
 	}
 
@@ -70,7 +80,10 @@ func cmdRetry(args []string) int {
 		fmt.Printf("%s: re-entering the pipeline (FAILED -> %s)\n", id, settled)
 		return 0
 	}
-	fmt.Printf("%s: its durable local copy was verified against the remote object and trusted in place (FAILED -> %s)\n", id, settled)
+	// Verified against the remote object, or, with the source gone, against
+	// the checksum recorded when it was verified (issue #1594); either way
+	// the copy is kept where it is.
+	fmt.Printf("%s: its own copy at the final name was verified and trusted in place (FAILED -> %s)\n", id, settled)
 	fmt.Println("  this artifact's remote source can never be deleted by this manager again")
 	return 0
 }

@@ -87,8 +87,12 @@ type AlertSink interface {
 
 // EnableAlerts installs sink as this BackupService's proactive-alert
 // delivery mechanism and reports whether alerting is now on. It returns
-// false, changing nothing, when sink is nil or when the loaded
-// configuration has not opted in (alerts.enabled: true).
+// false, changing nothing, when the configuration selects no deliverable
+// channel or has not opted in (alerts.enabled: true).
+//
+// sink is the platform's channel and may be nil: with
+// observability.alerts.delivery: webhook the platform channel is never used
+// and a platform that offers none must not stop the webhook (FR-101).
 //
 // Call it once, during wiring, before the process starts serving requests
 // or ticking the scheduler: this is a dependency, like the transport and
@@ -109,17 +113,24 @@ type AlertSink interface {
 // kept. "Off" here means no dispatcher exists, never that the mechanism
 // was thrown away.
 func (b *BackupService) EnableAlerts(sink AlertSink) bool {
-	if sink == nil {
-		return false
-	}
-
 	// configMu, because CreateBackupSet reads b.alertSink under it while
 	// deciding what the hot-reloaded Service's alerting should be.
 	b.configMu.Lock()
 	defer b.configMu.Unlock()
 
 	b.alertSink = sink
-	return b.state.Load().inner.EnableAlerts(sinkAdapter{sink: sink})
+	ctx := context.Background()
+	built, err := b.alertSinkFor(ctx, b.state.Load().inner.Config)
+	if err != nil {
+		b.logger.Error(ctx, "alert-sink", err)
+		return false
+	}
+	inner := b.state.Load().inner
+	on := inner.EnableAlerts(built)
+	if on {
+		inner.Alerts.Probe(ctx)
+	}
+	return on
 }
 
 // sinkAdapter translates internal/alert's Sink into this package's

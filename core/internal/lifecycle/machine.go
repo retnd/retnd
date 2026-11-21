@@ -301,6 +301,29 @@ var Transitions = []Transition{
 	// declared exits into a durable state -- only confirms that at least
 	// one of them exists, not which one applies.
 	{From: Quarantined, To: RemoteRetained},
+
+	// --- retirement: a failure that needs nobody any more (issue #1528) ---
+	//
+	// Failed -> Retired is the only way in. A FAILED artifact never
+	// produced a durable copy (FAILED is reachable only before COMMITTED),
+	// so retiring one deletes nothing that is a backup: it records that
+	// the failure has been dealt with, either because the source object is
+	// confirmed gone and a newer good backup supersedes it (the engine's
+	// own conservative pass, or an operator), or because an operator has
+	// explicitly acknowledged the source still being there or there being
+	// no successor. internal/app owns those rules; this table only says
+	// which state may precede RETIRED, and the answer is FAILED alone, so
+	// nothing that is or was a restore point can ever be retired.
+	//
+	// Retired -> Discovered is the only way out, and it is automatic on
+	// purpose. A retirement made because the source object was gone is
+	// wrong the moment that object is listed again (a mount that was
+	// briefly empty is the case that motivated it), and the honest
+	// response is to back it up. Discovery takes this edge only when the
+	// retirement recorded the source as confirmed absent; a retirement an
+	// operator made over a present or unreachable source stays put.
+	{From: Failed, To: Retired},
+	{From: Retired, To: Discovered},
 }
 
 // quarantineStates is the set of states that mean "this artifact's content
