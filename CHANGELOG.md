@@ -18,6 +18,18 @@ Worth reading before you upgrade:
 
 ### Added
 
+- **The engine keeps the journal as it was before a migration, once the migration has
+  succeeded** (#1584). Until now the copy it takes before migrating lived in memory and was
+  only used to undo a migration that failed, so someone who upgraded with `docker compose pull`
+  (no installer, so no archive) had nothing to go back to. Now a start that applies a migration
+  to an existing journal writes it to `pre-migration-<UTC time>-schema<N>/` beside `state.db`
+  (directory `0700`, files `0600`, a `MANIFEST` saying what it is), after the commit, from the
+  bytes it already held. It never reads it back. It's a courtesy: with no room (the journal plus
+  1 MiB) or a failed write it logs a warning and the migration goes ahead. It keeps the five
+  newest and removes the oldest past that, logging each path, and it never removes the newest,
+  a directory without a `MANIFEST`, or a copy of a schema newer than the running build.
+  [Rolling back a release that carried a migration](docs/install.md#when-nobody-took-an-archive-the-engines-own-copy)
+  says how to go back from it.
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
   metric families it already rendered, plus a new `retnd_scrape_rejected_total{reason}`, on
   `GET /metrics`. It is off until you turn it on (`retnd settings observability patch

@@ -24,10 +24,6 @@ import (
 	"github.com/retnd/retnd/core/internal/state"
 )
 
-// Declared here only while the tests are red: the fix moves it into
-// premigrationcopy.go beside the code that reads it.
-var premigrationFreeBytes func(dir string) (free uint64, known bool)
-
 var retainedCopyName = regexp.MustCompile(`^pre-migration-\d{8}T\d{6}Z-schema(\d+)(-\d+)?$`)
 
 // seedJournalBeforeMigration23 builds a journal at the schema the last release
@@ -226,8 +222,8 @@ func TestIssue1584_NothingMigratedMeansNothingKept(t *testing.T) {
 func TestIssue1584_ADiskTooSmallForTheCopyNeverFailsTheMigration(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := seedJournalBeforeMigration23(t, dir)
+	defer func(prev func(string) (uint64, bool)) { premigrationFreeBytes = prev }(premigrationFreeBytes)
 	premigrationFreeBytes = func(string) (uint64, bool) { return 1, true }
-	defer func() { premigrationFreeBytes = nil }()
 	logs := captureLog(t)
 
 	if err := startAndClose(t, dir, dbPath); err != nil {

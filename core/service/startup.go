@@ -215,6 +215,10 @@ func migrateUnderExclusiveLock(ctx context.Context, dbPath string) (*state.Journ
 		return nil, nil, err
 	}
 
+	// Only to name the copy kept after a success. Not being able to read it
+	// must not stop a migration, so it falls back to 0 ("unknown").
+	schemaBefore, _ := state.AppliedSchemaVersion(ctx, dbPath)
+
 	snap, err := snapshotSQLite(dbPath)
 	if err != nil {
 		_ = lock.release()
@@ -226,6 +230,10 @@ func migrateUnderExclusiveLock(ctx context.Context, dbPath string) (*state.Journ
 		_ = lock.release()
 		return nil, nil, migrationFailure(snap, err)
 	}
+
+	// A copy for a person to put back by hand. It is on the success path only,
+	// after the commit, and it can never fail the start: premigrationcopy.go.
+	retainPreMigrationCopy(ctx, dbPath, schemaBefore, snap)
 
 	if err := lock.downgradeToShared(); err != nil {
 		_ = journal.Close()

@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -399,5 +400,25 @@ func TestMigrate_LeavesForeignKeyEnforcementAsItFoundIt(t *testing.T) {
 		if got != want {
 			t.Fatalf("after migrate, PRAGMA foreign_keys = %d, want %d", got, want)
 		}
+	}
+}
+
+func TestAppliedAndLatestSchemaVersion_1584(t *testing.T) {
+	ctx := context.Background()
+	missing := filepath.Join(t.TempDir(), "state.db")
+	if v, err := AppliedSchemaVersion(ctx, missing); err != nil || v != 0 {
+		t.Errorf("no journal: version %d, err %v, want 0 and no error", v, err)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("asking the version of a missing journal created it")
+	}
+	latest, err := LatestSchemaVersion()
+	if err != nil || latest < 23 {
+		t.Fatalf("LatestSchemaVersion = %d, %v", latest, err)
+	}
+	db, path := openRaw(t)
+	applyUpTo(t, ctx, db, 22)
+	if v, err := AppliedSchemaVersion(ctx, path); err != nil || v != 22 {
+		t.Errorf("journal at 22: version %d, err %v, want 22", v, err)
 	}
 }

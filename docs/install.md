@@ -453,10 +453,11 @@ file in the state directory exactly as the newer build left it. It's also all 0.
 you: it shipped before 0023 existed, so it can't say what to do next. This section does.
 
 There's no downgrade command, on purpose: it would be the one program that edits
-`schema_migrations`, which the migration runner never does. The engine's own pre-migration
-copy lives in memory and exists only to undo a migration that failed, so after a successful
-one nothing is left on disk. The way back is a copy of the state and config directories taken
-**with the stack stopped, before the newer build first started**:
+`schema_migrations`, which the migration runner never does. The engine's in-memory copy
+exists only to undo a migration that failed. After one that succeeded, it keeps a copy of the
+journal on disk for you ([below](#when-nobody-took-an-archive-the-engines-own-copy)), but
+that covers the journal only. The full way back is a copy of the state and config directories
+taken **with the stack stopped, before the newer build first started**:
 
 - **`install --mode upgrade` takes it for you.** It's the `archive-<timestamp>` directory under
   `--prefix` that the upgrade named (`==> Archived N item(s) to ...`). Inside, each directory
@@ -515,6 +516,58 @@ is the one thing going back needs and an installer archive doesn't keep.
 The block stops the stack before it copies anything. If it fails partway (a full disk, say),
 the stack stays stopped and the half-made archive is no good: start the stack again with
 `up -d`, remove that `archive-*` directory, fix the cause and take it again.
+
+### When nobody took an archive: the engine's own copy
+
+A start that applies a migration to a journal that already existed keeps what that journal
+looked like just before, once the migration has succeeded. It's a directory next to
+`state.db`, named for when it was taken and the schema it holds:
+
+    state/pre-migration-20261121T041000Z-schema22/
+        MANIFEST        what it is, when, and the schema it holds
+        state.db        the journal as it was
+        state.db-wal    only if there was one
+
+The engine logs where it went (`kept a copy of the journal as it was before the migration`).
+It never reads the directory back: it's for you, and it's what's left when you upgraded by
+`docker compose pull` or by editing `compose.image.yaml` and nobody took an archive. Things
+worth knowing:
+
+- It's private: the directory is `0700` and the files `0600`.
+- It's the journal only. It has no `config.yaml`, keys or `local-auth.json`, so it's a way back
+  for the schema and not a full archive. An archive you took yourself is still better.
+- It's a courtesy, not a promise. If the state directory's filesystem hasn't got room for it
+  (the journal's size plus 1 MiB) or the write fails, the engine logs a warning and the
+  migration goes ahead without one. Look for `pre-migration copy of the journal` in the log
+  after an upgrade if you're counting on it.
+- It keeps the five newest. The sixth removes the oldest, by the time in the name, and logs
+  the path it removed. It never removes the copy it just made, a directory without a `MANIFEST`,
+  one it didn't name, or one for a schema newer than this build knows (a newer build made it).
+  Move a copy you want to keep out of the state directory.
+- A start that migrates nothing, a first-ever start, and a refused start keep nothing.
+
+To go back from it, build an archive-shaped directory out of it and use the steps below with
+`ARCHIVE` pointing there. `local-auth.json` comes from the live state directory, since the
+going-back block moves it aside and puts back whatever the archive holds:
+
+```
+cd ~/retnd
+sh -eu <<'EOF2'
+STATE_DIR=$(sed -n 's/^STATE_DIR=//p' .env)
+COPY=$STATE_DIR/pre-migration-20261121T041000Z-schema22   # the one the log named
+ARCHIVE=$PWD/rollback-from-copy-$(date +%Y%m%d-%H%M%S)
+mkdir -m 700 "$ARCHIVE" "$ARCHIVE/$(basename "$STATE_DIR")"
+for f in state.db state.db-wal; do
+  if [ -e "$COPY/$f" ]; then cp -p "$COPY/$f" "$ARCHIVE/$(basename "$STATE_DIR")/"; fi
+done
+cp -p "$STATE_DIR/local-auth.json" "$ARCHIVE/$(basename "$STATE_DIR")/"
+echo "built; export ARCHIVE='$ARCHIVE' and set WANT to the schema in the copy's name"
+EOF2
+```
+
+Then run "Checking the archive" and "Going back" as written, changing `WANT=22` in each to the
+number after `schema` in the name. Stop the stack before you build it, so `local-auth.json` isn't read
+mid-write.
 
 ### Checking the archive before you go on
 
