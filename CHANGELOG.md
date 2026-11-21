@@ -18,6 +18,19 @@ Worth reading before you upgrade:
 
 ### Added
 
+- **`retnd encryption reencrypt --from-local`** (#1545). An artifact that still has a local copy
+  was refused by `reencrypt` (two ACTIVE copies, and the engine won't choose which one goes), so
+  after a key compromise its copy under the old key sat there until the local copy expired. With
+  `--from-local` the new copy is encrypted straight from the local copy under the active key,
+  decrypt-verified, and only then is the copy under the old key retired. Nothing is read from the
+  old remote copy, so there's no egress for it and the old key doesn't have to resolve, and the
+  local copy is read and never changed. It's off unless you ask, adds no route (it's `from_local`
+  on the two existing ones, which an agent still can't call), and needs no migration. `--dry-run`
+  now says per copy whether it's a `move` or an `upload_from_local` and prints the bytes each
+  medium would read and write. If a run is killed before it uploads and the local copy expires
+  before the re-run, the re-run with `--from-local` abandons that move by name
+  (`local_copy_gone`, also when the local file is missing or changed) rather than reading the old copy at a cost the dry run didn't show. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
+
 - **The engine keeps the journal as it was before a migration, once the migration has
   succeeded** (#1584). Until now the copy it takes before migrating lived in memory and was
   only used to undo a migration that failed, so someone who upgraded with `docker compose pull`
