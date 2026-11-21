@@ -359,3 +359,45 @@ func TestCrashCellLocalCopyExpiresAfterCopiedStillFinishes_1545(t *testing.T) {
 		t.Error("the old object should be gone and the new one present")
 	}
 }
+
+// A crash DURING the abandon itself: the from-local re-run abandons a move
+// whose local copy is gone and is killed the instant ABANDONED is durable,
+// before the destination and staging are discarded. Nothing was uploaded, the
+// old copy is ACTIVE and intact, and the plain run afterwards is an ordinary
+// re-encryption that converges.
+func TestCrashCellKilledDuringTheLocalCopyGoneAbandon_1545(t *testing.T) {
+	w, oldKey, oldBytes := reencWorld(t)
+	w.keepLocalCopy()
+	res := w.crashTo(crashSecondMedium, "-plan", "-encrypt-existing", "-reencrypt", "-from-local", "-kill-after-consent")
+	if !res.killed() {
+		t.Fatalf("the first run was not killed:\n%s", res.stderr)
+	}
+	w.expireLocalCopy()
+	res = w.crashTo(crashSecondMedium, "-plan", "-encrypt-existing", "-reencrypt", "-from-local", "-kill-after-phase=ABANDONED")
+	if !res.killed() || !strings.Contains(res.stderr, "the phase write") {
+		t.Fatalf("the abandon run was not killed at the phase write:\n%s", res.stderr)
+	}
+	j := w.journalNow()
+	moves, err := j.MovesForArtifact(w.ctx, w.artifact)
+	if err != nil || placement.Phase(moves[len(moves)-1].Phase) != placement.Abandoned {
+		t.Fatalf("the last move is %+v (err=%v), want ABANDONED", moves, err)
+	}
+	w.oldCopyIntact(j, oldKey, oldBytes, "after the kill during the abandon")
+	w.checkInvariantNow(j, "after the kill during the abandon")
+
+	engine, guard := w.encryptedRestart(j, w.keysOver(j))
+	report, err := engine.EncryptExisting(w.ctx, []placement.Plan{{Artifact: w.artifact, DestinationMedium: crashSecondMedium, Reencrypt: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.fail()
+	if report.Completed != 1 {
+		t.Fatalf("the plain run after the abandon: %+v, want it converged", report)
+	}
+	if len(w.plaintextObject()) != 0 || len(w.ciphertextObject()) == 0 {
+		t.Error("the old object should be gone and the new one present")
+	}
+	if left := w.stagingLeftovers(); len(left) != 0 {
+		t.Errorf("the staging area holds %v", left)
+	}
+}

@@ -383,3 +383,107 @@ func TestAResumedMoveWhoseLocalCopyIsGoneStillFinishesWithoutFromLocal_1545(t *t
 		t.Fatalf("report %+v, want it finished by reading the old copy", report)
 	}
 }
+
+// markLocalGone is the retention pass finally marking the missing local copy.
+func (w *fromLocalWorld) markLocalGone() {
+	w.t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(w.root, "journal.db"))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE placements SET status = 'GONE' WHERE medium = 'local'`); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// The wedge: the local placement is still ACTIVE but the file is missing. The
+// resumed move derives "from local" from the journal, so every run (with or
+// without --from-local) used to fail the copy at COPYING for ever. A missing
+// file is the store answering "not there" (artifactstore.ErrNotPresent), which
+// is told apart from a transient I/O error, so the move is abandoned by name:
+// the old copy ACTIVE, the destination and staging discarded. Red until then.
+func TestAMissingLocalFileAbandonsTheResumedMoveByNameWhateverTheFlag_1545(t *testing.T) {
+	for _, fromLocalRun := range []bool{true, false} {
+		w := newFromLocalWorld(t)
+		mv := w.plannedAndConsented()
+		if err := os.Remove(w.localPath()); err != nil { // the placement stays ACTIVE
+			t.Fatal(err)
+		}
+		opensBefore, uploadsBefore := w.store.opensOf(w.key), w.medium.uploadCount()
+		plan := w.plan(mediumB)
+		if fromLocalRun {
+			plan = w.fromLocalPlan(mediumB)
+		}
+		report := w.run(plan)
+		w.guard.fail()
+		got, _ := w.journal.GetMove(w.ctx, mv.ID)
+		if got.Phase != string(placement.Abandoned) || !strings.Contains(got.Error, "run without --from-local") || !strings.Contains(got.Error, "missing, changed or gone") {
+			t.Fatalf("from-local run=%v: report %+v, move %+v, want ABANDONED with the sentence", fromLocalRun, report, got)
+		}
+		if n := w.store.opensOf(w.key) - opensBefore; n != 0 {
+			t.Errorf("the old copy was read %d time(s)", n)
+		}
+		if n := w.medium.uploadCount() - uploadsBefore; n != 0 {
+			t.Errorf("%d upload(s)", n)
+		}
+		w.sourceIntact("after the abandon")
+		if w.medium.has(w.keyB) || len(w.stagingLeftovers()) != 0 {
+			t.Error("a destination object or staging file is left behind")
+		}
+
+		// The sentence's instruction is true: while the local placement is
+		// still ACTIVE the plain run is refused (two ACTIVE copies), and once
+		// it is GONE the plain run is an ordinary re-encryption that converges.
+		if r := w.run(w.plan(mediumB)); r.Refused != 1 || r.Completed != 0 {
+			t.Fatalf("the plain run with the local placement ACTIVE: %+v, want refused", r)
+		}
+		w.markLocalGone()
+		opensBefore = w.store.opensOf(w.key)
+		if r := w.run(w.plan(mediumB)); r.Completed != 1 || w.store.opensOf(w.key)-opensBefore == 0 {
+			t.Fatalf("the plain run after the local copy is GONE: %+v, want it converged by reading the old copy", r)
+		}
+		w.guard.fail()
+	}
+}
+
+// A changed local file is likewise abandoned by name: the digest check is
+// deterministic, unlike an I/O error.
+func TestAChangedLocalFileAbandonsTheResumedMoveByName_1545(t *testing.T) {
+	w := newFromLocalWorld(t)
+	mv := w.plannedAndConsented()
+	if err := os.WriteFile(w.localPath(), append([]byte("x"), w.content...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w.run(w.fromLocalPlan(mediumB))
+	w.guard.fail()
+	if got, _ := w.journal.GetMove(w.ctx, mv.ID); got.Phase != string(placement.Abandoned) || !strings.Contains(got.Error, "missing, changed or gone") {
+		t.Fatalf("move %+v, want ABANDONED by name", got)
+	}
+	w.sourceIntact("after the abandon")
+}
+
+// A local file that cannot be read for another reason (here, no permission) is
+// not known to be gone: it is not abandoned by name, the old copy is not read,
+// and nothing is retired.
+func TestAnUnreadableLocalFileIsNotCalledGone_1545(t *testing.T) {
+	w := newFromLocalWorld(t)
+	mv := w.plannedAndConsented()
+	if err := os.Chmod(w.localPath(), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(w.localPath(), 0o600) })
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode 0 file")
+	}
+	opensBefore := w.store.opensOf(w.key)
+	w.run(w.fromLocalPlan(mediumB))
+	w.guard.fail()
+	if got, _ := w.journal.GetMove(w.ctx, mv.ID); strings.Contains(got.Error, "missing, changed or gone") {
+		t.Fatalf("an unreadable file was called gone: %+v", got)
+	}
+	if n := w.store.opensOf(w.key) - opensBefore; n != 0 {
+		t.Errorf("the old copy was read %d time(s)", n)
+	}
+	w.sourceIntact("after an unreadable local file")
+}
