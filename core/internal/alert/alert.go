@@ -572,9 +572,9 @@ type firingCondition struct {
 	// gone is set, under the lock, by the pass that resolves the entry, and
 	// is never cleared: a recurrence is a new entry. A refresh that was
 	// queued past the send cap checks it just before it sends and drops out
-	// (#1607). flight is open while a refresh is on its way to the receiver,
-	// and the resolve waits on it, so the receiver sees the refresh before
-	// the resolve and never the other way round. failures counts refreshes
+	// (#1607). flight is open while a refresh, or the first delivery, is on
+	// its way to the receiver, and the resolve waits on it, so the receiver
+	// sees it before the resolve and never the other way round (#1628). failures counts refreshes
 	// that failed in a row and sets how long the next retry backs off.
 	alert    Alert
 	sentAt   time.Time
@@ -674,14 +674,34 @@ func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, uneval
 			d.refreshOne(ctx, a, now)
 			return
 		}
-		if err := d.deliver(ctx, a.alert); err != nil {
-			return
+		// For a sink whose receiver is closed by a resolve, the first
+		// delivery is tracked like a refresh: checked for gone and registered
+		// as in flight under the lock the resolving pass takes, so the pass
+		// either sees the alert gone and never sends it, or waits for it and
+		// closes it afterwards (#1628).
+		var flight chan struct{}
+		if d.refreshes() {
+			d.mu.Lock()
+			if a.entry.gone {
+				d.mu.Unlock()
+				return
+			}
+			flight = make(chan struct{})
+			a.entry.flight = flight
+			d.mu.Unlock()
 		}
+		err := d.deliver(ctx, a.alert)
 		d.mu.Lock()
-		a.entry.delivered = true
-		a.entry.sentAt = now
+		if err == nil {
+			a.entry.delivered = true
+			a.entry.sentAt = now
+		}
+		if flight != nil {
+			a.entry.flight = nil
+			close(flight)
+		}
 		d.mu.Unlock()
-		ok[i] = true
+		ok[i] = err == nil
 	})
 	var delivered []Alert
 	for i, a := range pending {
@@ -764,7 +784,9 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 		}
 		entry := d.firing[key]
 		entry.gone = true
-		if entry.delivered && d.refreshes() {
+		// A first delivery still on its way counts: refreshAndResolve waits
+		// for it and closes the alert only if it landed (#1628).
+		if (entry.delivered || entry.flight != nil) && d.refreshes() {
 			resolved = append(resolved, attempt{entry: entry, alert: entry.alert})
 		}
 		delete(d.firing, key)
