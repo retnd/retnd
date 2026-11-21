@@ -49,7 +49,7 @@ func cmdSettingsObservability(args []string) int {
 	fs, cfgPath := newFlagSet("settings observability")
 	asJSON := fs.Bool("json", false, "emit the API's ObservabilitySettingsResponse instead of text")
 	metricsEnabled := fs.Bool("metrics-enabled", false, "patch only: observability.metrics.enabled, whether GET /metrics answers (off answers 404). Pass =false to turn it off")
-	metricsInterval := fs.Duration("metrics-min-rebuild-interval", 0, "patch only: observability.metrics.min_rebuild_interval, how long a built health report is reused. At least 1s")
+	metricsInterval := fs.Duration("metrics-min-rebuild-interval", 0, "patch only: observability.metrics.min_rebuild_interval, how long a built health report is reused. 1s to 2m")
 	logsLevel := fs.String("logs-level", "", "patch only: observability.logs.level, the configured log floor: debug, info, warn or error")
 	alertsDelivery := fs.String("alerts-delivery", "", "patch only: observability.alerts.delivery, platform or webhook")
 	webhookDialect := fs.String("webhook-dialect", "", "patch only: observability.alerts.webhook.dialect, generic or alertmanager")
