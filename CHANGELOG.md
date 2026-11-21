@@ -18,6 +18,13 @@ Worth reading before you upgrade:
 
 ### Added
 
+- **The refusal for a schema version this build doesn't carry now says when it was applied**
+  (#1583). The engine reads `applied_at` from the `schema_migrations` row and prints it in UTC
+  (`version 23 (applied 2026-11-21T04:10:00Z) is recorded in the database but not compiled into
+  this binary`), so you can match it to the archive you took before upgrading. A row with no
+  time says so, and with several unknown versions it names the lowest. The sentinel's own text is
+  unchanged. 0.8.0 can't print it, so this helps the next release that carries a migration, not
+  the 0.8.1 door.
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
   metric families it already rendered, plus a new `retnd_scrape_rejected_total{reason}`, on
   `GET /metrics`. It is off until you turn it on (`retnd settings observability patch
