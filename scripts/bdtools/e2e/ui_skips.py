@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterator
+from typing import Any
 
 GATE = "E2E_VIDEO"
 # The one form the walkthroughs write: test.skip(!process.env.E2E_VIDEO, "recording only, run with E2E_VIDEO=1")
@@ -23,7 +25,7 @@ GATE = "E2E_VIDEO"
 GATED = {"type": "skip", "description": "recording only, run with E2E_VIDEO=1"}
 
 
-def skipped(node: dict, path: str = ""):
+def skipped(node: dict[str, Any], path: str = "") -> Iterator[tuple[str, str, list[Any]]]:
     """Yield (file, title, annotations) for every skipped test under a suite."""
     for spec in node.get("specs", []):
         for test in spec.get("tests", []):
