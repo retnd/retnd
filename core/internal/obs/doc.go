@@ -36,6 +36,28 @@
 // a database column or a wire-protocol field. events_test.go pins every
 // value down for this reason.
 //
+// # The field schema is the contract too
+//
+// The names around the event are as much a wire contract as the event
+// names (FR-100). ReservedKeys (schema.go) lists the eight: time, level,
+// msg and event on every line; result, action and action_id on a marked
+// line; backup_set on any line with a backup set in scope. schema_test.go
+// pins the list against literals and holds a golden line over the real
+// output, so adding, removing or renaming one turns it red. Per-event
+// attributes are not reserved and may be added freely.
+//
+// There is no output mode and no toggle: Logger writes newline-delimited
+// JSON, always. The version of this schema is LogSchemaVersion, carried on
+// the startup event as log_schema and, in the shipped Promtail and Alloy
+// pipelines, as the schema stream label; never on every line.
+//
+// The level is a configured floor (observability.logs.level) that the
+// environment outranks: RETND_DEBUG=1, then a parseable LOG_LEVEL, then the
+// floor (ResolveLevel, envlevel.go). SetFloor moves it on a live Logger and
+// on every Logger derived from it, which is how a settings PATCH takes
+// effect without a restart. It governs the engine only; the web-ui
+// container reads the environment alone.
+//
 // # Secrets
 //
 // FR-23 requires that secrets never be logged. This package treats that as

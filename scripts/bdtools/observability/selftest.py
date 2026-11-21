@@ -22,7 +22,16 @@ run of the PV1 test), one plant per falsification matrix rows O-01, O-03,
 O-04, O-05, O-06 and O-25 name, and the two the #899 review found (the limit
 keyed on a forwarded header, and the /metrics method fallback stripping Allow
 from every API 405). PV3 to PV6 belong to O1.2, O1.3 and O1.4 and
-join this list when those land.
+join this list when those land; PV4 (O1.4, #902) is here, a planted panel and
+a planted rule against the dashboards and rules name guard.
+
+O1.5 (#903) adds the rest: PV3 as three plants against the FR-104 corpus
+(core/tests/observabilitycorpus), each required to turn its own surface's
+row red and no other row; the log half of O-03 (a minted token written to a
+log line); PV5 and PV6 and the O-07, O-09, O-12 and O-13 plants that were run
+by hand on 2026-11-19; the upgrade case of O-21 (metrics on by default, red
+in the config test and in fixture 14's captured line); three O-22 plants; and
+six O-17 plants over the gated parity guards.
 
 Every mutation is anchored to a verbatim copy of product source, tabs and
 all. An anchor that no longer matches is STALE ANCHOR: the control is skipped
@@ -30,8 +39,8 @@ rather than run against a tree with nothing planted in it (#458).
 `--check-anchors` checks every anchor against the real tree, building
 nothing.
 
-A few minutes: each mutant rebuilds and runs a narrowed slice of one package.
-No Docker, no network.
+Each mutant rebuilds and runs a narrowed slice of one package, so the whole
+run is tens of minutes on four cores. No Docker, no network.
 """
 
 from __future__ import annotations
@@ -56,11 +65,32 @@ AGENTACCESS_GO = "apps/common/webhost/agentaccess.go"
 SCRAPE_GO = "core/service/scrape.go"
 CONFIG_GO = "core/internal/config/observability.go"
 COUNTER_GO = "core/internal/metrics/scrape.go"
+DASHBOARD_JSON = "container/observability/grafana/dashboards/backup-health.json"
+RULES_YML = "container/observability/prometheus/rules/retnd.rules.yml"
+DASHBOARD_GUARD = "TestEveryShippedDashboardAndRuleQueriesWhatRetndEmits_902"
+MOUNTS_GO = "apps/common/webhost/serve/mounts.go"
+ALERTSINK_GO = "core/service/alertsink.go"
+HTTPSINK_GO = "core/internal/alert/httpsink.go"
+CONFIGRELOAD_GO = "core/service/configreload.go"
+ENVLEVEL_GO = "core/internal/obs/envlevel.go"
+OBS_ACTION_GO = "core/internal/obs/action.go"
+ROUTES_GO = "core/cliecho/routes.go"
+TOOLS_GO = "core/agenttools/tools.go"
+DENIED_GO = "core/agenttools/denied.go"
+REFERENCE_HTML = "docs/site/reference.html"
+BUNDLE_COMPOSE = "container/observability/compose.observability.yaml"
+CORPUS = "TestNoSecretOnAnyObservabilitySurface_903$"
 
 WEB_PKG = ("apps/common", ("./webhost/",))
 SERVICE_PKG = ("core", ("./service/",))
 CONFIG_PKG = ("core", ("./internal/config/",))
 METRICS_PKG = ("core", ("./internal/metrics/",))
+ALERT_PKG = ("core", ("./internal/alert/",))
+OBS_PKG = ("core", ("./internal/obs/",))
+CORPUS_PKG = ("core", ("./tests/observabilitycorpus/",))
+AGENTTOOLS_PKG = ("core", ("./agenttools/",))
+DIST_PKG = ("distribution", ("./packaging/",))
+SERVE_PKG = ("apps/common", ("./webhost/serve/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/observability/selftest.py): "
 
@@ -85,7 +115,14 @@ def gate(root: Path, where: tuple[str, tuple[str, ...]], pattern: str) -> tuple[
 
 
 def expect_fails(
-    tracker: Any, tally: Any, label: str, directory: Path, needle: str, where: tuple[str, tuple[str, ...]], pattern: str
+    tracker: Any,
+    tally: Any,
+    label: str,
+    directory: Path,
+    needle: str,
+    where: tuple[str, tuple[str, ...]],
+    pattern: str,
+    absent: tuple[str, ...] = (),
 ) -> None:
     if tracker.stale_verdict(label):
         return
@@ -100,6 +137,12 @@ def expect_fails(
             f"{label}. The suite failed, but never named the promise that was broken.",
             f"expected its output to mention: {needle}\n{out}",
         )
+        return
+    # The FR-104 corpus's own promise: a leak on one surface is exactly one
+    # red, so the rows it must NOT turn red are named too.
+    also = [a for a in absent if a in out]
+    if also:
+        tally.bad(f"{label}. The planted surface went red, and so did another: {', '.join(also)}.", out)
         return
     matched = next((line.strip()[:300] for line in out.splitlines() if needle in line), "")
     tally.ok(f"(caught): {label}", matched)
@@ -122,6 +165,28 @@ def expect_passes(
 # Each entry: label, [(file, old, new), ...], needle, where, pattern. Most
 # plant one swap; the recordActions one needs two files moved together.
 MUTATIONS: list[tuple[Any, ...]] = [
+    (
+        "#1568: the engine's serve mux without /metrics, so the real engine answers 404 to every scrape",
+        [(
+            MOUNTS_GO,
+            '\t\tmount{pattern: "/metrics", handler: apiRouter, kind: mountAPIRouter},\n',
+            "\t\t" + PLANT + "the scrape endpoint is never mounted.\n",
+        )],
+        "the engine's mux answers /metrics with its own 404",
+        SERVE_PKG,
+        "TestEngineMounts_1568_|TestEngine_1568_",
+    ),
+    (
+        "#1568, ADR 0035 decision 5: web-ui forwarding /metrics to the engine",
+        [(
+            MOUNTS_GO,
+            '\t\t{pattern: "/metrics", handler: http.NotFoundHandler(), kind: mountNotForwarded},\n',
+            '\t\t{pattern: "/metrics", handler: proxy, kind: mountEngineProxy}, ' + PLANT + "the published port carries the scrape endpoint.\n",
+        )],
+        "which only the engine serves (ADR 0035, decision 5)",
+        SERVE_PKG,
+        "TestEveryAPIMountIsARouterTheGuardWalks$|TestUI_1568_",
+    ),
     (
         "PV1 (O-01): a handler that serves /metrics without consulting the verifier",
         [(HANDLER_GO, VERIFY, "\t" + PLANT + "the verifier is never asked.\n\tif _ = presented; ok && false {\n")],
@@ -226,7 +291,7 @@ MUTATIONS: list[tuple[Any, ...]] = [
         "O-03: the scrape-token mint over plain HTTP from another machine without the acknowledgement",
         [(
             ROUTER_GO,
-            'r.With(requireCSRF, requireMintTransportAck(h.enforce)).Post("/settings/observability/scrape-token", h.mintScrapeToken)',
+            'r.With(requireCSRF, requireMintTransportAck(h.enforce, "mint a scrape token")).Post("/settings/observability/scrape-token", h.mintScrapeToken)',
             'r.With(requireCSRF).Post("/settings/observability/scrape-token", h.mintScrapeToken) ' + PLANT + "no transport acknowledgement.",
         )],
         "--- FAIL: TestMetrics_AMintOverPlainHTTPFromAnotherMachineNeedsTheAcknowledgement",
@@ -355,6 +420,273 @@ MUTATIONS: list[tuple[Any, ...]] = [
         WEB_PKG,
         "TestMetrics_AScrapeStillAnswersWhileTheAgentAuditTrailIsUnavailable",
     ),
+    # O1.5 (#903): the FR-104 corpus. PV3 is three plants, one per surface,
+    # and each must turn its own row red and no other.
+    (
+        "PV3 (O-02), the exposition: the repository passphrase planted as a metric label value",
+        [(
+            SCRAPE_GO,
+            "\tb.scrape.cached, b.scrape.cacheErr = metrics.Render(report), nil\n",
+            "\tb.scrape.cached, b.scrape.cacheErr = metrics.Render(report), nil\n"
+            "\tif d := b.state.Load().inner.Config.RepositoryDomains; len(d) > 0 { "
+            + PLANT
+            + "a resolved secret as a label value.\n"
+            "\t\tif p, perr := os.ReadFile(d[0].Passphrase.File); perr == nil {\n"
+            '\t\t\tb.scrape.cached += "retnd_planted{v=\\"" + string(p) + "\\"} 1\\n"\n'
+            "\t\t}\n\t}\n",
+        )],
+        "O-02/metrics carries the repository passphrase",
+        CORPUS_PKG,
+        CORPUS,
+        ("O-02/log carries", "O-02/webhook carries", "O-02/webhook URL carries"),
+    ),
+    (
+        "PV3 (O-02), the log: the resolved webhook URL written into a real error line",
+        [(
+            ALERTSINK_GO,
+            "\t\t\ts, err := secretref.Resolve(ctx, ref)\n",
+            "\t\t\ts, err := secretref.Resolve(ctx, ref)\n"
+            "\t\t\tif err == nil { "
+            + PLANT
+            + "the URL in a log line.\n"
+            '\t\t\t\tb.logger.Error(ctx, "alert-sink", fmt.Errorf("delivering to %s", s.Reveal()))\n'
+            "\t\t\t}\n",
+        )],
+        "O-02/log carries the webhook credential",
+        CORPUS_PKG,
+        CORPUS,
+        ("O-02/metrics carries", "O-02/webhook carries", "O-02/webhook URL carries"),
+    ),
+    (
+        "PV3 (O-02), the webhook request: the resolved URL appended to the payload body",
+        [(
+            HTTPSINK_GO,
+            "target.Reveal(), bytes.NewReader(body))\n",
+            "target.Reveal(), bytes.NewReader(append(body, target.Reveal()...))) " + PLANT + "the URL in the body.\n",
+        )],
+        "O-02/webhook carries the webhook credential",
+        CORPUS_PKG,
+        CORPUS,
+        ("O-02/metrics carries", "O-02/log carries", "O-02/webhook URL carries"),
+    ),
+    (
+        "O-03, the log half: the minted scrape token written into a log line",
+        [(
+            SCRAPE_GO,
+            "\tb.scrape.loaded = false\n\n\treturn MintedScrapeToken{Token: token,",
+            '\tb.logger.Error(context.Background(), "scrape-token", fmt.Errorf("minted %s", token)) '
+            + PLANT
+            + "the plaintext in the log.\n\tb.scrape.loaded = false\n\n\treturn MintedScrapeToken{Token: token,",
+        )],
+        "O-02/log carries the scrape token",
+        CORPUS_PKG,
+        CORPUS,
+        ("O-02/metrics carries", "O-02/webhook carries", "O-02/webhook URL carries"),
+    ),
+    # O1.2's drift shape, by hand on 2026-11-19 and automated here: a reserved
+    # key renamed on the wire.
+    (
+        "O-07: the reserved key action_id renamed to actionId on the wire",
+        [(OBS_ACTION_GO, '\tfieldActionID = "action_id"\n', '\tfieldActionID = "actionId" ' + PLANT + "a renamed reserved key.\n")],
+        "--- FAIL: ",
+        OBS_PKG,
+        "TestReservedKeysArePinned$|TestTheReservedKeysAreTheStringsOnTheWire$|TestGoldenLines$",
+    ),
+    (
+        "O-16: a Grafana admin password committed as a literal in the bundle",
+        [(
+            BUNDLE_COMPOSE,
+            "      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:? set GF_SECURITY_ADMIN_PASSWORD, this example ships no Grafana password}\n",
+            # Split so the endpoint scanner, which reads this file too, does
+            # not take the plant for a committed credential.
+            "      GF_SECURITY_ADMIN_" + "PASSWORD: plantedliteral9x\n",
+        )],
+        "committed-credential",
+        DIST_PKG,
+        "TestTheShippedBundleIsClean_902$",
+    ),
+    # O1.3's planted violations, by hand on 2026-11-19 and automated here.
+    (
+        "PV5 (O-10): an alertmanager sink that never refreshes",
+        [(
+            HTTPSINK_GO,
+            "\tif w.dialect != DialectAlertmanager {\n\t\treturn 0\n\t}\n\treturn w.refresh\n",
+            "\t_ = w.refresh " + PLANT + "no refresh, ever.\n\treturn 0\n",
+        )],
+        "--- FAIL: TestWebhookAlertmanagerRefreshesBeforeResolveTTL",
+        ALERT_PKG,
+        "TestWebhookAlertmanagerRefreshesBeforeResolveTTL$",
+    ),
+    (
+        "O-09: a generic sink that refreshes, so it is no longer observe-once",
+        [
+            (
+                HTTPSINK_GO,
+                "\tif w.dialect != DialectAlertmanager {\n\t\treturn 0\n\t}\n\treturn w.refresh\n",
+                "\treturn w.refresh " + PLANT + "every dialect asks to be refreshed.\n",
+            ),
+            (
+                HTTPSINK_GO,
+                "\tif w.dialect != DialectAlertmanager {\n\t\treturn nil\n\t}\n\treturn w.post(ctx, a, now.Add(w.ttl))\n",
+                "\treturn w.post(ctx, a, now.Add(w.ttl)) " + PLANT + "and every dialect re-sends.\n",
+            ),
+        ],
+        "--- FAIL: TestWebhookGenericIsObserveOnce",
+        ALERT_PKG,
+        "TestWebhookGenericIsObserveOnce$",
+    ),
+    (
+        "PV6 (O-11): the platform sink built beside the webhook sink",
+        [(
+            ALERTSINK_GO,
+            "\t\tsink = hs\n",
+            "\t\tif b.alertSink != nil && b.sinkBuilt != nil { "
+            + PLANT
+            + "a second sink, fanned out.\n\t\t\tb.sinkBuilt(sinkAdapter{sink: b.alertSink})\n\t\t}\n\t\tsink = hs\n",
+        )],
+        "want exactly 1: selection, not fan-out",
+        SERVICE_PKG,
+        "TestAlertSelection_ConstructsExactlyOneSink$",
+    ),
+    (
+        "O-12: a webhook client that follows redirects",
+        [(
+            HTTPSINK_GO,
+            "\t\t\tCheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },\n",
+            "\t\t\t" + PLANT + "redirects are followed.\n",
+        )],
+        "--- FAIL: TestWebhookNeverFollowsRedirects",
+        ALERT_PKG,
+        "TestWebhookNeverFollowsRedirects$",
+    ),
+    (
+        "O-13: the webhook URL put in a delivery error",
+        [(
+            HTTPSINK_GO,
+            '\t\treturn fmt.Errorf("webhook %s answered %d", host, resp.StatusCode)\n',
+            '\t\treturn fmt.Errorf("webhook %s answered %d", target.Reveal(), resp.StatusCode) ' + PLANT + "the URL in the error.\n",
+        )],
+        "--- FAIL: TestWebhookURLNeverLeaksIntoErrorsOrLogs",
+        ALERT_PKG,
+        "TestWebhookURLNeverLeaksIntoErrorsOrLogs$",
+    ),
+    # O-21: the upgrade case. A build that turns the endpoint on for a
+    # deployment that never wrote the block.
+    (
+        "O-21: metrics on by default for a config with no observability block",
+        [(
+            CONFIG_GO,
+            "\t\tMetrics: ObservabilityMetrics{MinRebuildInterval: DefaultMetricsMinRebuildInterval},\n",
+            "\t\tMetrics: ObservabilityMetrics{Enabled: true, MinRebuildInterval: DefaultMetricsMinRebuildInterval}, " + PLANT + "on by default.\n",
+        )],
+        "--- FAIL: TestObservability_AnAbsentBlockResolvesEverythingOff",
+        CONFIG_PKG,
+        "TestObservability_AnAbsentBlockResolvesEverythingOff$",
+    ),
+    (
+        "O-21, the captured upgrade line: fixture 14 loading with metrics on",
+        [(
+            CONFIG_GO,
+            "\t\tMetrics: ObservabilityMetrics{MinRebuildInterval: DefaultMetricsMinRebuildInterval},\n",
+            "\t\tMetrics: ObservabilityMetrics{Enabled: true, MinRebuildInterval: DefaultMetricsMinRebuildInterval}, " + PLANT + "on by default.\n",
+        )],
+        "14-no-observability-block.yaml   deployment observability: metrics.enabled=true",
+        ("core", ("./tests/compat/",)),
+        "TestMediumFreeSurfacesAreUnchanged$",
+    ),
+    # O-22: a settings write re-resolves.
+    (
+        "O-22: a delivery switch that rebuilds the dispatcher without its firing map",
+        [(ALERTSINK_GO, "\t\tnext.Alerts.AdoptState(prev.Alerts)\n", "\t\t" + PLANT + "the firing map is dropped.\n")],
+        "--- FAIL: TestAlertSelection_SwitchingDeliveryCarriesTheFiringMap",
+        SERVICE_PKG,
+        "TestAlertSelection_SwitchingDeliveryCarriesTheFiringMap$",
+    ),
+    (
+        "O-22: a logs.level PATCH that a reload does not apply",
+        [(CONFIGRELOAD_GO, "\t\tapplyLogFloor(b.logger, cfg)\n", "\t\t_ = cfg " + PLANT + "the floor stays where it was.\n")],
+        "--- FAIL: TestLogFloor_APatchMovesTheFloorWithoutARestart",
+        SERVICE_PKG,
+        "TestLogFloor_APatchMovesTheFloorWithoutARestart$",
+    ),
+    (
+        "O-22 control: a configured floor that beats the environment",
+        [(
+            ENVLEVEL_GO,
+            "\tif debugShortcut() {\n\t\treturn LevelDebug, LevelSourceRetndDebug\n\t}\n",
+            "\tif configured != LevelInfo { " + PLANT + "the config wins.\n\t\treturn configured, LevelSourceConfig\n\t}\n"
+            "\tif debugShortcut() {\n\t\treturn LevelDebug, LevelSourceRetndDebug\n\t}\n",
+        )],
+        "--- FAIL: TestLogFloor_APatchCannotOverrideTheEnvironment",
+        SERVICE_PKG,
+        "TestLogFloor_APatchCannotOverrideTheEnvironment$",
+    ),
+    # O-17: the gated parity direction.
+    (
+        "O-17: GET /settings/observability with no cliecho builder and no why",
+        [(
+            ROUTES_GO,
+            '\tkey("GET", "/settings/observability"): {\n\t\tbuild:    func(Action) *cmd { return newCmd("settings", "observability") },\n\t\texamples: []Action{{}},\n\t},\n',
+            "\t" + PLANT + "the read has no terminal twin.\n",
+        )],
+        "--- FAIL: TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap",
+        WEB_PKG,
+        "TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap$",
+    ),
+    (
+        "O-17: PATCH /settings/observability with no row in core/agenttools",
+        [(TOOLS_GO, '\t\t"PATCH /settings/observability",\n', "\t\t" + PLANT + "no tool and no refusal.\n")],
+        "--- FAIL: TestEveryAPIRouteIsAToolOrANamedRefusal",
+        WEB_PKG,
+        "TestEveryAPIRouteIsAToolOrANamedRefusal$",
+    ),
+    (
+        "O-17: the scrape-token mint taken off the agent deny list",
+        [(DENIED_GO, '\t{"", "/settings/observability/scrape-token"},\n', "\t" + PLANT + "a token may mint a scrape credential.\n")],
+        "POST /settings/observability/scrape-token is not denied",
+        AGENTTOOLS_PKG,
+        "TestTheDenyListHoldsTheMaterialBearingRoutes$",
+    ),
+    (
+        "O-17: settings observability rotate-scrape-token dispatched by the binary and missing from reference.html",
+        [(
+            REFERENCE_HTML,
+            "and <code>settings observability rotate-scrape-token</code> mints the Prometheus scrape credential.",
+            "and a third verb mints the Prometheus scrape credential.",
+        )],
+        "does not name [settings observability rotate-scrape-token]",
+        DIST_PKG,
+        "TestTheSiteReferenceSettingsRowNamesEveryObservabilityVerb_903$",
+    ),
+    (
+        "O-17: the observability PATCH's gap sentence naming a verb the binary ships",
+        [(
+            ROUTES_GO,
+            'why: "there is no verb that patches the deployment\'s observability block from a request body",',
+            'why: "there is no verb that patches the deployment\'s observability block from a request body; `" + Binary + " settings observability patch` takes flags", ' + PLANT + "a gap that is not one.",
+        )],
+        "which this binary dispatches",
+        ("core", ("./cmd/retnd/",)),
+        "TestNoGapClaimsAVerbThisBinaryShips$",
+    ),
+    (
+        "PV4 (O-14): a dashboard panel querying retnd_backup_set_stale, a name retnd has never emitted",
+        [(
+            DASHBOARD_JSON,
+            '"expr": "retnd_backup_set_failures{backup_set=~\\"$backup_set\\"}",',
+            '"expr": "retnd_backup_set_stale{backup_set=~\\"$backup_set\\"}",',
+        )],
+        'backup-health.json: panel "Failed artifacts (0 when nothing is wrong)": retnd_backup_set_stale is not a series retnd emits',
+        METRICS_PKG,
+        DASHBOARD_GUARD,
+    ),
+    (
+        "O-14, second red: an alerting rule over a renamed family, which would never fire",
+        [(RULES_YML, "expr: retnd_backup_set_quarantined_lost > 0\n", "expr: retnd_backup_set_quarantined_irrecoverable > 0\n")],
+        'retnd.rules.yml: rule "RetndArtifactsIrrecoverablyQuarantined": retnd_backup_set_quarantined_irrecoverable is not a series retnd emits',
+        METRICS_PKG,
+        DASHBOARD_GUARD,
+    ),
 ]
 
 # The clean runs. The first is the spec's two positive controls (a valid
@@ -367,6 +699,21 @@ CLEAN_CONTROLS = [
     ("the credential store and the report cache", SERVICE_PKG, "TestAScrapeCredential|TestOnlyTheCurrentScrapeCredentialVerifies|TestTheHealthExpositionIsRebuilt|TestEveryRefusalReasonIsCounted"),
     ("the observability block", CONFIG_PKG, "TestObservability_"),
     ("the refusal counter's vocabulary", METRICS_PKG, "TestScrapeRejected_"),
+    # PV4's positive control (a panel over a real name passes) and the clean
+    # bundle, without which a guard that refuses every dashboard passes PV4.
+    ("the dashboards and rules name guard and PV4's positive control", METRICS_PKG, "_902$"),
+    # O1.5 (#903): the FR-104 corpus on the real tree, which is also the third
+    # negative control's neighbour (a run with no planted secret is green on
+    # every surface), and the slices the new plants narrow to.
+    ("the FR-104 corpus, every surface and its controls", CORPUS_PKG, "_903"),
+    ("the webhook sink's dialects, guards and secrecy", ALERT_PKG, "TestWebhook"),
+    ("the alert selection, the firing map across a switch and the log floor", SERVICE_PKG, "TestAlertSelection_|TestLogFloor_"),
+    ("the log schema's pinned keys and golden lines", OBS_PKG, "TestReservedKeysArePinned$|TestTheReservedKeysAreTheStringsOnTheWire$|TestGoldenLines$"),
+    ("the agent deny list and the reference row for settings observability", AGENTTOOLS_PKG, "TestTheDenyListHoldsTheMaterialBearingRoutes$"),
+    ("the reference row for settings observability, its control and the clean bundle", DIST_PKG, "_903$|TestTheShippedBundleIsClean_902$"),
+    ("the gap sentences and the refusal parity across both routes", ("core", ("./cmd/retnd/",)), "TestNoGapClaimsAVerbThisBinaryShips$|TestARefusalIsTheSameOnBothRoutes$"),
+    ("the compat corpus, fixtures 13 and 14 included", ("core", ("./tests/compat/",)), "TestMediumFreeSurfacesAreUnchanged$"),
+    ("the parity guards for every API route", WEB_PKG, "TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap$|TestEveryAPIRouteIsAToolOrANamedRefusal$"),
 ]
 
 
@@ -384,13 +731,14 @@ def body(root: Path, dry_run: bool, shard: tuple[int, int] | None) -> int:
         for i, entry in enumerate(MUTATIONS):
             if not selftest_swap.in_shard(i, shard):
                 continue
-            label, swaps, needle, where, pattern = entry
+            label, swaps, needle, where, pattern = entry[:5]
+            absent = entry[5] if len(entry) > 5 else ()
             print()
             print(f"==> {label}")
             d = selftest_swap.mutant(root, tmp, f"observability-{i:02d}", dry_run=dry_run)
             for rel, old, new in swaps:
                 tracker.swap(d / rel, old, new)
-            expect_fails(tracker, tally, label, d, needle, where, pattern)
+            expect_fails(tracker, tally, label, d, needle, where, pattern, absent)
             selftest_swap.discard(d, root)
 
         tracker.stale_summary()

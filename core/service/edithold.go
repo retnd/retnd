@@ -41,20 +41,44 @@
 // both easier and more durable. The lease is what bounds the accidental
 // version of it, which is the one that actually happens.
 //
-// # No token, and why that is the right trade here
+// # A holder token, and what it is not
 //
-// Any authenticated caller can renew or release any hold. A token would
-// stop operator B releasing operator A's hold, and would cost the thing
-// that matters more: a release path that can fail. With a lease and a
-// renewing client, B releasing A's hold costs A one heartbeat, after
-// which A's own renewal takes it again; the concurrent-edit case that
-// actually corrupts something is caught by the staleness check the edit
-// form already runs (ui/shared's isSetEditStale), which compares against
-// the value the form opened over rather than against who holds a lease.
+// Taking and renewing used to be one unconditional call, so a renewal
+// still in flight when edit mode was left could land after the release,
+// put a full lease back and stop a run that had started in between
+// (issue #1606). So every take now mints a token naming that holder, and
+// the registry keeps one lease per holder. A renewal names its token and
+// only ever EXTENDS that holder's live lease: a token that was released,
+// has lapsed or never existed is refused with ErrEditHoldGone, nothing is
+// held and nothing is broadcast. A client still editing that gets the
+// refusal takes a fresh hold; one that has left edit mode drops it.
+//
+// Two tabs, or a tab and a script, are two holders. Neither renews the
+// other's lease, and a release that names a token gives back that holder
+// alone, so one tab leaving edit mode does not pull the hold out from
+// under another that is still editing.
+//
+// The token is NOT a credential and does not change who may do what. A
+// release with no token still gives back every hold on the set, because
+// that is what a client from before tokens sends and what an operator
+// clearing a hold somebody left behind needs, and making that path
+// fallible would cost the thing that matters more than stopping operator
+// B releasing operator A's hold. The concurrent-edit case that actually
+// corrupts something is still caught by the staleness check the edit
+// form runs (ui/shared's isSetEditStale), which compares against the
+// value the form opened over rather than against who holds a lease.
+//
+// Tokens live in this registry and nowhere else, so they do not survive
+// a restart either, for the reason a hold does not: after one, a renewal
+// is refused and the client takes a fresh hold that says for itself what
+// it stopped.
 package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -89,6 +113,9 @@ type EditHold struct {
 	// ExpiresAt is when this hold lapses if nothing renews it. A client
 	// that means to keep editing renews well before it.
 	ExpiresAt time.Time
+	// Token names this holder (issue #1606). Renewing and releasing with
+	// it touch this holder's lease and nobody else's.
+	Token string
 	// Stopped describes the work this hold interrupted, or nil when
 	// nothing was running for this set. Reported so a client can say what
 	// it actually stopped, rather than claiming it stopped something
@@ -121,8 +148,10 @@ type BackupSetEditState struct {
 // happen a few milliseconds earlier.
 type editHolds struct {
 	mu sync.Mutex
-	// held maps a backup set id to when its hold expires.
-	held map[string]time.Time
+	// held maps a backup set id to its holders, each a token mapped to
+	// when that holder's lease expires (issue #1606). A set is held while
+	// any of its holders' leases is live.
+	held map[string]map[string]time.Time
 	// removed names every backup set whose configuration this process has
 	// REMOVED (issue #391), and it is the one hold here that does not
 	// expire.
@@ -159,7 +188,7 @@ type editHolds struct {
 
 func newEditHolds() *editHolds {
 	return &editHolds{
-		held:    map[string]time.Time{},
+		held:    map[string]map[string]time.Time{},
 		removed: map[string]bool{},
 		changed: make(chan struct{}),
 		now:     func() time.Time { return now() },
@@ -188,17 +217,33 @@ func (h *editHolds) heldLocked(setID string) bool {
 // without a removed set's permanent hold showing up there as an edit
 // somebody is in the middle of.
 func (h *editHolds) leaseHeldLocked(setID string) bool {
-	expiry, ok := h.held[setID]
-	if !ok {
-		return false
+	_, ok := h.latestLocked(setID)
+	return ok
+}
+
+// latestLocked drops setID's lapsed holders and reports the latest expiry
+// among the ones left, or false when none is. Lapsed holders are dropped
+// here rather than left to accumulate, so the map holds exactly the
+// holders editing right now, and a lapsed holder's token is refused from
+// then on exactly like a released one.
+func (h *editHolds) latestLocked(setID string) (time.Time, bool) {
+	holders := h.held[setID]
+	now := h.now()
+	var latest time.Time
+	for token, expiry := range holders {
+		if !now.Before(expiry) {
+			delete(holders, token)
+			continue
+		}
+		if expiry.After(latest) {
+			latest = expiry
+		}
 	}
-	if !h.now().Before(expiry) {
-		// Lapsed. Dropped here rather than left to accumulate, so the map
-		// holds exactly the sets someone is editing right now.
+	if len(holders) == 0 {
 		delete(h.held, setID)
-		return false
+		return time.Time{}, false
 	}
-	return true
+	return latest, true
 }
 
 // Changed is internal/app.BackupSetHolds.Changed.
@@ -208,29 +253,63 @@ func (h *editHolds) Changed() <-chan struct{} {
 	return h.changed
 }
 
-// place takes or extends setID's hold and returns its new expiry. It
-// broadcasts on every call, including a renewal: a renewal is cheap to
-// broadcast and a watcher that wakes for one simply re-checks and goes
-// back to waiting, whereas working out which calls "really" changed
-// something would be a correctness argument for no benefit.
-func (h *editHolds) place(setID string) time.Time {
+// place takes a new hold on setID for a new holder, and returns that
+// holder's token and expiry. It broadcasts, which is what stops a cycle
+// already inside the set.
+func (h *editHolds) place(setID string) (string, time.Time, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", time.Time{}, fmt.Errorf("service: minting an edit hold token: %w", err)
+	}
+	token := hex.EncodeToString(raw[:])
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	expiry := h.now().Add(editHoldLease)
-	h.held[setID] = expiry
+	if h.held[setID] == nil {
+		h.held[setID] = map[string]time.Time{}
+	}
+	h.held[setID][token] = expiry
 	close(h.changed)
 	h.changed = make(chan struct{})
-	return expiry
+	return token, expiry, nil
 }
 
-// release drops setID's hold. Releasing one that is not held is not an
-// error: every route out of edit mode calls this, several of them can
-// fire for the same edit (a Save-and-exit followed by an unmount), and a
-// second release must not be something a client has to avoid.
-func (h *editHolds) release(setID string) {
+// renew extends the live lease token names on setID and returns its new
+// expiry, or false when that holder is not holding the set: released,
+// lapsed, or never given out (issue #1606). It never creates a hold and,
+// when it refuses, never broadcasts, so a renewal that lands after the
+// release can neither put the hold back nor stop a cycle that started in
+// between. A successful renewal does not broadcast either: the set was
+// already held by this holder, so no cycle a broadcast could stop is
+// inside it.
+func (h *editHolds) renew(setID, token string) (time.Time, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.held, setID)
+	h.latestLocked(setID)
+	if _, ok := h.held[setID][token]; !ok {
+		return time.Time{}, false
+	}
+	expiry := h.now().Add(editHoldLease)
+	h.held[setID][token] = expiry
+	return expiry, true
+}
+
+// release gives back the hold token names on setID, or, when token is "",
+// every hold on it. Releasing one that is not held is not an error: every
+// route out of edit mode calls this, several of them can fire for the same
+// edit (a Save-and-exit followed by an unmount), and a second release must
+// not be something a client has to avoid.
+func (h *editHolds) release(setID, token string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if token == "" {
+		delete(h.held, setID)
+		return
+	}
+	delete(h.held[setID], token)
+	if len(h.held[setID]) == 0 {
+		delete(h.held, setID)
+	}
 }
 
 // holdRemoved holds setID permanently, because its configuration is being
@@ -281,14 +360,13 @@ func (h *editHolds) forgetRemovedNamedIn(cfg *config.Config) {
 	}
 }
 
-// state reports whether setID is held for EDITING and until when.
+// state reports whether setID is held for EDITING and until when: the
+// latest expiry among its holders, which is when the set is free again if
+// nobody renews.
 func (h *editHolds) state(setID string) (time.Time, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if !h.leaseHeldLocked(setID) {
-		return time.Time{}, false
-	}
-	return h.held[setID], true
+	return h.latestLocked(setID)
 }
 
 var _ app.BackupSetHolds = (*editHolds)(nil)
@@ -383,10 +461,11 @@ func (b *BackupService) BackupSetEditState(_ context.Context, id string) (Backup
 	}, nil
 }
 
-// BeginBackupSetEdit takes (or renews) the hold on one backup set: the
-// cycle currently processing it, if any, is stopped at its next safe
-// boundary, and no new pass will be started for it until the hold is
-// released or lapses.
+// BeginBackupSetEdit takes a new hold on one backup set, for a new
+// holder: the cycle currently processing it, if any, is stopped at its
+// next safe boundary, and no new pass will be started for it until every
+// hold on it is released or lapses. The returned Token names this holder;
+// RenewBackupSetEdit and EndBackupSetEdit take it back.
 //
 // It returns what it interrupted, so a client can report the truth
 // afterwards rather than claiming to have stopped something every time.
@@ -402,37 +481,69 @@ func (b *BackupService) BeginBackupSetEdit(_ context.Context, id string) (EditHo
 		return EditHold{}, err
 	}
 	stopped := b.cycleWatch.workFor(id)
-	expiry := b.holds.place(id)
-	return EditHold{BackupSetID: id, ExpiresAt: expiry, Stopped: stopped}, nil
+	token, expiry, err := b.holds.place(id)
+	if err != nil {
+		return EditHold{}, err
+	}
+	return EditHold{BackupSetID: id, ExpiresAt: expiry, Token: token, Stopped: stopped}, nil
 }
 
-// RenewBackupSetEdit extends an existing hold's lease. A client holding
-// an edit form open calls this on a heartbeat; without it the hold lapses
-// on its own, which is what stops a closed tab pausing a backup set
-// forever.
+// RenewBackupSetEdit extends the lease of the holder token names. A client
+// holding an edit form open calls this on a heartbeat; without it the
+// hold lapses on its own, which is what stops a closed tab pausing a
+// backup set forever.
 //
-// It is deliberately the same operation as taking one, rather than a
-// renew that fails when the hold has already lapsed: a client whose
-// heartbeat arrived a second late still has its form open and its
-// operator still mid-edit, and refusing would leave the set unheld while
-// the form stayed on screen, which is the worst of both.
-func (b *BackupService) RenewBackupSetEdit(ctx context.Context, id string) (EditHold, error) {
-	return b.BeginBackupSetEdit(ctx, id)
+// It refuses with ErrEditHoldGone when that holder is no longer holding
+// the set (released, lapsed, or never given out), and it never creates a
+// hold (issue #1606). Until #1606 this was the same call as taking one, on
+// the reasoning that a heartbeat a second late should still end with the
+// set held; that same unconditional take is what let a renewal in flight
+// at release time put the hold back. The late heartbeat is still covered,
+// one step further out: the client that gets the refusal while its form
+// is open takes a fresh hold, which also reports what it stopped.
+//
+// A renewal of a live lease reports Stopped as nil. The set was already
+// held by this holder, so whatever a cycle was doing when the hold was
+// taken was that take's to report, and a cycle still unwinding from it is
+// not something this call interrupted.
+func (b *BackupService) RenewBackupSetEdit(_ context.Context, id, token string) (EditHold, error) {
+	if _, _, ok := splitBackupSetID(id); !ok {
+		return EditHold{}, wrapNotFound(id)
+	}
+	if err := b.requireBackupSet(id); err != nil {
+		return EditHold{}, err
+	}
+	expiry, ok := b.holds.renew(id, token)
+	if !ok {
+		return EditHold{}, fmt.Errorf("%w: %s", ErrEditHoldGone, id)
+	}
+	return EditHold{BackupSetID: id, ExpiresAt: expiry, Token: token}, nil
 }
 
-// EndBackupSetEdit releases the hold. Every route out of edit mode calls
-// it, and calling it for a set that is not held is a success: several
+// ErrEditHoldGone is a renewal naming a holder that is no longer holding
+// the set: its hold was released, its lease lapsed, the engine restarted,
+// or the token was never given out. Nothing is held when this is returned.
+// The HTTP surface answers it as 409 EDIT_HOLD_GONE.
+var ErrEditHoldGone = errors.New("service: this edit hold was released or has lapsed")
+
+// EndBackupSetEdit releases the hold token names, and leaves any other
+// holder of the same set in force. An empty token releases every hold on
+// the set, which is what a client from before tokens sends and what an
+// operator clearing a hold somebody left behind means.
+//
+// Every route out of edit mode calls it, and calling it for a set that is
+// not held, or with a token that is already gone, is a success: several
 // routes can fire for one edit (a save-and-exit followed by the form
 // unmounting), and a duplicate release must not be something a client has
 // to take care to avoid.
-func (b *BackupService) EndBackupSetEdit(_ context.Context, id string) error {
+func (b *BackupService) EndBackupSetEdit(_ context.Context, id, token string) error {
 	if _, _, ok := splitBackupSetID(id); !ok {
 		return wrapNotFound(id)
 	}
 	if err := b.requireBackupSet(id); err != nil {
 		return err
 	}
-	b.holds.release(id)
+	b.holds.release(id, token)
 	return nil
 }
 

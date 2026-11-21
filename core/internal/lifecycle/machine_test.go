@@ -301,7 +301,7 @@ func TestFailedHasExits(t *testing.T) {
 	if len(exits) == 0 {
 		t.Fatal("FAILED has no declared successors; an artifact that fails would be stuck there forever")
 	}
-	assertStateSet(t, "Successors(Failed)", exits, Discovered, Quarantined)
+	assertStateSet(t, "Successors(Failed)", exits, Discovered, Quarantined, Retired)
 }
 
 // --- QUARANTINED: defined entry points, defined exits, no shortcut back to success ---

@@ -11,6 +11,7 @@
  * half-done change goes to the flow's still-owed list rather than closing.
  */
 import { useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { ReactNode } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
@@ -36,6 +37,7 @@ export function BundleDialog({
 }) {
   const api = useApi();
   const gate = useDestructiveGate();
+  const mountedRef = useMounted();
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,15 +51,18 @@ export function BundleDialog({
     setBusy(true);
     setError(null);
     if (needsPassword && gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
+      if (!mountedRef.current) return;
       setError(stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED", "bundle") ?? "Nothing was sent.");
       setBusy(false);
       return;
     }
     const opts = needsPassword && password.current ? { stepUpPassword: password.current } : {};
-    forget();
+    if (mountedRef.current) forget();
+    else password.current = "";
     try {
       onDone(await api.exportRecoveryBundle(keyId, opts));
     } catch (e) {
+      if (!mountedRef.current) return;
       const code = apiErrorOf(e)?.code;
       setError(stepUpMessage(code, "bundle") ?? describeFailure(e, "the bundle was not exported").message);
       setBusy(false);

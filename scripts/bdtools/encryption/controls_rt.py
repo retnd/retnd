@@ -8,6 +8,9 @@
 # them. They need RETND_TESTS_DIR (that checkout, with Suite C's npm
 # dependencies and Playwright browser installed) and RETND_COMMIT in the
 # environment, and Suite C needs ui/shared's node_modules in the real tree.
+# scripts/bdtools/encryption/lanes.txt pins them to the retnd-tests lane, so a
+# host without that checkout skips them into the gate's skip ledger (#1538).
+# No gate shard hands them one yet (#1548).
 
 from typing import TYPE_CHECKING
 

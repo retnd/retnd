@@ -84,6 +84,10 @@ func cmdSSH(args []string) int {
 // Everything else is the door every configuration write goes through,
 // which is also what routes it to a serving engine.
 func openSSHKeyRoute(ctx context.Context, cfgPath string, importing bool) (sshKeyRoute, func(), error) {
+	// Before the stat that picks the first-run branch (#1609).
+	if err := checkPreRenamePath(cfgPath); err != nil {
+		return nil, func() {}, err
+	}
 	configFile := config.ResolvePath(cfgPath)
 	if _, err := os.Stat(configFile); errors.Is(err, os.ErrNotExist) {
 		route, firstRunServing, err := sshKeyFirstRunRoute(ctx, "so this command uses its key store at %s")
@@ -104,7 +108,11 @@ func openSSHKeyRoute(ctx context.Context, cfgPath string, importing bool) (sshKe
 		if absErr != nil {
 			return nil, func() {}, absErr
 		}
-		firstRun, err := service.NewFirstRun(service.FirstRunDefaults{ConfigPath: abs})
+		// The journal a first create would name with --state-database, as
+		// openCandidateCheckRoute passes. The surface insists on one and these
+		// verbs never open it; without it a fresh install's `ssh-key list`
+		// was "first run needs a state database path" (#1609).
+		firstRun, err := service.NewFirstRun(service.FirstRunDefaults{ConfigPath: abs, StateDatabase: service.StateDatabaseDefault()})
 		if err != nil {
 			return nil, func() {}, err
 		}
@@ -322,6 +330,12 @@ func sshKeyImport(args []string) int {
 		return usageError("ssh-key import: --file and --candidate are alternatives; pass one")
 	case *candidate != "" && *passphraseStdin:
 		return usageError("ssh-key import: --passphrase-stdin belongs to --file. A candidate is read on the machine that holds it, and one that needs a passphrase is not importable")
+	}
+
+	// #1609: openSSHKeyRoute asks too, but only after the key and its
+	// passphrase are read, and a refusal reads nothing.
+	if err := checkPreRenamePath(*cfgPath); err != nil {
+		return fail(err)
 	}
 
 	var raw []byte

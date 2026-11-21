@@ -125,6 +125,11 @@ func cmdActivity(args []string) int {
 		}
 	}
 
+	// #1609: before either way in below, the journal opened here or the
+	// remote route --follow takes from a host with no deployment.
+	if err := checkPreRenamePath(*cfgPath); err != nil {
+		return fail(err)
+	}
 	ctx := context.Background()
 	if *followFlag {
 		// The live feed is only ever the engine's, so from a terminal with
@@ -329,6 +334,8 @@ var activitySeverityByState = map[string]int{
 var activitySeverityByEdge = map[[2]string]int{
 	{"FAILED", "FAILED"}:      severityInfo, // durable copy matched the remote object
 	{"FAILED", "QUARANTINED"}: severityInfo, // held for the reinstatement judgement
+	{"FAILED", "RETIRED"}:     severityInfo, // #1528: a failure whose source is gone, record kept
+	{"RETIRED", "DISCOVERED"}: severityInfo, // #1528: the source came back, re-entering the pipeline
 }
 
 // activitySeverity is the severity filterActivity and the page both key

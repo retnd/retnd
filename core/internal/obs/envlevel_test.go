@@ -102,3 +102,48 @@ func TestThePreviousNamesDebugShortcutHasNoEffect(t *testing.T) {
 		t.Errorf("LevelFromEnv() = %v with only the previous name set, want INFO", got)
 	}
 }
+
+// FR-100 (#900): observability.logs.level is the configured floor, and the
+// environment keeps winning over it. ResolveLevel names which one is in
+// force so that GET /settings/observability can say so.
+func TestResolveLevel(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		retndDebug string
+		rmDebug    string
+		logLevel   string
+		configured Level
+		want       Level
+		source     string
+	}{
+		{name: "nothing set uses the configured floor", configured: LevelWarn, want: LevelWarn, source: "config"},
+		{name: "nothing set and the default floor is info", configured: LevelInfo, want: LevelInfo, source: "config"},
+		{name: "LOG_LEVEL beats the configured floor", logLevel: "debug", configured: LevelWarn, want: LevelDebug, source: "LOG_LEVEL"},
+		{name: "LOG_LEVEL info is a real answer and beats a quieter floor", logLevel: "info", configured: LevelError, want: LevelInfo, source: "LOG_LEVEL"},
+		{name: "an unparseable LOG_LEVEL defers to the floor", logLevel: "verbose", configured: LevelWarn, want: LevelWarn, source: "config"},
+		{name: "an empty LOG_LEVEL defers to the floor", logLevel: " ", configured: LevelError, want: LevelError, source: "config"},
+		{name: "RETND_DEBUG beats both", retndDebug: "1", logLevel: "error", configured: LevelError, want: LevelDebug, source: "RETND_DEBUG"},
+		{name: "the deprecated RM_DEBUG alias is reported as RETND_DEBUG", rmDebug: "1", configured: LevelError, want: LevelDebug, source: "RETND_DEBUG"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("RETND_DEBUG", tc.retndDebug)
+			t.Setenv("RM_DEBUG", tc.rmDebug)
+			t.Setenv("LOG_LEVEL", tc.logLevel)
+			got, source := ResolveLevel(tc.configured)
+			if got != tc.want || source != tc.source {
+				t.Errorf("ResolveLevel(%v) = %v from %q, want %v from %q", tc.configured, got, source, tc.want, tc.source)
+			}
+		})
+	}
+}
+
+// With nothing configured the answer is what it always was, so a
+// deployment that never writes the block sees no change.
+func TestLevelFromEnvIsUnchangedByTheFloor(t *testing.T) {
+	t.Setenv("RETND_DEBUG", "")
+	t.Setenv("RM_DEBUG", "")
+	t.Setenv("LOG_LEVEL", "verbose")
+	if got := LevelFromEnv(); got != LevelInfo {
+		t.Errorf("LevelFromEnv() = %v, want INFO", got)
+	}
+}

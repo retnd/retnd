@@ -870,6 +870,83 @@ class TestTheEmbeddedCopyIsTheCanonicalOne(unittest.TestCase):
                       "hand-edits it")
 
 
+class TestTheObservabilityBundleIsNeverEmbedded(unittest.TestCase):
+    """EPIC O, #902, matrix row O-15's embed half.
+
+    container/observability/ is an example, not a supported deployment, and
+    it sits one directory below the file this installer embeds. The quiet
+    way it becomes canonical is not a test failing, it is an operator
+    running the installer and getting a Grafana nobody supports: a
+    generator pointed at the wrong file, an `include:` in the canonical
+    definition, or a bundle service pasted into it. Each of those would
+    still be byte-identical to container/compose.yaml if the canonical file
+    moved too, so the byte gate above cannot see them. This looks for the
+    bundle in the embedded copy itself.
+    """
+
+    BUNDLE = REPO_ROOT / "container" / "observability"
+    BUNDLE_COMPOSE = BUNDLE / "compose.observability.yaml"
+
+    def bundle_text(self) -> str:
+        return self.BUNDLE_COMPOSE.read_bytes().decode("utf-8")
+
+    def bundle_services(self) -> list[str]:
+        """The bundle's service names, read off its top-level services block
+        (two-space-indented keys), so a service added there is covered
+        without editing this test."""
+        names: list[str] = []
+        in_services = False
+        for line in self.bundle_text().splitlines():
+            if re.match(r"^[A-Za-z]", line):
+                in_services = line.startswith("services:")
+                continue
+            m = re.match(r"^  ([a-z][a-z0-9_-]*):\s*$", line)
+            if in_services and m:
+                names.append(m.group(1))
+        return names
+
+    def findings(self, blob: str) -> list[str]:
+        """Every sign of the bundle in an embedded compose text."""
+        out: list[str] = []
+        for needle in ("observability/", "compose.observability", "retnd-observability"):
+            if needle in blob:
+                out.append(f"names {needle!r}")
+        if re.search(r"(?m)^include:", blob):
+            out.append("has a top-level include:, which is how a second file becomes part of the first")
+        for name in self.bundle_services():
+            if re.search(rf"(?m)^  {re.escape(name)}:\s*$", blob):
+                out.append(f"declares the bundle's {name!r} service")
+        return out
+
+    def test_the_bundle_has_services_to_look_for(self):
+        """Without this a renamed bundle file would make every check below
+        look for nothing and pass."""
+        services = self.bundle_services()
+        for name in ("prometheus", "grafana", "loki", "alertmanager"):
+            self.assertIn(name, services)
+
+    def test_the_generator_reads_the_canonical_file_and_nothing_else(self):
+        self.assertEqual(embed_compose.CANONICAL.resolve(), CANONICAL_COMPOSE.resolve(),
+                         "embed_compose.py has to embed container/compose.yaml, the one canonical "
+                         "definition, and not anything beside it")
+
+    def test_the_embedded_copy_carries_nothing_of_the_bundle(self):
+        self.assertEqual(self.findings(installer.EMBEDDED_COMPOSE_YAML), [],
+                         "the compose definition embedded in install_docker_host.py carries part of "
+                         "the example observability bundle, so the installer would deploy it. The "
+                         "bundle is an example (container/observability/README.md) and nothing "
+                         "canonical may include it.")
+
+    def test_a_bundle_spliced_into_the_embedded_copy_is_caught(self):
+        """The falsification, run every time: splice the bundle's compose
+        text into the embedded blob and require the check to see it. A
+        check that only ever ran against a clean blob has proven nothing."""
+        planted = installer.EMBEDDED_COMPOSE_YAML + "\n" + self.bundle_text()
+        self.assertNotEqual(self.findings(planted), [])
+        include = installer.EMBEDDED_COMPOSE_YAML + "\ninclude:\n  - observability/compose.observability.yaml\n"
+        self.assertNotEqual(self.findings(include), [])
+
+
 class TestTheShippedArtifactChecksItself(unittest.TestCase):
     """TestTheEmbeddedCopyIsTheCanonicalOne only exists inside a checkout,
     and the whole point of embedding the definition is that the installer

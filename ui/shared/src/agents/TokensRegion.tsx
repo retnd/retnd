@@ -6,6 +6,7 @@
  * no scope switcher.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
@@ -46,6 +47,7 @@ export function TokensRegion({
   const [revoking, setRevoking] = useState<AgentToken | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const mountedRef = useMounted();
 
   const revoke = async () => {
     if (!revoking) return;
@@ -53,13 +55,14 @@ export function TokensRegion({
     setFailure(null);
     try {
       await api.revokeAgentToken(revoking.id);
+      if (!mountedRef.current) return;
       setRevoking(null);
       tokens.reload();
       onChanged();
     } catch (e) {
-      setFailure(describeFailure(e, "the token was not revoked").message);
+      if (mountedRef.current) setFailure(describeFailure(e, "the token was not revoked").message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 

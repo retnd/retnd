@@ -32,6 +32,7 @@
  * in flight neither invalidates the edit nor is invalidated by it.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { Cell, CellGrid, Note, Row, Rows } from "@shared/components/Definitions";
 import { Choice } from "@shared/components/Choice";
@@ -163,6 +164,7 @@ function IncrementalConfiguration({
   const [draft, setDraft] = useState<IncrementalDraft>(baseline);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const mountedRef = useMounted();
   const [saveError, setSaveError] = useState<{ message: string; correlationId?: string } | null>(
     null
   );
@@ -177,16 +179,18 @@ function IncrementalConfiguration({
     setSaveError(null);
     try {
       await api.updateBackupSet(set.source, set.set, incrementalPatch(baseline, draft));
+      if (!mountedRef.current) return;
       setEditing(false);
       onSaved();
     } catch (e) {
+      if (!mountedRef.current) return;
       const failure = describeFailure(e, "retnd could not save this set's incremental settings.");
       setSaveError({
         message: failure.message,
         ...(failure.correlationId ? { correlationId: failure.correlationId } : {})
       });
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
   };
 

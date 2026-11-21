@@ -25,6 +25,7 @@
  * this set at different data.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
@@ -208,6 +209,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // character and deleting it leaves Save inactive) and is why both are
   // strings.
   const [editing, setEditing] = useState(false);
+  const mountedRef = useMounted();
   const [baseline, setBaseline] = useState<Record<EditFieldKey, string> | null>(null);
   const [draft, setDraft] = useState<Record<EditFieldKey, string> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<EditFieldKey, string>>>({});
@@ -217,6 +219,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const [enterError, setEnterError] = useState<string | null>(null);
   const [warnAbout, setWarnAbout] = useState<RunningWork | null>(null);
   const [stopped, setStopped] = useState<RunningWork | null>(null);
+  // The token the engine gave this page's hold (#1606). The take that
+  // opens edit mode writes it and the hold effect below reads it once when
+  // it arms, so a ref rather than state: changing it must not re-run the
+  // effect, which would release the hold it just renewed.
+  const holdToken = useRef<string | null>(null);
   // The service refused this save because it needs something said out
   // loud first. Held rather than turned into a field error, because it is
   // not a field error: the value is fine, and the operator has one
@@ -333,21 +340,60 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // at all: a closed laptop or a lost network stops renewing, and the
   // server's own lease lapses. A set left permanently paused because
   // somebody closed a tab is a backup silently not happening.
+  //
+  // Clearing the interval stops the next renewal, not one already out
+  // (#1593). A renewal answered after edit mode was left, the page
+  // included, belongs to a hold this page has already given back, so
+  // `live` drops it. The banner it would set only shows in edit mode,
+  // and entering it again takes a fresh hold that says for itself what it
+  // stopped, so nothing an operator could see is lost.
+  //
+  // The hold has a holder since #1606. The heartbeat renews under the
+  // token this page's own take answered, and the release names it, so a
+  // second tab editing the same set keeps its own hold. A renewal that
+  // lands after the release is refused by the engine (EDIT_HOLD_GONE)
+  // rather than putting the hold back, which is the half #1593 could not
+  // fix from here.
   useEffect(() => {
     if (!editing || !setId) return;
+    let live = true;
+    let token = holdToken.current;
+    // A fresh hold, for when the one this page held is gone while the
+    // form is still open. If it answers after edit mode was left, nobody
+    // will renew or release it, so it goes straight back.
+    const retake = () =>
+      api.takeEditHold(source, setName).then((hold) => {
+        if (!live) {
+          void api.releaseEditHold(source, setName, hold.token).catch(() => {});
+          return;
+        }
+        token = hold.token;
+        holdToken.current = hold.token;
+        // A fresh hold stops something in exactly one case, and it is a
+        // real one: the old hold lapsed while nobody was renewing (a
+        // sleeping laptop, a network that came back, an engine restart),
+        // a cycle started against this set in the meantime, and this take
+        // cancelled it. Reporting that through the same banner an initial
+        // hold uses is the difference between an operator knowing a
+        // backup was interrupted and finding out from the artifact list
+        // later.
+        if (hold.stopped) setStopped(hold.stopped);
+      });
     const timer = setInterval(() => {
-      void api
-        .takeEditHold(source, setName)
-        // A renewal usually stops nothing, because the set is already
-        // held. It stops something in exactly one case, and it is a real
-        // one: the lease lapsed while nobody was renewing (a sleeping
-        // laptop, a network that came back), a cycle started against this
-        // set in the meantime, and this renewal cancelled it. Reporting
-        // that through the same banner an initial hold uses is the
-        // difference between an operator knowing a backup was interrupted
-        // and finding out from the artifact list later.
-        .then((hold) => {
-          if (hold.stopped) setStopped(hold.stopped);
+      const beat = token
+        ? api.renewEditHold(source, setName, token).then((hold) => {
+            // The engine answers null here for a live lease; the banner
+            // is kept for any answer that says otherwise, as before.
+            if (live && hold.stopped) setStopped(hold.stopped);
+          })
+        : retake();
+      void beat
+        .catch((e: unknown) => {
+          // EDIT_HOLD_GONE is "the hold is gone", not an error: it was
+          // released somewhere else, it lapsed, or the engine restarted.
+          // Still editing, so take a fresh one; edit mode already left,
+          // so there is nothing to hold.
+          if (live && apiErrorOf(e)?.code === "EDIT_HOLD_GONE") return retake();
         })
         // Swallowed on purpose. A failed renewal is not an operator's
         // problem to act on: the lease simply lapses and the set resumes
@@ -357,8 +403,14 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         .catch(() => {});
     }, HOLD_HEARTBEAT_MS);
     return () => {
+      live = false;
       clearInterval(timer);
-      void api.releaseEditHold(source, setName).catch(() => {});
+      holdToken.current = null;
+      // No token means no hold of this page's own yet (the effect re-armed
+      // and its heartbeat has not retaken). A release with no token gives
+      // back every hold on the set, another tab's included, so it is
+      // skipped rather than sent.
+      if (token) void api.releaseEditHold(source, setName, token).catch(() => {});
     };
   }, [editing, api, source, setName, setId]);
 
@@ -398,6 +450,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setTesting(true);
     try {
       const result = await api.testConnection(s.id);
+      if (!mountedRef.current) return;
       // The steps are not rendered here (see above); this one field is
       // KEPT, because it is not a step, it is what the set may be
       // configured to do next (issue #852).
@@ -414,7 +467,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         backupSetIds: [s.id]
       });
     } finally {
-      setTesting(false);
+      if (mountedRef.current) setTesting(false);
     }
   };
 
@@ -432,10 +485,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const toggleReadOnly = async () => {
     try {
       await api.setReadOnly(s.source, s.set, !s.readOnly);
-      set.reload();
+      if (mountedRef.current) set.reload();
     } catch (e) {
       const code = apiErrorOf(e)?.code ?? null;
-      if (code === "BACKUP_SET_SOURCE_NOT_WRITABLE") setSourceWritable(false);
+      if (code === "BACKUP_SET_SOURCE_NOT_WRITABLE" && mountedRef.current) setSourceWritable(false);
       const failure = describeFailure(e, "retnd could not change this backup set's read-only status.");
       emitBrowserNotice({
         outcome: code === null ? "unreachable" : "refused",
@@ -474,9 +527,17 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setEnterError(null);
     try {
       const hold = await api.takeEditHold(source, setName);
+      holdToken.current = hold.token;
+      if (!mountedRef.current) {
+        // The page went while the hold was being taken. Nothing will renew
+        // or release it from here, so it's released by its own token now
+        // rather than left to run out its 90-second lease (#1606).
+        void api.releaseEditHold(source, setName, hold.token).catch(() => undefined);
+        return;
+      }
       setStopped(hold.stopped);
     } catch (e) {
-      setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);
+      if (mountedRef.current) setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);
       return;
     }
     const loaded = readEditFields(s);
@@ -499,6 +560,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     try {
       running = (await api.getEditHold(source, setName)).running;
     } catch (e) {
+      if (!mountedRef.current) return;
       // Refused rather than entered anyway. Opening edit mode without
       // knowing whether a cycle is running is exactly the two-writers
       // race the hold exists to prevent, and doing it silently would be
@@ -508,6 +570,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       );
       return;
     }
+    if (!mountedRef.current) return;
     if (running) {
       setWarnAbout(running);
       return;
@@ -547,7 +610,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // Inline editing holds the page open longer than a dialog did, so
     // this matters more here, not less.
     if (!snapshot || isSetEditStale(snapshot)) {
-      setStale(true);
+      if (mountedRef.current) setStale(true);
       return { ok: false, reason: "this set changed somewhere else while it was being edited" };
     }
 
@@ -564,7 +627,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         else Object.assign(patch, parsed.patch);
       }
       if (Object.keys(problems).length > 0) {
-        setFieldErrors((prev) => ({ ...prev, ...problems }));
+        if (mountedRef.current) setFieldErrors((prev) => ({ ...prev, ...problems }));
         return { ok: false, reason: Object.values(problems).join(" ") };
       }
     }
@@ -578,7 +641,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // first answer.
     if (acknowledge === "repoint") patch.acknowledgeRepoint = true;
     if (acknowledge === "hostKey") patch.acknowledgeHostKeyChange = true;
-    setRefusal(null);
+    if (mountedRef.current) setRefusal(null);
 
     // Added to, and later removed from, rather than replaced wholesale.
     // Two per-box Saves can genuinely overlap (press one, press another
@@ -586,7 +649,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // one's entry: its button springs back to "Save", enabled, while its
     // request is still in flight, which invites the double submit it was
     // meant to prevent.
-    setSavingFields((prev) => [...prev, ...keys]);
+    if (mountedRef.current) setSavingFields((prev) => [...prev, ...keys]);
     try {
       const updated = await api.updateBackupSet(source, setName, patch);
       // The persisted truth goes back on the graph directly, rather than
@@ -600,6 +663,8 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       graph.commit("app.currentSetDetail/edit-saved", (tx) =>
         tx.set(currentSetDetailNode, { data: updated, error: null, loading: false })
       );
+      // The graph keeps the saved set either way; the boxes are this page's.
+      if (!mountedRef.current) return SAVED;
       setSnapshot(captureSetEditSnapshot());
       // Both baseline and draft are re-read from the SERVER's answer for
       // the saved keys, not from the text that was sent: the box then
@@ -623,6 +688,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       // discard the operator's work and show them the old value as
       // though nothing had happened.
       const message = describeFailure(e, "retnd could not save this change.").message;
+      if (!mountedRef.current) return { ok: false, reason: message };
       const kind = REFUSALS_NEEDING_AN_ANSWER[apiErrorOf(e)?.code ?? ""];
       if (kind) {
         // Not a field error. The service is not saying the value is
@@ -635,7 +701,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       setFieldErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, message])) }));
       return { ok: false, reason: message };
     } finally {
-      setSavingFields((prev) => prev.filter((key) => !keys.includes(key)));
+      if (mountedRef.current) setSavingFields((prev) => prev.filter((key) => !keys.includes(key)));
     }
   };
 
@@ -662,7 +728,12 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // does.
     const hookKeys = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "changed");
     if (hookKeys.length > 0 && !(await saveHooks(hookKeys))) return;
+    // An explicit Save all runs to the end even if the page went while the
+    // directories were saving: the second write is a request, not a setter,
+    // and the operator asked for both. saveFields only sets the page's
+    // state while the page is there (#1599).
     const outcome = await saveFields(dirtyKeys(), null, true);
+    if (!mountedRef.current) return;
     if (!outcome.ok) {
       // Two writes, and only the second failed. The directories are live
       // and will run on the next backup, so say which half that was.
@@ -691,6 +762,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setHookErrors((prev) => omitKeys(prev, keys));
     try {
       const saved = await setWorkflow.write(patch);
+      if (!mountedRef.current) return true;
       const at = new Date().toISOString();
       setSavedThisSession((prev) => [
         ...prev.filter((entry) => !keys.includes(entry.key as HookDirKey)),
@@ -700,10 +772,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       return true;
     } catch (e) {
       const text = workflowSaveFailureText(e, "that directory was not saved");
-      if (text) setHookErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, text])) }));
+      if (text && mountedRef.current) setHookErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, text])) }));
       return false;
     } finally {
-      setSavingHooks((prev) => prev.filter((key) => !keys.includes(key)));
+      if (mountedRef.current) setSavingHooks((prev) => prev.filter((key) => !keys.includes(key)));
     }
   };
 
@@ -721,7 +793,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     const pending = refusal;
     if (!pending) return;
     if (!(await saveFields(pending.keys, pending.kind, pending.exitAfter, pending.patch)).ok) return;
-    if (pending.exitAfter) leaveEditMode();
+    if (pending.exitAfter && mountedRef.current) leaveEditMode();
   };
 
   const leaveEditMode = () => {
@@ -1560,7 +1632,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         open={sshWizardOpen}
         onCancel={() => setSSHWizardOpen(false)}
         onApplied={() => {
-          setSSHWizardOpen(false);
+          if (mountedRef.current) setSSHWizardOpen(false);
           set.reload();
         }}
       />
@@ -1570,8 +1642,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         open={removeOpen}
         onCancel={() => setRemoveOpen(false)}
         onRemoved={() => {
-          setRemoveOpen(false);
+          // The set is gone either way, so the list is re-read; the page's
+          // own steps only run while it's still there.
           fetchResource(setsNode, () => api.listSets());
+          if (!mountedRef.current) return;
+          setRemoveOpen(false);
           navigate("/sets");
         }}
       />

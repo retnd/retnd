@@ -32,6 +32,7 @@
  */
 import "./assurance.css";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { apiErrorOf } from "@shared/api/failure";
@@ -119,6 +120,7 @@ export function RecoverArtifactDialog({
    *  the placements said the copy was readable, e.g. a billed download. */
   const [costWall, setCostWall] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "choose" });
+  const mountedRef = useMounted();
   const box = useRef<HTMLDivElement>(null);
   const setId = artifactId.split("/").slice(0, 2).join("/");
   const source = useSourceRecovery(setId, { bytes: artifact?.sizeBytes ?? null });
@@ -207,7 +209,7 @@ export function RecoverArtifactDialog({
     a.rel = "noopener";
     a.download = "";
     a.click();
-    setPhase({ k: "handed", mint: m });
+    if (mountedRef.current) setPhase({ k: "handed", mint: m });
   };
 
   const go = async () => {
@@ -215,6 +217,13 @@ export function RecoverArtifactDialog({
     // password is sent, as for a restore (#1163), and hands the password over
     // for this one request (#1193's review). A second press is ignored.
     const once = kind === "source" ? await source.beforeSubmit() : {};
+    // A dialog that went while the prompt was open starts nothing: nobody
+    // would see the recovery, and the password was meant for the one on
+    // screen (#1599).
+    if (!mountedRef.current) {
+      if (once !== null) source.done();
+      return;
+    }
     if (once === null) return;
     try {
       await mint(once);
@@ -227,13 +236,17 @@ export function RecoverArtifactDialog({
     setPhase({ k: "minting" });
     try {
       const m = await api.mintRecovery(artifactId, { target: targetSpec(), acknowledged: accepted ? true : undefined }, once);
-      if (m.kind === "restore") { setPhase({ k: "thawing", mint: m }); return; }
+      // Gone with the dialog: the recovery it started still goes ahead (the
+      // download, the placement), only the dialog's own steps are skipped.
+      if (m.kind === "restore") { if (mountedRef.current) setPhase({ k: "thawing", mint: m }); return; }
       if (m.target.kind === "download") { startDownload(m); return; }
-      setPhase({ k: "verifying", mint: m });
+      if (mountedRef.current) setPhase({ k: "verifying", mint: m });
       try {
-        setPhase({ k: "placed", placement: await api.redeemRecovery(m.grant) });
-      } catch (e) { fail(e); }
+        const placement = await api.redeemRecovery(m.grant);
+        if (mountedRef.current) setPhase({ k: "placed", placement });
+      } catch (e) { if (mountedRef.current) fail(e); }
     } catch (e) {
+      if (!mountedRef.current) return;
       // An unacknowledged cost starts nothing and sends the person to the
       // decision, whatever the placements said.
       const api_ = apiErrorOf(e);
