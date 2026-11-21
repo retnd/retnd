@@ -1,0 +1,79 @@
+# promtool rule tests for retnd.rules.yml (#1595). Run by
+# scripts/observability/rule-tests.sh inside the pinned Prometheus image.
+rule_files:
+  - ../rules/retnd.rules.yml
+evaluation_interval: 15s
+
+tests:
+  # A scrape-token rotation: Prometheus keeps presenting the old token for a
+  # few minutes (up is 0, and the engine counts each refusal), then the file
+  # is updated and the scrape works again. The counter jumps once, on the
+  # first good scrape. Nothing is wrong that an operator can act on.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="retnd",instance="retnd:8080"}'
+        values: '1x40 0x28 1x112'
+      - series: 'retnd_scrape_rejected_total{job="retnd",instance="retnd:8080",reason="unauthenticated"}'
+        values: '0x40 _x27 12x113'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: RetndScrapeRefused
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: RetndScrapeRefused
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: RetndScrapeDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: retnd, instance: "retnd:8080"}
+            exp_annotations:
+              summary: Prometheus cannot scrape retnd
+              description: >-
+                The scrape of retnd:8080 has failed for 5 minutes. Either the
+                engine is down, the scrape token was rotated and the token file not
+                updated, or metrics are disabled. Every other retnd alert is blind
+                until this clears.
+
+  # Something else probing with a wrong token while Prometheus's own scrape
+  # is healthy the whole time: this one has to keep firing.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="retnd",instance="retnd:8080"}'
+        values: '1x120'
+      - series: 'retnd_scrape_rejected_total{job="retnd",instance="retnd:8080",reason="unauthenticated"}'
+        values: '0x40 3x80'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: RetndScrapeRefused
+        exp_alerts:
+          - exp_labels: {severity: warning, job: retnd, instance: "retnd:8080", reason: unauthenticated}
+            exp_annotations:
+              summary: Something other than Prometheus is presenting a wrong scrape token to retnd
+              description: >-
+                The engine refused 3 scrapes without a valid token in the last 15
+                minutes, while Prometheus's own scrape kept succeeding, so it is not
+                Prometheus: a second scraper holding a token from before a rotation,
+                or something probing the endpoint. Prometheus's own refusals after a
+                rotation are not counted here, RetndScrapeDown covers those.
+
+  # The report is rebuilt every 120s (the ceiling min_rebuild_interval allows)
+  # for 40 minutes and then stops. No alert while it is rebuilt, one after.
+  - interval: 15s
+    input_series:
+      - series: 'retnd_report_generated_timestamp_seconds{job="retnd",instance="retnd:8080"}'
+        values: '0 0 0 0 0 0 0 0 120 120 120 120 120 120 120 120 240 240 240 240 240 240 240 240 360 360 360 360 360 360 360 360 480 480 480 480 480 480 480 480 600 600 600 600 600 600 600 600 720 720 720 720 720 720 720 720 840 840 840 840 840 840 840 840 960 960 960 960 960 960 960 960 1080 1080 1080 1080 1080 1080 1080 1080 1200 1200 1200 1200 1200 1200 1200 1200 1320 1320 1320 1320 1320 1320 1320 1320 1440 1440 1440 1440 1440 1440 1440 1440 1560 1560 1560 1560 1560 1560 1560 1560 1680 1680 1680 1680 1680 1680 1680 1680 1800 1800 1800 1800 1800 1800 1800 1800 1920 1920 1920 1920 1920 1920 1920 1920 2040 2040 2040 2040 2040 2040 2040 2040 2160 2160 2160 2160 2160 2160 2160 2160 2280 2280 2280 2280 2280 2280 2280 2280 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400 2400'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: RetndHealthReportNotRefreshing
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: RetndHealthReportNotRefreshing
+        exp_alerts:
+          - exp_labels: {severity: warning, job: retnd, instance: "retnd:8080"}
+            exp_annotations:
+              summary: retnd's health report has not been rebuilt for 5 minutes
+              description: >-
+                The scrape answers but the report behind it is more than 5 minutes
+                old, so the readings below it are stale. The 5 minutes assumes
+                observability.metrics.min_rebuild_interval is at its 2m ceiling or
+                below, which the engine enforces.
