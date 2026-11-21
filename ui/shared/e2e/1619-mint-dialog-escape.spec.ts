@@ -10,9 +10,11 @@ import { openAgents, openMint } from "./1351-agents";
  */
 const popUp = (page: Page) => page.locator(".tooltip__pop:not([hidden])");
 
-async function tabTo(page: Page, el: Locator) {
+// The dialog does not trap Tab and focus starts on its Cancel button at the
+// foot, so the fields are reached backwards.
+async function tabTo(page: Page, el: Locator, key = "Shift+Tab") {
   for (let i = 0; i < 40; i++) {
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(key);
     if (await el.evaluate((n) => n === document.activeElement)) return;
   }
   throw new Error("Tab never reached the control");
