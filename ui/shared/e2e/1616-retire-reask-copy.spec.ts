@@ -19,6 +19,10 @@ import { measureContrast, open, setTheme } from "./helpers";
 const dialog = (page: Page) => page.getByRole("dialog");
 const beat = (p: Page) => (process.env.E2E_VIDEO ? p.waitForTimeout(1200) : Promise.resolve());
 
+/** How many times the mock has been asked to preview a retirement. */
+const previews = (page: Page) => page.evaluate(() => (window as unknown as { __retndPreviewCalls?: number }).__retndPreviewCalls ?? 0);
+const insideDialog = (page: Page) => page.evaluate(() => !!document.activeElement?.closest("[role=dialog]"));
+
 async function failedReask(page: Page) {
   await open(page, "/backups/media/weekly-archive/media-week34.tar", "retire-reask-fails");
   await page.getByRole("button", { name: "Retire…" }).click();
@@ -44,15 +48,49 @@ test.describe("#1616 the failed re-ask in the Retire dialog", () => {
   });
 
   test("#1616 Ask again is a button in the banner, and pressing it asks the host again", async ({ page }) => {
-    await failedReask(page);
+    const banner = await failedReask(page);
     const again = dialog(page).getByRole("button", { name: "Ask again" });
     await expect(again).toBeVisible();
     await expect(again).toBeEnabled();
+    const before = await previews(page);
+    expect(before, "the mock counted the first ask").toBeGreaterThan(0);
     await again.click();
-    // The mock still refuses this choice, so the banner is back after the
-    // second answer, and Retire is still off.
-    await expect(dialog(page).getByTestId("retire-reask-error")).toBeVisible();
+    // A second request really went out, and the answer (still a refusal from
+    // this mock) puts the banner back with Retire off.
+    await expect.poll(() => previews(page)).toBe(before + 1);
+    await expect(banner).toBeVisible();
     await expect(dialog(page).getByRole("button", { name: /^Retire/ }).last()).toBeDisabled();
+  });
+
+  test("#1616 the failed re-ask is announced: its banner sits in a live region", async ({ page }) => {
+    const banner = await failedReask(page);
+    expect(await banner.evaluate((el) => !!el.closest("[role=status],[aria-live],[role=alert]"))).toBe(true);
+  });
+
+  test("#1616 keyboard: Enter on Ask again keeps focus in the dialog when the answer comes, and Escape still closes it", async ({ page }) => {
+    await open(page, "/backups/media/weekly-archive/media-week34.tar", "retire-reask-fails-once");
+    await page.getByRole("button", { name: "Retire…" }).click();
+    await dialog(page).getByLabel("Replaced by").selectOption("media-week35.tar");
+    await expect(dialog(page).getByTestId("retire-reask-error")).toBeVisible();
+    await dialog(page).getByRole("button", { name: "Ask again" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(dialog(page).getByTestId("retire-reask-error")).toHaveCount(0);
+    expect(await insideDialog(page), "focus fell out of the dialog after Ask again").toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toHaveCount(0);
+  });
+
+  test("#1616 keyboard: when the second ask fails too, focus is on Ask again in the dialog, and Escape still closes it", async ({ page }) => {
+    const banner = await failedReask(page);
+    const before = await previews(page);
+    await dialog(page).getByRole("button", { name: "Ask again" }).focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => previews(page)).toBe(before + 1);
+    await expect(banner).toBeVisible();
+    expect(await insideDialog(page), "focus fell out of the dialog after a failed re-ask").toBe(true);
+    await expect(dialog(page).getByRole("button", { name: "Ask again" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toHaveCount(0);
   });
 
   test("#1616 walkthrough: pick another replacement, the host does not answer, the banner stays on screen", async ({ page }) => {
