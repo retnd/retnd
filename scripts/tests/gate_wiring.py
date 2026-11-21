@@ -8,7 +8,9 @@ optionally behind env assignments, a quoted lock wrapper such as "$pw_lock", a
 `(cd <dir> &&`, ci-local.sh's gate_pw_locked (the Playwright lock), or the Chromium lane (`gate_ui_browser "<what>" bash
 scripts/e2e/ui-browser.sh specs <config> | run <command>`, which runs the config
 or the command), and the script it runs is the guard, without --check-anchors or
---dry-run (an anchors-only run is not a run of the controls). A step title, an
+--dry-run (an anchors-only run is not a run of the controls), --list or --only
+(a listing and one control are not the run), `|| ...` (a run that cannot fail),
+or a spec filter after the config (a narrowed run). A step title, an
 echo, a skip note, a `[ -f ]` or `[[ -f ]]` test, an assignment, shellcheck over
 the file and `false && bash ...` all name the path without running it. The line
 has to sit inside a gate_seg_* function that a `gate_run_segment` or `gate_run_shard_only`
@@ -45,7 +47,8 @@ EXECUTOR = re.compile(
     r"(?:\"?\$\{?\w+\}?\"?\s+)?"
     r"(?:exec\s+)?(?P<prog>bash|sh|python3|npx|gate_selftest_with_ledger)\s+(?P<args>.*)$"
 )
-NOT_A_RUN = ("--check-anchors", "--dry-run")
+NOT_A_RUN = ("--check-anchors", "--dry-run", "--list", "--only", "||")
+GATE_FUNCTION = "gate_"
 # The Chromium lane (#1532, #1537) runs what it is handed in a container: `specs
 # <config>` runs that Playwright config, `run <command...>` runs the command.
 LANE = "scripts/e2e/ui-browser.sh"
@@ -82,9 +85,12 @@ def runs(command: str) -> str:
         script = next((a for a in args if not a.startswith("-")), "")
         if script == LANE:
             rest = args[args.index(script) + 1:]
-            if rest[:1] == ["specs"] and len(rest) > 1:
+            # `specs <config>` and nothing after it: a spec filter narrows the run.
+            if rest[:1] == ["specs"] and len(rest) == 2:
                 return rest[1]
-            if rest[:1] == ["run"] and len(rest) > 1:
+            # A gate function (gate_pw_locked, gate_selftest_with_ledger) does
+            # not exist inside the lane's container, so it never ran anything.
+            if rest[:1] == ["run"] and len(rest) > 1 and not rest[1].startswith(GATE_FUNCTION):
                 return runs(shlex.join(rest[1:]))
             return ""
     if not script:
