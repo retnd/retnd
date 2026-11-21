@@ -56,6 +56,40 @@ tests:
                 or something probing the endpoint. Prometheus's own refusals after a
                 rotation are not counted here, RetndScrapeDown covers those.
 
+  # Prometheus restarted: the up history is kept, with a short gap of missing
+  # samples and no up == 0 in it. A genuine refusal around it still fires.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="retnd",instance="retnd:8080"}'
+        values: '1x20 _x8 1x92'
+      - series: 'retnd_scrape_rejected_total{job="retnd",instance="retnd:8080",reason="unauthenticated"}'
+        values: '0x20 _x8 3x92'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RetndScrapeRefused
+        exp_alerts:
+          - exp_labels: {severity: warning, job: retnd, instance: "retnd:8080", reason: unauthenticated}
+            exp_annotations:
+              summary: Something other than Prometheus is presenting a wrong scrape token to retnd
+              description: >-
+                The engine refused 3 scrapes without a valid token in the last 15
+                minutes, while Prometheus's own scrape kept succeeding, so it is not
+                Prometheus: a second scraper holding a token from before a rotation,
+                or something probing the endpoint. Prometheus's own refusals after a
+                rotation are not counted here, RetndScrapeDown covers those.
+
+  # An up == 0 stretch inside the window masks it, however short.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="retnd",instance="retnd:8080"}'
+        values: '1x40 0x4 1x76'
+      - series: 'retnd_scrape_rejected_total{job="retnd",instance="retnd:8080",reason="unauthenticated"}'
+        values: '0x40 _x3 3x77'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: RetndScrapeRefused
+        exp_alerts: []
+
   # The report is rebuilt every 120s (the ceiling min_rebuild_interval allows)
   # for 40 minutes and then stops. No alert while it is rebuilt, one after.
   - interval: 15s

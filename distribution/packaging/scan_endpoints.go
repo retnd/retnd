@@ -117,12 +117,12 @@ var (
 	// every test fixture's made-up token.
 	credentialSettingRe = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_]*["']?[ \t]*[:=][ \t]*["']?[A-Za-z0-9][^\s"']{3,}`)
 
-	// An inline Bearer credential in an Authorization header (#1595), in YAML,
+	// An inline Bearer or Basic credential in an Authorization header (#1595), in YAML,
 	// JSON or a curl line. It has to sit in a header, because "Bearer" next to
 	// an ordinary word is prose and `type: Bearer` is how Prometheus is told
 	// the scheme; a value that is an interpolation or a file starts with
 	// something outside the class and is not a literal.
-	bearerHeaderRe = regexp.MustCompile(`(?i)\bauthorization["']?[ \t]*[:=][ \t]*["']?Bearer[ \t]+[A-Za-z0-9][A-Za-z0-9._~+/=-]{7,}`)
+	bearerHeaderRe = regexp.MustCompile(`(?i)\bauthorization["']?[ \t]*[:=][ \t]*["']?(?:Bearer|Basic)[ \t]+[A-Za-z0-9][A-Za-z0-9._~+/=-]{7,}`)
 
 	// A retnd scrape token written out (#1595): rsc_ and the body the mint
 	// prints. Whatever key it sits under, the value is the credential. Prose

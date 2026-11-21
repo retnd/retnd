@@ -6,11 +6,14 @@
 # the bundle's compose file pins, so the rules are tested by the Prometheus
 # they ship with.
 #
+# The container run has a hard 300s timeout of its own: promtool over twelve
+# rules takes seconds, so a run that has not finished by then is stuck.
+#
 #     bash scripts/observability/rule-tests.sh
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 image="$(sed -n 's/^[[:space:]]*image:[[:space:]]*\(prom\/prometheus:[^[:space:]]*\).*/\1/p' "$root/container/observability/compose.observability.yaml" | head -n 1)"
 [ -n "$image" ] || { echo "rule-tests: no prom/prometheus image in compose.observability.yaml" >&2; exit 1; }
-exec docker run --rm --entrypoint /bin/sh \
+exec timeout --kill-after=30 300 docker run --rm --entrypoint /bin/sh \
   -v "$root/container/observability/prometheus:/p:ro" -w /p/testdata "$image" \
   -c 'promtool check rules /p/rules/retnd.rules.yml && promtool test rules retnd.rules.test.yml' "$@"
