@@ -158,6 +158,43 @@ describe("#1619 a label tooltip, in the host", () => {
     expect(popOf("observability.logs.level")).not.toBeVisible();
   });
 
+  it("Escape closes an open tooltip and goes no further, then the next Escape reaches the dialog", async () => {
+    const user = userEvent.setup();
+    const seen: string[] = [];
+    // The two ways dialogs here listen: a window listener, and a handler on the dialog element.
+    const onWindow = (e: KeyboardEvent) => { if (e.key === "Escape") seen.push("window"); };
+    window.addEventListener("keydown", onWindow);
+    try {
+      render(<div role="dialog" onKeyDown={(e) => { if (e.key === "Escape") seen.push("element"); }}><Labelled /></div>);
+
+      await user.tab();
+      expect(popOf("observability.logs.level")).toBeVisible();
+      await user.keyboard("{Escape}");
+      expect(popOf("observability.logs.level")).not.toBeVisible();
+      expect(seen).toEqual([]);
+
+      await user.keyboard("{Escape}");
+      expect(seen.sort()).toEqual(["element", "window"]);
+    } finally {
+      window.removeEventListener("keydown", onWindow);
+    }
+  });
+
+  it("focus that script puts on the control opens nothing, after a click or an Enter", async () => {
+    const user = userEvent.setup();
+    render(<Labelled />);
+    const select = screen.getByRole("combobox");
+
+    await user.click(screen.getByRole("button", { name: "next" }));
+    act(() => select.focus());
+    expect(popOf("observability.logs.level")).not.toBeVisible();
+
+    act(() => (document.activeElement as HTMLElement).blur());
+    await user.keyboard("{Enter}");
+    act(() => select.focus());
+    expect(popOf("observability.logs.level")).not.toBeVisible();
+  });
+
   it("describes a fieldset by the tooltip on its legend, and opens it when focus enters a radio inside", async () => {
     const user = userEvent.setup();
     render(
@@ -224,7 +261,10 @@ describe("#1619 the Observability card", () => {
     const select = await screen.findByLabelText("Log level", { exact: true });
     expect(popOf("observability.logs.level")).not.toBeVisible();
 
-    select.focus();
+    // A Tab keypress is what says focus is keyboard-driven; where it lands is
+    // not the point here, so focus the select once it has been pressed.
+    await userEvent.setup().keyboard("{Tab}");
+    act(() => select.focus());
     await waitFor(() => expect(popOf("observability.logs.level")).toBeVisible());
   });
 });
