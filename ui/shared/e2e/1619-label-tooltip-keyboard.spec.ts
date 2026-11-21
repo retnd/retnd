@@ -53,7 +53,12 @@ test.describe("#1619 label tooltips reach the control", () => {
   for (const label of CONTROLS) {
     test(`#1619 tabbing to "${label}" opens its tooltip and the control is described by it`, async ({ page }) => {
       await open(page, "/settings");
-      if (label === "Report cache (seconds)") await control(page, "Serve the scrape endpoint").check();
+      if (label === "Report cache (seconds)") {
+        // The box is controlled and saves through the API, so it flips a moment
+        // after the click: click it and wait for the state rather than check().
+        await control(page, "Serve the scrape endpoint").click();
+        await expect(control(page, "Serve the scrape endpoint")).toBeChecked();
+      }
       else if (label !== "Log level" && label !== "Alert delivery") await toAlertmanager(page);
       const el = control(page, label);
       await expect(el).toBeVisible();
@@ -81,18 +86,22 @@ test.describe("#1619 label tooltips reach the control", () => {
     const group = page.getByRole("radiogroup", { name: "Suite" });
     await expect(group).toBeVisible();
     expect(await registryDescription(group)).toBeTruthy();
-    await tabTo(page, group.getByRole("radio").first());
+    // A radio group is one tab stop, the checked radio.
+    await tabTo(page, group.getByRole("radio", { checked: true }));
     await expect(popUp(page)).toHaveCount(1);
     await hold(page);
   });
 
   test("#1619 moving focus on closes the tooltip", async ({ page }) => {
     await open(page, "/settings");
+    // The log level's own pop-up, by its copy: the next tab stop may sit under
+    // another tooltip, which is allowed to open.
+    const levelPop = page.locator(".tooltip__pop:not([hidden])", { hasText: "RETND_DEBUG" });
     await tabTo(page, control(page, "Log level"));
-    await expect(popUp(page)).toHaveCount(1);
+    await expect(levelPop).toHaveCount(1);
     await page.keyboard.press("Tab");
     await page.keyboard.press("Tab");
-    await expect(popUp(page)).toHaveCount(0);
+    await expect(levelPop).toHaveCount(0);
   });
 
   for (const theme of ["light", "dark"] as const) {
@@ -111,7 +120,7 @@ test.describe("#1619 touch", () => {
   test.use({ hasTouch: true });
   test("#1619 a tap on the label opens the tooltip and it stays up", async ({ page }) => {
     await open(page, "/settings");
-    const label = page.locator("label", { hasText: "Log level" }).first();
+    const label = page.locator("label", { hasText: "Log level" }).first().getByText("Log level", { exact: true });
     await label.scrollIntoViewIfNeeded();
     await label.tap();
     await expect(popUp(page)).toHaveCount(1);
