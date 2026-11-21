@@ -430,6 +430,14 @@ func (h *handlers) planReencrypt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "deprecated must be true or false")
 		return
 	}
+	switch q.Get("from_local") {
+	case "", "false":
+	case "true":
+		req.FromLocal = true
+	default:
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "from_local must be true or false")
+		return
+	}
 	got, err := b.PlanReencrypt(r.Context(), req)
 	if err != nil {
 		h.writeEncryptionError(w, r, err, "failed to plan the re-encryption of copies")

@@ -112,6 +112,7 @@ func run() error {
 		plan            = flag.Bool("plan", false, "plan a move for the artifact as well as resuming")
 		encryptExisting = flag.Bool("encrypt-existing", false, "run the operator's encrypt-existing entry point over the plan instead of an ordinary cycle")
 		reencrypt       = flag.Bool("reencrypt", false, "mark the plan as a re-encryption of an encrypted copy under the active key (#1317); read by -encrypt-existing only")
+		fromLocal       = flag.Bool("from-local", false, "with -reencrypt, write the new copy from the artifact's ACTIVE local copy instead of from the old remote one (#1545)")
 
 		killAfterPhase       = flag.String("kill-after-phase", "", "die the instant a phase write with this target commits")
 		killAfterPlan        = flag.Bool("kill-after-plan", false, "die the instant the durable intent to move is recorded, before any phase write")
@@ -218,7 +219,7 @@ func run() error {
 
 	var plans []placement.Plan
 	if *plan {
-		plans = []placement.Plan{{Artifact: id, DestinationMedium: *destination, Reencrypt: *reencrypt}}
+		plans = []placement.Plan{{Artifact: id, DestinationMedium: *destination, Reencrypt: *reencrypt, FromLocal: *fromLocal}}
 	}
 
 	var report placement.CycleReport

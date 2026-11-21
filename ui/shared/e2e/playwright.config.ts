@@ -19,6 +19,9 @@ const port = Number(process.env.E2E_PORT ?? 5199);
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.ts/,
+  // A test.only left in a spec runs that one test and passes for the whole
+  // suite; under CI (the gate's Chromium lane, #1537) it is refused instead.
+  forbidOnly: !!process.env.CI,
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],

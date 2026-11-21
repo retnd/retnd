@@ -42,6 +42,7 @@
  * gives.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type {
   ApiError,
@@ -133,6 +134,7 @@ export function DestinationConfigureWizard({
   const [makeDefault, setMakeDefault] = useState(false);
   const [failure, setFailure] = useState<ApiError | null>(null);
   const startedAt = useRef<number | null>(null);
+  const mountedRef = useMounted();
 
   useEffect(() => {
     let live = true;
@@ -217,6 +219,7 @@ export function DestinationConfigureWizard({
           credential.accessKeyId,
           credential.secretAccessKey
         );
+        if (!mountedRef.current) return;
         setCredential(NO_CREDENTIAL);
         setCredentialsId(reference);
         setCredentialConfigured(true);
@@ -232,6 +235,7 @@ export function DestinationConfigureWizard({
         fields: configurationValues(manifest, values),
         ...(reference ? { credentials: { credentialsId: reference } } : {})
       });
+      if (!mountedRef.current) return;
       setReport(answer);
       setElapsedMs(Date.now() - (startedAt.current ?? Date.now()));
       // Recorded against the configuration that was actually proven,
@@ -240,12 +244,13 @@ export function DestinationConfigureWizard({
       // been cleared.
       if (answer.ok) setProvenFor(proofKeyOf(values, reference, false));
     } catch (e: unknown) {
+      if (!mountedRef.current) return;
       setFailure(apiErrorOf(e));
       setElapsedMs(null);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
-  }, [api, credential, credentialTyped, credentialsId, instanceId, manifest, values]);
+  }, [api, credential, credentialTyped, credentialsId, instanceId, manifest, values, mountedRef]);
 
   const toTestStep = useCallback(() => {
     setStep("test");
@@ -271,11 +276,11 @@ export function DestinationConfigureWizard({
       if (makeDefault) saved = await api.setDefaultStorageMedium(instanceId);
       onSaved(saved);
     } catch (e: unknown) {
-      setFailure(apiErrorOf(e));
+      if (mountedRef.current) setFailure(apiErrorOf(e));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
-  }, [api, credentialsId, instanceId, makeDefault, manifest, onSaved, values]);
+  }, [api, credentialsId, instanceId, makeDefault, manifest, onSaved, values, mountedRef]);
 
   // The terminal lines, from the same values the requests are built
   // from (#1252). The credential is the reference the exchange returned,

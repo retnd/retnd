@@ -9,6 +9,7 @@
  * nothing.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { RetndApi } from "@shared/api/contracts";
 import { describeFailure } from "@shared/api/failure";
 import { startRecoveryRun } from "@shared/assurance/useRunAssurance";
@@ -32,19 +33,15 @@ export interface RowMenuRuns {
 export function useRowMenuRuns({ api, gate, onRetried }: { api: RetndApi; gate: GateReading; onRetried(): void }): RowMenuRuns {
   const [runs, setRuns] = useState<MenuRun[]>([]);
   const counter = useRef(0);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => { alive.current = false; };
-  }, []);
+  const mountedRef = useMounted();
   // The latest of the things the handlers read, so the handlers can be stable.
   const latest = useRef({ api, gate, onRetried });
   useEffect(() => { latest.current = { api, gate, onRetried }; });
 
   const patch = useCallback((key: string, p: Partial<MenuRun>) => {
-    if (!alive.current) return;
+    if (!mountedRef.current) return;
     setRuns((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
-  }, []);
+  }, [mountedRef]);
   const start = useCallback((a: BackupArtifact, kind: MenuRun["kind"]) => {
     counter.current += 1;
     const key = kind + ":" + a.id + ":" + counter.current;
@@ -76,11 +73,11 @@ export function useRowMenuRuns({ api, gate, onRetried }: { api: RetndApi; gate: 
     try {
       await latest.current.api.retryFailedIngestion(a.id);
       patch(key, { starting: false, said: { tone: "ok", text: RETRY_ACCEPTED } });
-      if (alive.current) latest.current.onRetried();
+      if (mountedRef.current) latest.current.onRetried();
     } catch (e) {
       patch(key, { starting: false, error: retryRefusalSentence(e) });
     }
-  }, [start, patch]);
+  }, [start, patch, mountedRef]);
   const dismiss = useCallback((key: string) => setRuns((rs) => rs.filter((r) => r.key !== key)), []);
   const onState = useCallback((key: string, state: Operation["state"]) => patch(key, { state }), [patch]);
   return { runs, test, scrub, retry, dismiss, onState };

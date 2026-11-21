@@ -88,7 +88,9 @@
 # then stamps `Local-Gate: red <why>` on the commit, so a reviewer sees why
 # the gate did not run, right in the history. A product file riding along
 # with the red tests is a fix, and the gate exists to run on fixes, so it
-# is refused by name.
+# is refused by name. The red route still runs the former-name scan, on every
+# red commit and over the staged blobs (#1618, #1622): a red commit used to
+# carry the name onto main.
 #
 # --no-verify still exists and nothing can stop it, but it is not the
 # documented route any more: git runs prepare-commit-msg even then, and it
@@ -189,6 +191,19 @@ EOF
     echo "==> pre-commit: refusing a red commit: these staged files are not test files, so this is a fix and the gate has to run on it:" >&2
     echo "$offenders" >&2
     echo "    Commit the red tests on their own with CI_LOCAL_RED, then the fix without it." >&2
+    exit 1
+  fi
+  # The one check the red route still runs (#1618, #1622). A red commit skips
+  # the tier, and the fix that follows it usually touches other files, so a
+  # test file spelling the former name went in here and nothing ever looked at
+  # it again until main was red. It runs for EVERY commit that gets this far,
+  # not for a list of test-shaped paths: the offender check above has already
+  # refused anything that is not a test file, so "a staged test file" and "any
+  # staged file" are the same set here, and a second copy of the admit-list
+  # would only be one more thing to keep in step. The scan is git grep over
+  # the staged blobs (--cached), about 0.3 s.
+  if ! bash scripts/rename/check-no-former-name.sh; then
+    echo "==> pre-commit: refusing a red commit: a test file spells the former name (#1618). Red tests skip the gate, not this scan." >&2
     exit 1
   fi
   printf 'red %s %s\n' "$tree" "$reason" >"$marker"

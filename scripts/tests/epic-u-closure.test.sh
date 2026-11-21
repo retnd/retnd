@@ -75,7 +75,7 @@ make_repo() {
   printf '%s' "$dir"
 }
 
-run_check() { (cd "$1" && EPIC_U_ROOT="$1" EPIC_U_BASE="${BASE_OVERRIDE:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_U_SKIP_GO=1 bash "$CHECK" 2>&1); }
+run_check() { (cd "$1" && EPIC_U_ROOT="$1" EPIC_U_BASE="${BASE_OVERRIDE:-$(cat "$SANDBOX/$(basename "$1").base")}" EPIC_U_TIP="${TIP_SHA:-WORKTREE}" EPIC_U_SKIP_GO=1 bash "$CHECK" 2>&1); }
 add_0022() { echo "-- 22" > "$1/core/migrations/0022_agent_access.sql"; (cd "$1" && git add -A && git commit -q -m "epic"); }
 
 expect_pass() { # name repo

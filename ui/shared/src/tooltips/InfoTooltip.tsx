@@ -112,7 +112,7 @@
  * mounted while closed so the control it explains always has an element
  * to point at.
  */
-import { cloneElement, isValidElement, useId } from "react";
+import { cloneElement, isValidElement, useEffect, useId } from "react";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 import { Icon } from "@shared/design-system/icons";
 import { useTooltipsSuppressed, useTooltipsVisible } from "@shared/hooks/useTooltips";
@@ -130,6 +130,11 @@ export interface InfoTooltipProps {
   /** Lays the host out as a block rather than inline, for wrapping a card,
    *  a row or anything else that must keep its own width. */
   block?: boolean;
+  /** The id of the control this tooltip explains, for a host that wraps a
+   *  caption that is neither in a <label> nor in a fieldset's <legend>. A host
+   *  in either finds its control (the labelled one, or the fieldset) on its
+   *  own (#1619). */
+  controlId?: string;
   /** Pins the pop-up's right edge to the host's instead of its left, for
    *  hosts that sit at the right-hand end of a row where a left-aligned
    *  pop-up would run off the page. */
@@ -141,7 +146,7 @@ export interface InfoTooltipProps {
  *  is a type change rather than an `any`. */
 type DescribableChild = ReactElement<{ "aria-describedby"?: string }>;
 
-export function InfoTooltip({ id, children, block, alignEnd, style }: InfoTooltipProps) {
+export function InfoTooltip({ id, children, block, alignEnd, controlId, style }: InfoTooltipProps) {
   // React's own id is ":r7q:", which is a legal HTML id and an illegal CSS
   // selector: `querySelector("#" + id)` throws on it. That matters here in
   // a way it does not for a field's own pop-up, because this id is
@@ -159,7 +164,8 @@ export function InfoTooltip({ id, children, block, alignEnd, style }: InfoToolti
     hostProps,
     pin,
     toggle,
-    dismiss
+    dismiss,
+    attachControl
   } = useHoverPopover<HTMLSpanElement>({ enabled: visible });
   // The hook is the gate: with the preference off it opens for a press of
   // the icon and for nothing else (#839), so there is nothing here to
@@ -167,6 +173,32 @@ export function InfoTooltip({ id, children, block, alignEnd, style }: InfoToolti
   const open = shown;
 
   const entry = lookupTooltip(id);
+
+  // #1619: a host on a label's text does not contain the control the label
+  // is for, so focus on the control never reached it and the description sat
+  // on the label's span. Reach the control from here: it is described by this
+  // pop-up's body (kept beside whatever it already pointed at) and focus on it
+  // opens the pop-up, which is what hover on the label does for a pointer.
+  // Every render, not once: a parent that remounts the control (a changed
+  // key) hands this effect a new element to find. No dependency list is the
+  // cheap way to say that, and the work is a closest() and a token check.
+  useEffect(() => {
+    const root = host.current;
+    if (!root || !entry) return;
+    const control = controlId ? document.getElementById(controlId) : root.closest("label")?.control ?? root.closest("legend")?.closest("fieldset") ?? null;
+    if (!control || root.contains(control)) return;
+    const tokens = (control.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+    const added = !tokens.includes(bodyId);
+    if (added) control.setAttribute("aria-describedby", [...tokens, bodyId].join(" "));
+    const detach = attachControl(control);
+    return () => {
+      detach();
+      if (!added) return;
+      const rest = (control.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((t) => t && t !== bodyId);
+      if (rest.length) control.setAttribute("aria-describedby", rest.join(" "));
+      else control.removeAttribute("aria-describedby");
+    };
+  });
 
   // An id with no entry renders the thing it was wrapping and no host at
   // all. `TooltipId` makes that unreachable from a component, so this is

@@ -25,6 +25,7 @@
  * nothing to leak in saying it.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { Link } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
@@ -41,6 +42,7 @@ export function ForgotPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [asked, setAsked] = useState(false);
   const [failure, setFailure] = useState<OperatorFailure | null>(null);
+  const mountedRef = useMounted();
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,9 +55,16 @@ export function ForgotPasswordPage() {
     setAsked(false);
     api
       .requestPasswordReset(username)
-      .then(() => setAsked(true))
-      .catch((e: unknown) => setFailure(describeFailure(e, "The reset request could not be sent.")))
-      .finally(() => setBusy(false));
+      .then(() => {
+        if (mountedRef.current) setAsked(true);
+      })
+      .catch((e: unknown) => {
+        if (!mountedRef.current) return;
+        setFailure(describeFailure(e, "The reset request could not be sent."));
+      })
+      .finally(() => {
+        if (mountedRef.current) setBusy(false);
+      });
   };
 
   return (

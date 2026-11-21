@@ -28,8 +28,15 @@
 # name. scripts/rename/selftest-former-name.sh plants every spelling and every
 # look-alike to prove both halves.
 #
-# `git grep -I` skips binary files, and only tracked (or intent-to-add) files
-# are looked at, so a build directory cannot make this red.
+# `git grep -I` skips binary files, and `--cached` reads the INDEX (#1622), so
+# what is looked at is the staged blob of every tracked file, never the
+# working tree. That is what the pre-commit hook is about to commit: an
+# unstaged clean edit cannot hide a staged hit, and an unstaged hit cannot
+# refuse a clean staged blob. In CI, and anywhere the tree is clean, the index
+# and the tree are the same bytes. A file that is only intent-to-add (git add
+# -N) has an empty blob in the index, so it is not scanned until it is staged.
+# Untracked build directories are not in the index, so they cannot make this
+# red.
 #
 # Exit 0: no tracked file contains the name. Exit 1: file:line for each hit.
 set -euo pipefail
@@ -67,7 +74,7 @@ frozen_migration="core/migrations/0012_workflow_runs.sql"
 # name from it. Exact path again; provenance/local-gate.json is still scanned.
 gate_log="provenance/local-gate.log"
 
-hits="$(git grep -n -I -E -- "$re" -- . ":!${frozen_migration}" ":!${gate_log}" || true)"
+hits="$(git grep --cached -n -I -E -- "$re" -- . ":!${frozen_migration}" ":!${gate_log}" || true)"
 
 if [ -n "$hits" ]; then
   echo "check-no-former-name: FAILED: the previous product name is still in the tree (#1109):" >&2

@@ -71,7 +71,7 @@ make_repo() { # -> a repository with one commit on main, a remote, and the stubs
     git config user.email t@example.invalid
     git config user.name t
 
-    mkdir -p scripts/lib scripts/selftest scripts/api scripts/format .husky bin \
+    mkdir -p scripts/lib scripts/selftest scripts/api scripts/format scripts/rename .husky bin \
       core/internal/a core/internal/b core/tests/compat core/tests/crashmatrix \
       ui/shared/src apps/common/tests docs/conformance
 
@@ -85,6 +85,18 @@ make_repo() { # -> a repository with one commit on main, a remote, and the stubs
       printf '#!/usr/bin/env bash\necho "check %s" >>"$FIX_LOG"\nexit 0\n' "$(basename "$s")" >"$s"
       chmod +x "$s"
     done
+    # The former-name scan (#1618): a stub that logs itself and fails when
+    # STUB_BRAND_BAD=1, standing in for the git grep it is.
+    cat >scripts/rename/check-no-former-name.sh <<'STUB'
+#!/usr/bin/env bash
+echo "check check-no-former-name.sh" >>"$FIX_LOG"
+if [ "${STUB_BRAND_BAD:-0}" = 1 ]; then
+  echo "check-no-former-name: FAILED: core/internal/a/a_test.go:3"
+  exit 1
+fi
+exit 0
+STUB
+    chmod +x scripts/rename/check-no-former-name.sh
     # What a full run would be, for the CI_LOCAL_FULL route.
     printf '#!/usr/bin/env sh\necho "==> ci-local: ok"\nexit 0\n' >scripts/ci-local.sh
     chmod +x scripts/ci-local.sh
@@ -264,6 +276,28 @@ fx "$fix" -- bash scripts/ci-fast.sh --staged
 assert_contains "A9 --staged selects the staged package" 'core: go vet ./internal/a' "$(calls "$fix")"
 assert_not_contains "A9 and not the unstaged one" './internal/b' "$(calls "$fix")"
 
+# A10 (#1618): the former-name scan runs on any commit that touches a Go
+# test file, and on no other. The docs-only run in A1 is the negative, the
+# test-file run is the control.
+fix="$(make_repo)"
+fast "$fix" -- core/internal/a/a_test.go
+assert_eq "A10 a test-file change passes" 0 "$status"
+assert_contains "A10 the former-name scan ran" 'check check-no-former-name.sh' "$(calls "$fix")"
+fast "$fix" -- core/internal/a/a.go
+assert_not_contains "A10 a product-file change does not run the scan" 'check-no-former-name' "$(calls "$fix")"
+fast "$fix" -- docs/x.md
+assert_not_contains "A10 a docs change does not run the scan" 'check-no-former-name' "$(calls "$fix")"
+fast "$fix" -- core/internal/a/a.go core/internal/b/b_test.go
+assert_contains "A10 a mixed change runs it, one test file is enough" 'check check-no-former-name.sh' "$(calls "$fix")"
+
+# A11: a hit fails the run before any Go tool starts, and is named.
+fix="$(make_repo)"
+fast "$fix" STUB_BRAND_BAD=1 -- core/internal/a/a_test.go
+assert_nonzero "A11 a test file spelling the former name fails the run" "$status"
+assert_contains "A11 and the hit is named" 'core/internal/a/a_test.go:3' "$out"
+assert_contains "A11 and the verdict says FAILED" 'ci-local: FAILED' "$out"
+assert_not_contains "A11 no vet ran after it" 'go vet' "$(calls "$fix")"
+
 # ------------------------------------------- Group B: the hook, for real
 
 echo "==> B. the hook and the stamp"
@@ -296,6 +330,109 @@ fx "$fix" CI_LOCAL_RED="#1361: red tests for the tier" -- git commit -qm "red"
 assert_eq "B3 a red commit commits" 0 "$status"
 assert_contains "B3 stamped red with the reason" 'Local-Gate: red #1361: red tests for the tier' "$(last_message "$fix")"
 assert_not_contains "B3 the fast tier did not run" 'ci-fast:' "$out"
+
+# B3b (#1618): the red route skips the tier but not the former-name scan.
+# This is how the name reached main: a red commit of test files, then a fix
+# commit that touched other files, and nothing ran the guard in between.
+fix="$(make_repo)"
+(cd "$fix" && git checkout -q -b red-tests && printf 'package a\n' >core/internal/a/a_test.go && git add core/internal/a/a_test.go)
+fx "$fix" CI_LOCAL_RED="#1618: red tests for the scan" STUB_BRAND_BAD=1 -- git commit -qm "red"
+assert_nonzero "B3b a red commit with the former name in a test file is refused" "$status"
+assert_contains "B3b and says why" 'spells the former name' "$out"
+assert_eq "B3b and no commit was made" 1 "$(commit_count "$fix")"
+fx "$fix" CI_LOCAL_RED="#1618: red tests for the scan" -- git commit -qm "red"
+assert_eq "B3b the same red commit without the name goes through" 0 "$status"
+assert_contains "B3b and the scan ran" 'check check-no-former-name.sh' "$(calls "$fix")"
+assert_contains "B3b and is stamped red" 'Local-Gate: red' "$(last_message "$fix")"
+
+# B3c (#1622): the red route admits more than Go test files, and the scan
+# has to look at all of them. A red commit of a .test.ts that spells the name
+# is the same hole #1618 closed for _test.go. The stub stands in for the scan.
+for shape in ui/shared/src/foo.test.ts ui/shared/src/foo.spec.ts scripts/tests/foo.test.sh \
+  core/internal/a/testdata/x.txt scripts/bdtools/tests/test_x.py; do
+  fix="$(make_repo)"
+  (cd "$fix" && git checkout -q -b red-tests && mkdir -p "$(dirname "$shape")" && printf 'x\n' >"$shape" && git add "$shape")
+  fx "$fix" CI_LOCAL_RED="#1622: red tests for the scan" STUB_BRAND_BAD=1 -- git commit -qm "red"
+  assert_nonzero "B3c a red commit of $shape with the former name is refused" "$status"
+  assert_contains "B3c $shape: and says why" 'spells the former name' "$out"
+  assert_eq "B3c $shape: and no commit was made" 1 "$(commit_count "$fix")"
+  fx "$fix" CI_LOCAL_RED="#1622: red tests for the scan" -- git commit -qm "red"
+  assert_eq "B3c $shape: the same red commit without the name goes through" 0 "$status"
+  assert_contains "B3c $shape: and the scan ran" 'check check-no-former-name.sh' "$(calls "$fix")"
+done
+
+# B3d (#1622): the scan reads what is being committed, not the working tree.
+# These use the real script (the stub cannot tell the two apart). The former
+# name is built from two pieces so this file does not trip the guard itself.
+former="$(printf '%s%s' backup d)"
+real_scan() { cp "$REPO_ROOT/scripts/rename/check-no-former-name.sh" "$1/scripts/rename/check-no-former-name.sh"; }
+branch_files() { (cd "$1" && git checkout -q -b red-tests && printf 'package a\n' >core/internal/a/a_test.go && git add core/internal/a/a_test.go); }
+
+# staged hit, then an unstaged clean edit hides it from the working tree
+for route in red tier; do
+  fix="$(make_repo)"; real_scan "$fix"; branch_files "$fix"
+  (cd "$fix" && printf 'package a\n// %s\n' "$former" >core/internal/a/a_test.go && git add core/internal/a/a_test.go \
+    && printf 'package a\n' >core/internal/a/a_test.go)
+  if [ "$route" = red ]; then
+    fx "$fix" CI_LOCAL_RED="#1622: red tests for the scan" -- git commit -qm "red"
+  else
+    fx "$fix" -- git commit -qm "tier"
+  fi
+  assert_nonzero "B3d ($route route) a staged hit hidden by an unstaged clean edit is refused" "$status"
+  assert_contains "B3d ($route route) and the staged file is named" 'core/internal/a/a_test.go:2' "$out"
+  assert_eq "B3d ($route route) and no commit was made" 1 "$(commit_count "$fix")"
+done
+
+# clean staged blob, unstaged hit in the working tree: the commit is fine
+for route in red tier; do
+  fix="$(make_repo)"; real_scan "$fix"; branch_files "$fix"
+  (cd "$fix" && printf 'package a\n// %s\n' "$former" >core/internal/a/a_test.go)
+  if [ "$route" = red ]; then
+    fx "$fix" CI_LOCAL_RED="#1622: red tests for the scan" -- git commit -qm "red"
+  else
+    fx "$fix" -- git commit -qm "tier"
+  fi
+  assert_eq "B3d ($route route) a clean staged blob with an unstaged hit goes through" 0 "$status"
+  assert_eq "B3d ($route route) and the commit was made" 2 "$(commit_count "$fix")"
+done
+
+# a red .test.ts is refused by the real scan, not only by the stub
+fix="$(make_repo)"; real_scan "$fix"
+(cd "$fix" && git checkout -q -b red-tests && printf 'it("%s", () => {});\n' "$former" >ui/shared/src/foo.test.ts && git add ui/shared/src/foo.test.ts)
+fx "$fix" CI_LOCAL_RED="#1622: red tests for the scan" -- git commit -qm "red"
+assert_nonzero "B3d a staged foo.test.ts spelling the name is refused on the red route" "$status"
+assert_contains "B3d and the file is named" 'ui/shared/src/foo.test.ts:1' "$out"
+
+# B3e (#1622): in a hook, `git commit -a` and `git commit -- <paths>` commit
+# from a temporary index (GIT_INDEX_FILE), and the real .git/index still holds
+# the old blob. The scan has to read the index being committed, so an edited
+# tracked test file spelling the name is refused on both, and a clean edit is
+# not. Real script, fast tier.
+for mode in all paths; do
+  for variant in hit clean; do
+    fix="$(make_repo)"; real_scan "$fix"
+    (cd "$fix" && printf 'package a\n' >core/internal/a/a_test.go && git add core/internal/a/a_test.go \
+      && git -c core.hooksPath=/dev/null commit -qm "base test")
+    if [ "$variant" = hit ]; then
+      (cd "$fix" && printf 'package a\n// %s\n' "$former" >core/internal/a/a_test.go)
+    else
+      (cd "$fix" && printf 'package a\n\nvar X = 1\n' >core/internal/a/a_test.go)
+    fi
+    if [ "$mode" = all ]; then
+      fx "$fix" -- git commit -qam "edit"
+    else
+      fx "$fix" -- git commit -qm "edit" -- core/internal/a/a_test.go
+    fi
+    if [ "$variant" = hit ]; then
+      assert_nonzero "B3e (commit $mode) an unstaged edit that spells the name is refused" "$status"
+      assert_contains "B3e (commit $mode) and the file is named" 'core/internal/a/a_test.go:2' "$out"
+      assert_eq "B3e (commit $mode) and no commit was made" 2 "$(commit_count "$fix")"
+    else
+      assert_eq "B3e (commit $mode) a clean edit goes through" 0 "$status"
+      assert_eq "B3e (commit $mode) and the commit was made" 3 "$(commit_count "$fix")"
+    fi
+  done
+done
 
 # B4: CI_LOCAL_FULL=1 runs the full gate, and a green full run leaves no
 # trailer (the only thing that does).

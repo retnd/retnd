@@ -95,7 +95,32 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     signal?.addEventListener("abort", done);
   });
 
-export function createMockRecoverMany(scenario: string, rowsFor: (setId: string) => BackupArtifact[]) {
+/**
+ * A fixture hook for the browser specs (#1592): how many runs started, and how
+ * each one ended. `cancelled` counts the runs that ended because the page
+ * closed the connection (the signal fired), which is how the engine reads a
+ * cancel too, and `finished` the ones that ran to the end. The run itself has
+ * nothing on screen once its dialog has gone, so this is what a spec reads to
+ * tell whether leaving the dialog stopped it.
+ */
+export interface RecoveryRunProbe {
+  started: number;
+  cancelled: number;
+  finished: number;
+}
+
+/** The probe the dev build hands the mock, published on
+ *  `window.__retndRecoveries` so a spec can reach it. */
+export function recoveryRunProbeFromWindow(): RecoveryRunProbe {
+  const w = window as unknown as { __retndRecoveries?: RecoveryRunProbe };
+  return (w.__retndRecoveries ??= { started: 0, cancelled: 0, finished: 0 });
+}
+
+export function createMockRecoverMany(
+  scenario: string,
+  rowsFor: (setId: string) => BackupArtifact[],
+  probe: RecoveryRunProbe = { started: 0, cancelled: 0, finished: 0 }
+) {
   const rows = (req: RecoverManyRequest): BackupArtifact[] => {
     if (req.set) {
       const base = rowsFor(req.set);
@@ -183,6 +208,7 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
       const p = await plan(req);
       if (p.refusal) throw refuse(p.refusal.code, p.refusal.message, p.refusal.code === "RECOVERY_NO_SPACE" ? 507 : 409);
       const emit = opts?.onProgress;
+      probe.started++;
       emit?.({ kind: "plan", plan: p, totalBytes: p.totals.bytes });
       const items = p.items.map((i) => ({ ...i }));
       const actionable = items.filter((i) => i.status === "ready" || i.status === "needs_thaw").length;
@@ -225,6 +251,8 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
       // A cancelled run takes a moment to discard the file in flight and write
       // its manifest, and the page says it is cancelling meanwhile.
       if (cancelled) await sleep(600);
+      if (cancelled) probe.cancelled++;
+      else probe.finished++;
       const totals = totalsOf(items);
       totals.bytes = done;
       const manifest = p.folder + "/rcv-" + digestOf(p.folder).slice(0, 8) + "-recovery-manifest.json";

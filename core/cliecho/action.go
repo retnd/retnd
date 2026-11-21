@@ -64,8 +64,9 @@ type APIAction struct {
 	GateReason string
 	// Operation is the act the gate refused: the action of POST /operations
 	// (run_cycle, verify_snapshot...), "retention_apply" for the retention
-	// route, or "run_immediately" for the run a create asked for. Empty when
-	// nothing was refused.
+	// route, "run_immediately" for the run a create asked for, or the mint a
+	// transport check refused ("mint an agent token", "mint a scrape token").
+	// Empty when nothing was refused.
 	Operation string
 	// RunID, SnapshotID and HoldID are the snapshot-side things the refused
 	// act named, when it named any. The backup set is BackupSetID.

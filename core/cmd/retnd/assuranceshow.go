@@ -51,6 +51,10 @@ func cmdAssuranceShow(args []string) int {
 	opID := operands[0]
 	ctx := context.Background()
 
+	// #1609: this read opens the journal itself, so it asks here.
+	if err := checkPreRenamePath(*cfgPath); err != nil {
+		return fail(err)
+	}
 	cfg, journal, releaseJournal, err := service.OpenConfigAndJournal(ctx, *cfgPath)
 	if err != nil {
 		return fail(err)

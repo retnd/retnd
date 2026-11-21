@@ -15,6 +15,7 @@
  * none, because an id that appears in no log is a false lead.
  */
 import { useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { ReactNode } from "react";
 import { Banner } from "@shared/components/Banner";
 import { copyText } from "@shared/utilities/copyText";
@@ -129,6 +130,7 @@ export function ErrorState({
   tip?: TooltipId;
 }) {
   const [copied, setCopied] = useState<"idle" | CopyOutcome>("idle");
+  const mountedRef = useMounted();
   const detailRef = useRef<HTMLDivElement | null>(null);
 
   // By recorded origin where the caller passed it, and by the headline where
@@ -192,7 +194,7 @@ export function ErrorState({
                     void copyText(
                       message + "\n" + (remediation ? remediation + "\n" : "") + advanced,
                       detailRef.current
-                    ).then(setCopied);
+                    ).then((outcome) => { if (mountedRef.current) setCopied(outcome); });
                   }}
                 >
                   Copy details

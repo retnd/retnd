@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { RetndError } from "@shared/api/contracts";
 import type { ApiError, AppSettings } from "@shared/api/contracts";
@@ -111,6 +112,7 @@ function ServiceBehaviourEditor({
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<ApiError | null>(null);
   const [saved, setSaved] = useState(false);
+  const mountedRef = useMounted();
 
   const typed = Number(minutes.trim());
   // The wire carries SECONDS, so that is what this box is held to: a
@@ -141,6 +143,7 @@ function ServiceBehaviourEditor({
     api
       .updateSettings({ service: { pollIntervalSeconds: seconds } })
       .then((next) => {
+        if (!mountedRef.current) return;
         // Re-baselined against what the server says is now running, not
         // against the draft, exactly as CapacityCard does: the value in
         // effect is the answer, and the next "has anything changed"
@@ -150,6 +153,7 @@ function ServiceBehaviourEditor({
         setSaved(true);
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setSaveError(
           e instanceof RetndError
             ? e.api
@@ -160,7 +164,7 @@ function ServiceBehaviourEditor({
               }
         );
       })
-      .finally(() => setBusy(false));
+      .finally(() => { if (mountedRef.current) setBusy(false); });
   }
 
   return (

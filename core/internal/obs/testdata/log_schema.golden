@@ -1,0 +1,5 @@
+action opens	{"action":"cycle","action_id":"<action_id>","backup_set":"alpha","event":"probe_begin","level":"INFO","msg":"begin","time":"<time>"}
+action closes with a result	{"action":"cycle","action_id":"<action_id>","backup_set":"alpha","duration":"<duration>","event":"probe_begin","level":"INFO","msg":"done","result":"success","time":"<time>"}
+completion without an action	{"backup_set":"alpha","event":"probe_done","level":"WARN","msg":"finished with a warning","result":"warn","time":"<time>"}
+plain event carries only the four	{"event":"probe_plain","level":"INFO","msg":"plain","time":"<time>"}
+per-event attrs are allowed	{"event":"probe_attr","level":"INFO","msg":"with an attr","probe_attr":"x","time":"<time>"}

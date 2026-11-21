@@ -122,7 +122,7 @@ describe("issue #591: CANCEL & EXIT EDIT MODE", () => {
     expect(update).not.toHaveBeenCalled();
     // The hold is tied to the mode, so this exit gives the schedule back
     // exactly as SAVE ALL & EXIT EDIT does.
-    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set));
+    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set, expect.stringMatching(/^mock-hold-/)));
   });
 
   it("asks before discarding a dirty draft, names the box, and writes nothing when confirmed", async () => {
@@ -155,7 +155,7 @@ describe("issue #591: CANCEL & EXIT EDIT MODE", () => {
     expect(update).not.toHaveBeenCalled();
     // And the schedule comes back, exactly as it does for the exit that
     // saves: the hold is tied to the mode, not to the button.
-    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set));
+    await waitFor(() => expect(release).toHaveBeenCalledWith(target.source, target.set, expect.stringMatching(/^mock-hold-/)));
 
     // Re-opening shows what is persisted, which is what it always was.
     await act(async () => {

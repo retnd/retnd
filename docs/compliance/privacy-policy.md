@@ -19,12 +19,21 @@ the rule; `no-mandatory-telemetry` in the cross-provider conformance matrix is
 where it is enforced, and it is enforced for every provider column rather than
 for one.
 
-The one HTTP client the shipped binaries construct talks to `127.0.0.1`: it is
-the container health check asking the local process whether it is healthy
-(`apps/generic/cmd/retnd-web`). It never leaves the container.
+The shipped binaries construct several HTTP clients of their own, and only one of
+them can leave the deployment toward a host the operator named for it. The container
+health check (`apps/generic/cmd/retnd-web`) asks the local process whether it is
+healthy over `127.0.0.1`, and never leaves the container. The web UI's reverse proxy
+(`apps/common/webhost/serve/ui.go`) forwards browser requests to the engine it was
+pointed at. The `retnd` command line's remote client (`core/cmd/retnd/remote.go`,
+`core/internal/apiclient`) talks to the engine at `RETND_API_URL`, which is the
+address the person running the command gave it. The alert webhook
+(`core/internal/alert/httpsink.go`) is the one that can reach an outside host, and
+it sends nothing unless the operator selected that channel and named its URL (see
+"Alert delivery" below).
 
 The app does open outbound network connections, and it opens exactly the ones
-the operator configured. There are three kinds. SFTP sessions to the hosts named
+the operator configured. There are four kinds, the alert webhook being the fourth
+and the one EPIC O added. SFTP sessions to the hosts named
 in the operator's own backup sets, made by the pinned rclone packages compiled
 into `/retnd`; connections to a storage destination (an S3 bucket, or any endpoint
 speaking the S3 API) the operator configured to hold retained copies, which carry
@@ -32,7 +41,9 @@ the copies themselves (encrypted, if the operator turned that on, as described b
 and, if the operator configured account recovery,
 SMTP submissions to the mail server they nominated, carrying account mail
 — enrollment confirmation, a password-reset link, a test message — to the
-recovery address they nominated. Those connections carry the operator's own data
+recovery address they nominated; and, if the operator selected webhook alert
+delivery, one HTTPS (or, when they allowed it, plain HTTP) request per alert to
+the one URL they named. Those connections carry the operator's own data
 to the operator's own destination, which for a storage destination may be a bucket the
 operator does not run. The project is not in that path, and the app
 adds no destination of its own: it has no mail relay, and it cannot send anything
@@ -134,7 +145,10 @@ Alerting is off unless the operator turns it on. With the webhook channel select
 operator named, and nowhere else. An alert carries a condition kind, the backup set or
 repository domain it is about, a title, a short message and a time, and never a
 credential or file contents. The URL is held as a secret and is not written to a log,
-an error or a settings response.
+an error or a settings response. Redirects are never followed, so an alert cannot be
+bounced to an address the operator did not name. The scrape endpoint (`/metrics`) and
+the log stream are not egress: a scraper the operator runs pulls the first, and the
+second goes wherever the operator points a shipper.
 
 ## Deleting everything
 
