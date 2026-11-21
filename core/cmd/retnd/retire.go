@@ -21,6 +21,7 @@ func cmdRetire(args []string) int {
 	supersededBy := fs.String("superseded-by", "", "the newer good backup in the same set that replaces this one, instead of the newest one the engine would pick")
 	noSuccessor := fs.Bool("no-successor", false, "retire it although no newer good backup replaces it")
 	acceptPresent := fs.Bool("accept-source-present", false, "retire it although the source object is still there or could not be checked")
+	acceptUnverified := fs.Bool("accept-unverified-copy", false, "retire it although its own copy at the final name could not be verified, once its source is gone; the file is kept")
 	note := fs.String("note", "", "operator note recorded with the retirement")
 	dryRun := fs.Bool("dry-run", false, "print what retiring would do, and change nothing")
 	operands, err := parseFlagsAroundOperands(fs, args)
@@ -43,8 +44,8 @@ func cmdRetire(args []string) int {
 	defer cleanup()
 	logStartup(ctx, svc.Logger, app.BuildVersionInfo(version, commit))
 
-	req := app.RetireRequest{SupersededBy: *supersededBy, NoSuccessor: *noSuccessor, AcceptSourcePresent: *acceptPresent, Note: *note,
-		ActorKind: "operator", Actor: cliActor}
+	req := app.RetireRequest{SupersededBy: *supersededBy, NoSuccessor: *noSuccessor, AcceptSourcePresent: *acceptPresent,
+		AcceptUnverifiedCopy: *acceptUnverified, Note: *note, ActorKind: "operator", Actor: cliActor}
 	if *dryRun {
 		p, err := svc.PreviewRetirement(ctx, id, req)
 		if err != nil {
@@ -99,6 +100,8 @@ func flagFor(ack string) string {
 		return "accept-source-present"
 	case app.AckNoSuccessor:
 		return "no-successor"
+	case app.AckAcceptUnverifiedCopy:
+		return "accept-unverified-copy"
 	}
 	return ack
 }

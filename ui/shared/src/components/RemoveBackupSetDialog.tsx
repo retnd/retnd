@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -62,6 +63,7 @@ export function RemoveBackupSetDialog({
   // nothing wrong to lose.
   const inFlight = useRef(false);
   const [removing, setRemoving] = useState(false);
+  const mountedRef = useMounted();
   // A refusal is shown inside the dialog and the dialog stays open, so
   // the operator is never looking at a screen that implies the set went
   // away when it did not.
@@ -114,6 +116,7 @@ export function RemoveBackupSetDialog({
               onRemoved();
               return;
             }
+            if (!mountedRef.current) return;
             setError(
               describeFailure(e, "retnd could not remove this backup set's configuration.")
                 .message
@@ -121,7 +124,7 @@ export function RemoveBackupSetDialog({
           })
           .finally(() => {
             inFlight.current = false;
-            setRemoving(false);
+            if (mountedRef.current) setRemoving(false);
           });
       }}
     >

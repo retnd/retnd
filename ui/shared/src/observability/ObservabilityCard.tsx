@@ -28,6 +28,7 @@
  * browser has to be able to wire Prometheus.
  */
 import { useEffect, useId, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
 import type { MintedScrapeToken, ObservabilitySettings } from "@shared/api/contracts";
@@ -55,6 +56,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
   const enabledId = useId();
   const intervalId = useId();
   const tokenField = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useMounted();
 
   useEffect(() => {
     let live = true;
@@ -74,12 +76,13 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
     setError(null);
     try {
       const s = await api.patchObservabilitySettings(patch);
+      if (!mountedRef.current) return;
       setSettings(s);
       setInterval(String(s.metrics.minRebuildIntervalSeconds));
     } catch (e) {
-      setError(describeFailure(e, "could not save").message);
+      if (mountedRef.current) setError(describeFailure(e, "could not save").message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -90,19 +93,25 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
     // encrypted gets the same question a password gets.
     const ask = await insecureAckRequiredNow(api, gate);
     if (ask && !(await acknowledgeInsecureTransport())) {
+      if (!mountedRef.current) return;
       setError("Nothing was minted. This connection is not encrypted, and the token comes back over this connection, so the request was not sent.");
       setBusy(false);
       return;
     }
+    // Gone before the request went: a token minted now would have a secret
+    // nobody could ever see, so none is asked for.
+    if (!mountedRef.current) return;
     try {
       const answer = await api.mintScrapeToken();
+      if (!mountedRef.current) return;
       setMinted(answer);
       setCopied(false);
-      setSettings(await api.getObservabilitySettings());
+      const s = await api.getObservabilitySettings();
+      if (mountedRef.current) setSettings(s);
     } catch (e) {
-      setError(describeFailure(e, "the scrape token was not minted").message);
+      if (mountedRef.current) setError(describeFailure(e, "the scrape token was not minted").message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -211,7 +220,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
                       onFocus={(e) => e.currentTarget.select()}
                     />
                     <InfoTooltip id="observability.metrics.copy">
-                      <button type="button" className="btn btn--strong-edge" onClick={() => void copyText(minted.token, tokenField.current).then((r) => setCopied(r === "copied"))}>Copy</button>
+                      <button type="button" className="btn btn--strong-edge" onClick={() => void copyText(minted.token, tokenField.current).then((r) => { if (mountedRef.current) setCopied(r === "copied"); })}>Copy</button>
                     </InfoTooltip>
                   </div>
                   <span role="status" aria-live="polite" className="visually-hidden">{copied ? "Copied" : ""}</span>

@@ -353,11 +353,11 @@
   },
   "backups.detail.retry": {
     "label": "Retry ingestion",
-    "html": "Puts this backup back into the pipeline for the next cycle to attempt. The service accepts the request rather than carrying it out at once, so the backup stays failed until an attempt actually runs."
+    "html": "Puts this backup back into the pipeline for the next cycle to attempt. The service accepts the request rather than carrying it out at once, so the backup stays failed until an attempt actually runs. When the backup's own copy is already at its final name and its source file is gone, retry keeps that copy instead if it still matches the checksum recorded when it was verified (or the set's validator passes on it), and refuses it, saying so, if it does not."
   },
   "backups.detail.retire": {
     "label": "Retire",
-    "html": "Opens the Retire dialog, which first asks the host whether this backup's source file is still there. Retiring marks a failed backup <strong>Retired</strong>: the record stays, and the backup set stops counting it as a failure. A newer good backup in the set is named as its replacement; when there is none, the dialog asks you to acknowledge that before it will retire it. It is refused while the source is still there, because retrying can still fetch it."
+    "html": "Opens the Retire dialog, which first asks the host whether this backup's source file is still there. Retiring marks a failed backup <strong>Retired</strong>: the record stays, and the backup set stops counting it as a failure. A newer good backup in the set is named as its replacement; when there is none, the dialog asks you to acknowledge that before it will retire it. It is refused while the source is still there, because retrying can still fetch it. When the backup's own copy is already at its final name and the source is gone, a copy that still verifies is never retired (retry keeps it), and one that cannot be verified is retired only after you tick the acknowledgement that it could not be verified; the file stays where it is."
   },
   "backups.detail.retirement-card": {
     "label": "Retired",

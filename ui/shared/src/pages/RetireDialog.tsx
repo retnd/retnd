@@ -26,12 +26,19 @@
  * design draws it; `--accept-source-present` in a terminal is the only way past
  * that refusal, and the dialog says so when the host could not be asked.
  *
+ * A backup whose own copy already sits at its final name (issue #1594) is
+ * retry's job while its source is there. With the source gone the engine
+ * names the unverified-copy acknowledgement; ticking it asks again, and the
+ * engine either retires it (the file stays) or, when the copy still matches
+ * its recorded checksum, refuses with Retry instead, because retry keeps it.
+ *
  * Keyboard: focus starts on Cancel (the safe action, as ConfirmationDialog
  * does), Tab and Shift+Tab stay inside, Escape closes, the result takes focus
  * when it replaces the buttons, and closing hands focus back to whatever
  * opened the dialog, or to the page's heading when that control is gone.
  */
 import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type { WireRetireArtifactRequest, WireRetirementPreview } from "@shared/api/generated/contract";
@@ -60,7 +67,7 @@ function sourceChip(check: string): { text: string; tone: StatusTone; icon: Icon
   }
 }
 
-type Ack = Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present">;
+type Ack = Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present" | "accept_unverified_copy">;
 type Outcome = { retired: boolean; detail: string };
 
 const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -86,10 +93,12 @@ export function RetireDialog({
   const [base, setBase] = useState<WireRetirementPreview | Error | null>(null);
   const [terminalOnly, setTerminalOnly] = useState<string | null>(null);
   const [noSuccessorAck, setNoSuccessorAck] = useState(false);
+  const [unverifiedAck, setUnverifiedAck] = useState(false);
   const [chosen, setChosen] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const mountedRef = useMounted();
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const resultRef = useRef<HTMLHeadingElement>(null);
@@ -150,6 +159,7 @@ export function RetireDialog({
   const preview = base && !(base instanceof Error) ? base : null;
   const proposed = preview?.proposed_successor?.name ?? "";
   const ack: Ack = {
+    ...(unverifiedAck ? { accept_unverified_copy: true } : {}),
     ...(noSuccessorAck ? { no_successor: true } : {}),
     ...(chosen && chosen !== proposed ? { superseded_by: chosen } : {})
   };
@@ -217,8 +227,22 @@ export function RetireDialog({
   };
 
   const refusal = current?.refusal;
-  const needsAck = preview?.refusal?.overridable_with === "no_successor";
-  const blocked = !!refusal && refusal.overridable_with !== "no_successor";
+  // The acknowledgements a person can give here, each shown once the engine
+  // has named it, and kept on screen once ticked so it can be unticked. The
+  // unverified-copy one (issue #1594) comes first, and the no-replacement one
+  // can follow it once the engine has checked the copy.
+  const needsUnverifiedAck = preview?.refusal?.overridable_with === "accept_unverified_copy";
+  const needsAck = preview?.refusal?.overridable_with === "no_successor" || refusal?.overridable_with === "no_successor" || noSuccessorAck;
+  const blocked = !!refusal && refusal.overridable_with !== "no_successor" && refusal.overridable_with !== "accept_unverified_copy";
+  // The engine's sentence is shown for every refusal but the no-replacement
+  // one, which has its own banner: for an own copy at the final name it is
+  // the explanation the acknowledgement below answers.
+  //
+  // While the engine is asked again, or when asking again failed, the answer
+  // it gave first stays on screen: its sentence and the way out (Retry
+  // instead) do not blink away under a pointer that has just ticked a box.
+  const shown = current ? refusal : preview?.refusal;
+  const explained = !!shown && shown.overridable_with !== "no_successor";
   const ready = !!current && !asking && !refusal;
   const command = current ? current.command + (note ? " --note " + shellQuote(note) : "") : "";
 
@@ -229,7 +253,7 @@ export function RetireDialog({
     setBusy(true);
     try {
       const res = await api.retireArtifact(artifactId, { ...(note ? { note } : {}), ...ack });
-      setOutcome({
+      if (mountedRef.current) setOutcome({
         retired: true,
         detail: res.retirement.superseded_by ? "replaced by " + res.retirement.superseded_by : "retired with no replacement"
       });
@@ -239,9 +263,9 @@ export function RetireDialog({
       fetchResource(setsNode, () => api.listSets());
       fetchResource(healthNode, () => api.getHealth());
     } catch (e: unknown) {
-      setOutcome({ retired: false, detail: describeFailure(e, "the retirement could not be made").message });
+      if (mountedRef.current) setOutcome({ retired: false, detail: describeFailure(e, "the retirement could not be made").message });
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -256,10 +280,10 @@ export function RetireDialog({
         aria-labelledby="retire-title"
         className="dialog"
         tabIndex={-1}
-        style={{ maxWidth: 820, width: "100%", outline: "none" }}
+        style={{ maxWidth: 820, width: "100%", outline: "none", display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 48px)" }}
         onKeyDown={onKeyDown}
       >
-        <div style={{ padding: "20px 22px 6px", display: "grid", gap: 6 }}>
+        <div style={{ padding: "20px 22px 6px", display: "grid", gap: 6, flexShrink: 0 }}>
           <h2 id="retire-title" ref={resultRef} tabIndex={-1} style={{ margin: 0, fontSize: 18 }}>
             {title}
           </h2>
@@ -271,7 +295,7 @@ export function RetireDialog({
           )}
         </div>
 
-        <div style={{ padding: "8px 22px", display: "grid", gap: 16, fontSize: "var(--text-sm)" }}>
+        <div style={{ padding: "8px 22px", display: "grid", gap: 16, fontSize: "var(--text-sm)", overflowY: "auto", minHeight: 0, alignContent: "start" }}>
           {/* Mounted from the start and filled in when the answer arrives, so
               a screen reader announces the result rather than missing a
               region that appeared with its content already in it. */}
@@ -310,10 +334,10 @@ export function RetireDialog({
                       <span style={{ display: "block", color: "var(--text-2)", fontSize: "var(--text-xs)" }}>checked just now</span>
                     </span>
                   </div>
-                  {blocked && refusal ? (
+                  {explained && shown ? (
                     <Banner tone="warn" dismissible={false} style={{ display: "grid", gap: 8 }}>
-                      <span>{refusal.sentence}</span>
-                      {(refusal.code === "RETIRE_SOURCE_PRESENT" || refusal.code === "RETIRE_OWN_COPY_AT_FINAL_NAME") && onRetry ? (
+                      <span>{shown.sentence}</span>
+                      {(shown.code === "RETIRE_SOURCE_PRESENT" || shown.code === "RETIRE_OWN_COPY_AT_FINAL_NAME") && onRetry ? (
                         <span>
                           <button className="btn btn--strong-edge" style={TARGET} onClick={onRetry}>
                             Retry instead
@@ -364,6 +388,19 @@ export function RetireDialog({
                     </select>
                   </div>
                 </section>
+              ) : null}
+
+              {needsUnverifiedAck ? (
+                <Banner tone="danger" dismissible={false} style={{ display: "grid", gap: 8 }}>
+                  <span>
+                    <strong>The file stays, but it stops counting.</strong> Retiring leaves it at its final name, where it is
+                    not counted as a backup and nothing prunes it.
+                  </span>
+                  <Acknowledgement checked={unverifiedAck} onChange={setUnverifiedAck} disabled={readOnly || busy}>
+                    I understand this backup&rsquo;s own copy could not be verified, and I want to retire it anyway and keep the
+                    file. (Same as <span className="mono">--accept-unverified-copy</span> in the terminal.)
+                  </Acknowledgement>
+                </Banner>
               ) : null}
 
               {needsAck ? (
@@ -418,7 +455,7 @@ export function RetireDialog({
           )}
         </div>
 
-        <div style={{ padding: "14px 22px 18px", display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--border)", marginTop: 12 }}>
+        <div style={{ padding: "14px 22px 18px", display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--border)", marginTop: 12, flexShrink: 0 }}>
           {outcome ? (
             <button className="btn btn--strong-edge" style={TARGET} onClick={close}>Close</button>
           ) : (

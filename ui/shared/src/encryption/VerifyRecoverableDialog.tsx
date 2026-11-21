@@ -16,6 +16,7 @@
  * reload shows the same state and starts no second transform.
  */
 import { useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type { AssuranceOperationRecord } from "@shared/api/contracts";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -49,6 +50,7 @@ export function VerifyRecoverableDialog({
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<{ keyMissing: boolean; message: string } | null>(null);
   const [opId, setOpId] = useState<string | null>(null);
+  const mountedRef = useMounted();
   const [record, setRecord] = useState<AssuranceOperationRecord | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
@@ -83,12 +85,13 @@ export function VerifyRecoverableDialog({
     setRefusal(null);
     try {
       const started = await api.startDecryptVerify({ artifactId, medium: copy.medium, acknowledgeEgress: true });
-      setOpId(started.operationId);
+      if (mountedRef.current) setOpId(started.operationId);
     } catch (e) {
+      if (!mountedRef.current) return;
       const code = apiErrorOf(e)?.code;
       setRefusal({ keyMissing: code === "ENCRYPTION_KEY_UNRESOLVABLE", message: describeFailure(e, "the decrypt-verify did not start").message });
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 

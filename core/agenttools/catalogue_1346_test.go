@@ -338,7 +338,7 @@ var outsideOrigins = map[string][]string{
 	"backup_set_show":        {"host", "remote_path"},
 	"backups_list":           {"artifacts[].id", "artifacts[].name", "artifacts[].validation_detail", "artifacts[].remote_path", "artifacts[].retirement.superseded_by", "artifacts[].retirement.failure_reason"},
 	"backup_show":            {"id", "name", "validation_detail", "remote_path", "retirement.superseded_by", "retirement.failure_reason"},
-	"backup_retirement_show": {"failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.failure_reason"},
+	"backup_retirement_show": {"failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.failure_reason", "effects[]"},
 	"assurance_due":          {"items[].artifact_name"},
 	"activity":               {"events[].artifact_id", "events[].artifact_name", "events[].detail"},
 	"activity_live":          {"sets[].events[].message", "deployment.events[].message"},

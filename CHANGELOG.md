@@ -111,6 +111,19 @@ Worth reading before you upgrade:
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
 
+- **A failed backup with its own copy at the final name gets out of FAILED once its source is gone**
+  (#1594). That shape (#662's) used to be stuck for good: retire refused it with "retry instead", and
+  retry's rescue compares the copy with the remote object, so with the object gone it fell through to an
+  ordinary retry that the collision guard sent straight back. Now, with the source confirmed gone (the
+  same listing and `Stat` retirement uses), `retnd retry` and `POST .../retry` keep a copy that still
+  matches the checksum recorded when it was verified (or that the set's validator passes), through the
+  same reinstatement `quarantine reinstate` does, and refuse one that doesn't with
+  `RETRY_OWN_COPY_UNVERIFIED`, writing nothing. `retnd retire --accept-unverified-copy` (and
+  `accept_unverified_copy` on the API) retires that second kind and keeps the file; a copy that verifies
+  is never retired, and the cycle never retires the shape on its own. An agent may not send the
+  acknowledgement, on the retire body or on the preview's query. In the browser, Retry stays on for this shape and the Retire dialog offers the
+  acknowledgement. With the source still there, or not answering, nothing changes.
+
 - **Every other `retnd` command refuses a pre-0.5.0 mount too** (#1558, #1609). After the
   entry above, `daemon` and `serve` refused, but the rest of the CLI still went to the new, empty
   path: `backup-set create` wrote a second `config.yaml` (and journal) there, `ssh-key` and

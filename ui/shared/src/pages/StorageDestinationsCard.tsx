@@ -50,6 +50,7 @@
  * them, which is the same string either way.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import type {
   ApiError,
@@ -96,6 +97,7 @@ export function StorageDestinationsCard({
 }) {
   const api = useApi();
   const mediums = useAsync<StorageMedium[]>(() => api.listStorageMediums(), [api]);
+  const mountedRef = useMounted();
   // The registry, for the configure step's renderer. Read here rather
   // than inside that step so the ONE fact both halves of the add flow
   // need - which backends exist and what each one declares - is read
@@ -108,6 +110,7 @@ export function StorageDestinationsCard({
   // and a row that remembered one and forgot the other is exactly the
   // half-refresh #634 is about.
   function changed() {
+    if (!mountedRef.current) return;
     mediums.reload();
     onChanged?.();
   }
@@ -240,6 +243,7 @@ export function StorageDestinationsCard({
               currentDefault={mediums.data?.find((m) => m.isDefault)?.id ?? null}
               onClose={() => setConfiguring(null)}
               onSaved={() => {
+                if (!mountedRef.current) return;
                 setConfiguring(null);
                 changed();
               }}
@@ -251,6 +255,7 @@ export function StorageDestinationsCard({
             editing={editing}
             onClose={() => setEditing(null)}
             onSaved={() => {
+              if (!mountedRef.current) return;
               setEditing(null);
               changed();
             }}
@@ -351,12 +356,14 @@ function DestinationRow({
   // copy is a tooltip. The badges themselves are never conditional — what
   // the preference removes is the pop-up, not the mark.
   const hoverTitle = useHoverTitle();
+  const mountedRef = useMounted();
 
   async function testConnection() {
     setBusy(true);
     setFailure(null);
     try {
       const result = await api.preflightStorageMedium(medium.id);
+      if (!mountedRef.current) return;
       setReport(result);
       // The usage report is fetched WHEN THE CHECK FAILS and not before,
       // because that is the only moment it means anything: FR-30's
@@ -364,7 +371,9 @@ function DestinationRow({
       // that just answered would put a count on screen with nothing to
       // act on. Nothing about this fetch changes any state; it reads the
       // journal.
-      setUsage(result.ok ? null : await api.getStorageMediumUsage(medium.id));
+      const usage = result.ok ? null : await api.getStorageMediumUsage(medium.id);
+      if (!mountedRef.current) return;
+      setUsage(usage);
       // A check that PASSED against a destination carrying #636's mark has
       // just cleared it, server-side, so the list is re-read and the banner
       // below goes away in the same act that earned it. Only on a pass, and
@@ -374,9 +383,9 @@ function DestinationRow({
       // bug.
       if (result.ok && medium.connectionUnverified) onChanged();
     } catch (e) {
-      setFailure(apiErrorOf(e));
+      if (mountedRef.current) setFailure(apiErrorOf(e));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
@@ -391,9 +400,9 @@ function DestinationRow({
       await api.setDefaultStorageMedium(medium.id);
       onChanged();
     } catch (e) {
-      setFailure(apiErrorOf(e));
+      if (mountedRef.current) setFailure(apiErrorOf(e));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
@@ -404,19 +413,21 @@ function DestinationRow({
       await api.removeStorageMedium(medium.id);
       onChanged();
     } catch (e) {
+      if (!mountedRef.current) return;
       setFailure(apiErrorOf(e));
       // The refusal names a count; this puts the list behind it on screen,
       // because "148 copies affected" with nothing named is a number
       // rather than something an operator can act on.
       try {
-        setUsage(await api.getStorageMediumUsage(medium.id));
+        const usage = await api.getStorageMediumUsage(medium.id);
+        if (mountedRef.current) setUsage(usage);
       } catch {
         // A usage read that fails leaves the refusal standing on its own.
         // It is strictly extra detail, and swallowing its own failure is
         // better than replacing a precise refusal with a vaguer one.
       }
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 

@@ -791,6 +791,16 @@ refuses it before a person is asked.
 The action carries CSRF and no destructive gate. It deletes no backup copy and touches nothing on the
 source; the one file it removes is the leftover `.partial` a failed transfer left.
 
+#1594 added a third acknowledgement, `accept_unverified_copy`, for a FAILED backup whose own copy sits
+at its final name once its source is confirmed gone: without it the preview and the action answer
+`RETIRE_OWN_COPY_AT_FINAL_NAME` with `overridable_with: accept_unverified_copy`, and with it the copy is
+checked, a copy that verifies is still refused (with nothing that overrides it, because retry keeps it)
+and one that doesn't is retired with the file left in place. The preview without it never reads the
+file. `POST /backups/{source}/{set}/{name}/retry` gained `RETRY_OWN_COPY_UNVERIFIED` (409) for the same
+shape when the copy doesn't verify: there is nothing to fetch and nothing it may keep, so it refuses
+rather than sending the row round a retry that can only fail. An agent may not send
+`accept_unverified_copy` either.
+
 `ListArtifactsResponse` gained `next_cursor`, required and nullable, and `GET /backups` gained `state`,
 `limit` and `before` (`GET /quarantine` gained `setId`, `limit` and `before`). Without `limit` the answer
 and its order are what they were, and `next_cursor` is null. I made it always present because the MCP

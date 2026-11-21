@@ -166,6 +166,13 @@ func parseArguments(t agenttools.Row, raw json.RawMessage) ([]string, url.Values
 			if len(k) > maxQueryKeyLength || !queryKey.MatchString(k) {
 				return nil, nil, fmt.Errorf("query: %q is not a parameter name", k)
 			}
+			// An acknowledgement is a person's. Some of them make a read
+			// route do work (accept_unverified_copy has the preview hash the
+			// whole copy and run the set's validator), so none of them goes
+			// through any tool's query, in any letter case (issue #1594).
+			if isAcknowledgement(k) {
+				return nil, nil, fmt.Errorf("query: %q is an acknowledgement, which only a person gives", k)
+			}
 			str, isStr := v.(string)
 			if !isStr || len(str) > maxQueryValueLength {
 				return nil, nil, fmt.Errorf("query.%s: a string of at most %d bytes is required", k, maxQueryValueLength)
@@ -183,6 +190,19 @@ func parseArguments(t agenttools.Row, raw json.RawMessage) ([]string, url.Values
 		return nil, nil, fmt.Errorf("unexpected argument %s", strings.Join(names, ", "))
 	}
 	return values, query, nil
+}
+
+// isAcknowledgement reports whether a name is one the catalogue says no agent
+// may set on any tool.
+func isAcknowledgement(name string) bool {
+	for _, r := range agenttools.Rows() {
+		for _, f := range r.AgentMayNotSet {
+			if strings.EqualFold(f, name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *server) handler(t agenttools.Row) mcp.ToolHandler {

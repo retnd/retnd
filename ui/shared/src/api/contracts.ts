@@ -3717,7 +3717,7 @@ export interface RetndApi {
    */
   previewRetirement(
     artifactId: string,
-    ack?: Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present">
+    ack?: Pick<WireRetireArtifactRequest, "superseded_by" | "no_successor" | "accept_source_present" | "accept_unverified_copy">
   ): Promise<WireRetirementPreview>;
 
   /**

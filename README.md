@@ -436,6 +436,11 @@ The record stays, marked RETIRED, and the health report counts it apart rather t
 A cycle retires the plain case on its own (object gone, newer good backup present) and puts it back
 in the pipeline if the object ever comes back.
 
+A failed backup whose own copy is already at its final name is retry's job, even once the source is
+gone: retry keeps that copy if it still matches the checksum recorded when it was verified. If it
+doesn't, retry says so, and `retnd retire --accept-unverified-copy` retires it and leaves the file
+where it is.
+
 ## Licence
 
 MIT License. The full text is in [`LICENSE`](LICENSE).

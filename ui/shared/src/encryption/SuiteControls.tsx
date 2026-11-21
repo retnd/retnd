@@ -29,6 +29,7 @@
  * download the card uses, whose bytes live only in the client function.
  */
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { describeFailure } from "@shared/api/failure";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
@@ -174,6 +175,7 @@ export function SuiteChangeFlow({
   const [keyId, setKeyId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const mountedRef = useMounted();
   const title = "Change the suite";
   const keyCommand = hasActiveKey ? keyRotateCommand(suite) : keyCreateCommand(suite);
 
@@ -183,9 +185,9 @@ export function SuiteChangeFlow({
     try {
       await work();
     } catch (e) {
-      setFailure(describeFailure(e, fallback).message);
+      if (mountedRef.current) setFailure(describeFailure(e, fallback).message);
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -240,7 +242,10 @@ export function SuiteChangeFlow({
         eyebrow="Retained-copy encryption"
         header={<StepStrip now="bundle" />}
         onCancel={cancel}
-        onDone={() => { onChanged(); setStep("confirm"); }}
+        onDone={() => {
+          onChanged();
+          if (mountedRef.current) setStep("confirm");
+        }}
       />
     );
   }
@@ -260,6 +265,7 @@ export function SuiteChangeFlow({
           void run(async () => {
             const p = await api.patchEncryptionPolicy({ suite });
             onChanged();
+            if (!mountedRef.current) return;
             if (p.rotationNeeded) setStep("rotate");
             else onClose();
           }, "the suite was not changed")
@@ -290,8 +296,9 @@ export function SuiteChangeFlow({
         onConfirm={() =>
           void run(async () => {
             const k = hasActiveKey ? await api.rotateEncryptionKey(suite) : await api.createEncryptionKey(suite);
-            setKeyId(k.id);
             onChanged();
+            if (!mountedRef.current) return;
+            setKeyId(k.id);
             setStep("bundle");
           }, "the key was not rotated")
         }

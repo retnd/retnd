@@ -16,6 +16,7 @@
  * artifact's fields under another artifact's URL.
  */
 import { useCallback, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -55,6 +56,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // as QuarantinePage's, which learned it the same way.
   const [recovery, setRecovery] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const mountedRef = useMounted();
   // Page-local, like the sibling BackupSetDetailPage (mandatory review on
   // #144): nothing else reads this particular artifact, so there is no
   // duplicate fetch to eliminate by putting it on the shared graph, and
@@ -112,9 +114,21 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // the design switches Retry off and says why rather than offering a press
   // that can only fail again. Nothing is decided here when the host cannot be
   // asked: Retry stays on.
+  //
+  // Issue #1594: one FAILED shape keeps Retry on with its source gone. When
+  // the backup's own copy already sits at its final name (the engine says so
+  // with RETIRE_OWN_COPY_AT_FINAL_NAME), retry keeps that copy if it still
+  // matches the checksum recorded when it was verified, so it is the way out
+  // rather than a press that can only fail.
   const failedState = artifact.data?.state === "FAILED";
   const sourceNow = useAsync(
-    () => (failedState ? api.previewRetirement(artifactId).then((p) => p.source_check).catch(() => "") : Promise.resolve("")),
+    () =>
+      failedState
+        ? api
+            .previewRetirement(artifactId)
+            .then((p) => ({ check: p.source_check as string, ownCopy: p.refusal?.code === "RETIRE_OWN_COPY_AT_FINAL_NAME" }))
+            .catch(() => ({ check: "", ownCopy: false }))
+        : Promise.resolve({ check: "", ownCopy: false }),
     [api, artifactId, failedState]
   );
   const [verifying, setVerifying] = useState<string | null>(null);
@@ -182,7 +196,9 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // a behaviour for leaves every other state alone, which is what a
   // client that does not own the lifecycle graph should do.
   const stuck = isRetryable(a);
-  const sourceGone = stuck && sourceNow.data === "absent";
+  const goneFromHost = stuck && sourceNow.data?.check === "absent";
+  const ownCopyKept = goneFromHost && !!sourceNow.data?.ownCopy;
+  const sourceGone = goneFromHost && !ownCopyKept;
 
   const retryIngestion = () => {
     setRecovery(null);
@@ -198,11 +214,12 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         // about what happens next, so this sentence must not read as "it
         // is fixed", and the page goes and looks rather than asserting an
         // outcome the response does not carry.
+        if (!mountedRef.current) return;
         setRecovery({ tone: "ok", text: RETRY_ACCEPTED + " While this card is still here, the backup is still FAILED." });
         artifact.reload();
       })
-      .catch((e: unknown) => setRecovery({ tone: "bad", text: retryRefusalSentence(e) }))
-      .finally(() => setRetrying(false));
+      .catch((e: unknown) => { if (mountedRef.current) setRecovery({ tone: "bad", text: retryRefusalSentence(e) }); })
+      .finally(() => { if (mountedRef.current) setRetrying(false); });
   };
 
   return (
@@ -300,7 +317,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           it is half of the remedy: an operator meeting a FAILED backup
           has been told to intervene and never told with what. */}
       {stuck ? (
-        <section className="card" style={{ marginTop: 14 }}>
+        <section className="card" style={{ marginTop: 14 }} data-testid="recovery-card">
           <div className="card__header">
             <InfoTooltip id="backups.detail.recovery-card"><h2 className="eyebrow">Recovery</h2></InfoTooltip>
           </div>
@@ -308,7 +325,9 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
             <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
               {sourceGone
                 ? "This backup failed an attempt and its source file is gone from the host, so a retry has nothing left to fetch. Retiring it keeps the record and stops counting it as a failure."
-                : "This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own and the Quarantine page will not list it. Re-attempting it is the way back."}
+                : ownCopyKept
+                  ? "This backup failed an attempt and its source file is gone from the host, but its own copy is already at its final name. Retry keeps that copy if it still matches the checksum recorded when it was verified. If it does not, Retire… closes the books on it and leaves the file where it is."
+                  : "This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own and the Quarantine page will not list it. Re-attempting it is the way back."}
             </p>
             <span style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
               <InfoTooltip id="backups.detail.retry">
