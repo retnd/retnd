@@ -114,6 +114,21 @@ export interface HoverPopover<T extends HTMLElement = HTMLElement> {
   dismiss(): void;
 }
 
+/** Whether the last thing the operator did was press Tab. Focus on a control
+ *  a label explains opens its pop-up only then (#1619): a dialog that focuses
+ *  its first field, or a refusal that sends focus back to one, has not asked
+ *  for help, and a pop-up opening on it would also take the dialog's Escape.
+ *  A pointer press or any other key puts it back to false. */
+let keyboardDriven = false;
+let watching = false;
+function watchModality() {
+  if (watching || typeof document === "undefined") return;
+  watching = true;
+  document.addEventListener("keydown", (e) => { keyboardDriven = e.key === "Tab"; }, true);
+  document.addEventListener("pointerdown", () => { keyboardDriven = false; }, true);
+  document.addEventListener("mousedown", () => { keyboardDriven = false; }, true);
+}
+
 export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
   /** #829's preference where this host is mounted (`useTooltipsVisible`).
    *  Gates the ambient opens and the opt-out question, never `toggle`. */
@@ -167,13 +182,18 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
   // somewhere else entirely, not only for the keyboard case.
   useEffect(() => {
     if (!shown) return;
+    // Capture, and it stops there: a dialog listens for Escape on the window
+    // or on its own element, and one press must close the pop-up OR the
+    // dialog, never both (#1619). This listener only exists while a pop-up
+    // is up, so with none showing Escape reaches the dialog untouched.
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      event.stopPropagation();
       setPinned(false);
       setDismissed(true);
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [shown]);
 
   /** Focus moving between the control and the close button is movement
@@ -210,7 +230,9 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
     },
     attachControl: (control) => {
       const onIn = () => {
-        if (!enabled) return;
+        // Only focus the keyboard brought. A dialog's autofocus, or focus a
+        // refusal sends back to a field, is script and not a request for help.
+        if (!enabled || !keyboardDriven) return;
         setFocused(true);
         setDismissed(false);
       };
@@ -225,6 +247,7 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
       const onClick = () => {
         if (!pinned) setDismissed(true);
       };
+      watchModality();
       control.addEventListener("focusin", onIn);
       control.addEventListener("focusout", onOut);
       control.addEventListener("click", onClick);
