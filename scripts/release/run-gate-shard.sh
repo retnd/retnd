@@ -173,6 +173,13 @@ if [ "$min_gib" -gt 0 ] && [ "$host" != mac ]; then
   fi
 fi
 
+# The ui-browser shard holds a gate container that mostly waits and the lane's
+# own 4g sibling, so the gate's fence defaults small (#1588), not ci-docker's
+# 12g / 6 cpus. A fence the caller names wins.
+if [ "$shard" = ui-browser ] && [ "$host" != mac ]; then
+  export CI_DOCKER_MEMORY="${CI_DOCKER_MEMORY:-3g}" CI_DOCKER_CPUS="${CI_DOCKER_CPUS:-2}"
+fi
+
 # --- run ------------------------------------------------------------------------
 # In the background and waited for, so a signal reaches the trap now instead of
 # when the pipeline ends, and the trap can take the shard's process with it.

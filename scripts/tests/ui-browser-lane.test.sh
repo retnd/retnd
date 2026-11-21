@@ -159,5 +159,55 @@ is "L15 no arguments is a usage error" 2 "$status" "$out"
 lane_run -- shell
 is "L15 an unknown mode is a usage error" 2 "$status" "$out"
 
+echo "==> the skip guard (#1588)"
+# A spec run that quietly runs less must not read as green: the lane writes a
+# JSON report beside the list reporter and refuses any skip that is not the
+# E2E_VIDEO-gated recording (the walkthroughs' own reason says so).
+has "S1 the specs run writes a JSON report beside the list reporter" "$run_line" "--reporter=list,json"
+has "S1 and the container checks it with the skip guard after the run" "$run_line" "ui_skips.py"
+skips="$repo_root/scripts/bdtools/e2e/ui_skips.py"
+report() { # report <file> <status> <annotation json>: one spec with one test
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+path, status, ann = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+t = {"status": status, "annotations": ann, "results": []}
+spec = {"file": "x.spec.ts", "title": "a test", "tests": [t]}
+json.dump({"suites": [{"file": "x.spec.ts", "suites": [{"title": "d", "specs": [spec]}], "specs": []}]}, open(path, "w"))
+PY
+}
+guard() { out="$(python3 "$skips" "$1" 2>&1)"; status=$?; }
+report "$work/r1.json" expected '[]'
+guard "$work/r1.json"
+is "S2 a report with no skip passes" 0 "$status" "$out"
+report "$work/r2.json" skipped '[{"type":"skip","description":"recording only, run with E2E_VIDEO=1"}]'
+guard "$work/r2.json"
+is "S3 an E2E_VIDEO-gated skip passes" 0 "$status" "$out"
+report "$work/r3.json" skipped '[{"type":"skip"}]'
+guard "$work/r3.json"
+is "S4 a bare test.skip is refused" 1 "$status" "$out"
+has "S4 and names the file" "$out" "x.spec.ts"
+report "$work/r4.json" skipped '[{"type":"fixme","description":"flaky"}]'
+guard "$work/r4.json"
+is "S5 a test.fixme is refused" 1 "$status" "$out"
+report "$work/r5.json" skipped '[]'
+guard "$work/r5.json"
+is "S6 a skip with no reason at all is refused" 1 "$status" "$out"
+report "$work/r7.json" skipped '[{"type":"skip","description":"flaky, E2E_VIDEO=1 would fix it"}]'
+guard "$work/r7.json"
+is "S9 a reason that only mentions E2E_VIDEO is refused, the exact recording form is required" 1 "$status" "$out"
+report "$work/r8.json" skipped null
+guard "$work/r8.json"
+is "S10 annotations: null is read as no reason, a refused skip" 1 "$status" "$out"
+hasnt "S10 with no traceback" "$out" "Traceback"
+printf '{"suites": 3}' >"$work/r9.json"
+guard "$work/r9.json"
+is "S11 a report of the wrong shape is a clean refusal" 1 "$status" "$out"
+hasnt "S11 with no traceback" "$out" "Traceback"
+guard "$work/no-such-report.json"
+is "S7 a missing report is refused, never read as no skips" 1 "$status" "$out"
+printf 'not json' >"$work/r6.json"
+guard "$work/r6.json"
+is "S8 a report that does not parse is refused" 1 "$status" "$out"
+
 echo "ui-browser-lane: $((checks - failures))/$checks passed"
 [ "$failures" -eq 0 ]

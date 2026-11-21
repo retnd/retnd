@@ -1161,7 +1161,12 @@ gate_pw_locked() {
 gate_ui_browser() { # <what it runs, for the ledger> <command...>
   ui_what="$1"
   shift
-  if [ "$(uname -s)" = "Darwin" ]; then
+  # scripts/ci-docker.sh says which OS the run started on (#1588): inside its
+  # container uname is always Linux, so a by-hand run on a Mac would pass for
+  # a Linux box. A gate run directly has no such variable and asks uname.
+  # Either one saying Darwin makes it a Mac: a stale RETND_GATE_HOST_OS=Linux
+  # exported in a Mac shell must not hide a native Mac run.
+  if [ "$(uname -s)" = "Darwin" ] || [ "${RETND_GATE_HOST_OS:-}" = "Darwin" ]; then
     if [ "${RETND_UI_BROWSER_ALLOW_LOCAL:-0}" != "1" ]; then
       gate_note_skip "$ui_what (#1532, #1537): not run on this Mac, where heavy steps do not run. Run the shard on MARS: bash scripts/release/run-gate-shard.sh ui-browser --host mars (RETND_UI_BROWSER_ALLOW_LOCAL=1 runs it here, through the Playwright lock)"
       return 0

@@ -211,6 +211,15 @@ else
   fail "M5 ui-browser opt-in" "rc=$(rc) $(cat "$work/stdout")"
 fi
 
+# M8: the ui-browser shard holds a gate container that mostly waits plus the
+# lane's own 4g sibling, so its gate fence defaults small (#1588): 2 cpus and
+# 3g. A fence the caller sets wins, and no other shard's sizing moves.
+run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS -u RETND_UI_BROWSER_ALLOW_LOCAL FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --host mars --out "$work/out"
+grep -q 'memory=3g cpus=2' "$work/log/ci-docker-env" && pass "M8 the ui-browser shard asks ci-docker for a 3g, 2 cpu gate fence by default" || fail "M8 ui-browser fence" "$(cat "$work/log/ci-docker-env")"
+run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS -u RETND_UI_BROWSER_ALLOW_LOCAL CI_DOCKER_MEMORY=6g CI_DOCKER_CPUS=4 FAKE_VERDICT="==> ci-local: ok (shard ui-browser)" bash "$runner" ui-browser --host mars --out "$work/out"
+grep -q 'memory=6g cpus=4' "$work/log/ci-docker-env" && pass "M8 a fence the caller names wins" || fail "M8 ui-browser caller fence" "$(cat "$work/log/ci-docker-env")"
+run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS FAKE_VERDICT="==> ci-local: ok (shard core-docker)" bash "$runner" core-docker --host mars --out "$work/out"
+grep -q 'memory=unset cpus=unset' "$work/log/ci-docker-env" && pass "M8 control: another shard keeps ci-docker's own default" || fail "M8 other shard fence" "$(cat "$work/log/ci-docker-env")"
 # M3-M6: a shard with a minimum memory (selftest-encryption, 9g: its two copycrypt
 # controls allocate several GiB and were OOM-killed at 4g, the #1538 review B3).
 run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=6g bash "$runner" selftest-encryption --host mars --out "$work/out"

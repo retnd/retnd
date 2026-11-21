@@ -710,7 +710,7 @@ ROOMY=10737418240
 # lane happens to be in its crash matrix.
 scrub_env() {
   env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
-    -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE -u CI_LOCAL_SKIP_UI_BROWSER -u RETND_UI_BROWSER_ALLOW_LOCAL -u STUB_UNAME_S \
+    -u CI_LOCAL_SELFTEST -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE -u CI_LOCAL_SKIP_UI_BROWSER -u RETND_UI_BROWSER_ALLOW_LOCAL -u RETND_GATE_HOST_OS -u STUB_UNAME_S \
     -u CI_LOCAL_RED -u CI_LOCAL_FULL -u CI_LOCAL_TIER -u CI_LOCAL_MEMORY_LIMIT_BYTES -u RETND_SELFTEST_SKIP_LEDGER -u GATE_SHARD -u CI -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
     -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_PREFIX \
     -u RETND_GATE_STALL_MIN -u RETND_GATE_STEP_CAP_MIN -u RETND_GATE_STEP_CAP_FLOOR_MIN -u RETND_GATE_HOST_ID \
@@ -3244,6 +3244,26 @@ run_gate "$tree" STUB_UNAME_S=Linux RETND_PW_LOCK="$tree/bin/pw-lock" -- --shard
 assert_contains "Z11 a Linux host runs the specs" "$UI_BROWSER_STUB specs" "$out"
 assert_not_contains "Z11 bare, with no lock to take" 'PW-LOCK-HELD' "$out"
 assert_eq "Z11 and the shard ends ok" "==> ci-local: ok (shard ui-browser)" "$(printf '%s\n' "$out" | tail -n 1)"
+
+# Z12: a by-hand ci-docker.sh on a Mac runs the gate in a Linux container, where
+# uname says Linux; ci-docker hands it RETND_GATE_HOST_OS=Darwin and the Mac
+# rule keys on that (#1588), with or without the opt-in's lock to hand.
+tree="$(make_full_tree)"
+printf '#!/usr/bin/env bash\necho "PW-LOCK-HELD $*"\n"$@"\n' >"$tree/bin/pw-lock"
+chmod +x "$tree/bin/pw-lock"
+run_gate "$tree" STUB_UNAME_S=Linux RETND_GATE_HOST_OS=Darwin RETND_PW_LOCK="$tree/bin/pw-lock" -- --shard ui-browser
+assert_not_contains "Z12 a gate that started on a Mac runs neither step, though uname says Linux" "$UI_BROWSER_STUB" "$out"
+assert_contains "Z12 it ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
+assert_contains "Z12 and names the way to run it on MARS" 'run-gate-shard.sh ui-browser --host mars' "$out"
+# A stale RETND_GATE_HOST_OS=Linux exported in a Mac shell does not hide a
+# native Mac run: either one saying Darwin makes it a Mac.
+tree="$(make_full_tree)"
+run_gate "$tree" STUB_UNAME_S=Darwin RETND_GATE_HOST_OS=Linux -- --shard ui-browser
+assert_not_contains "Z12 a native Mac run with a stale RETND_GATE_HOST_OS=Linux still runs neither step" "$UI_BROWSER_STUB" "$out"
+assert_contains "Z12 and ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-browser)' "$out"
+tree="$(make_full_tree)"
+run_gate "$tree" STUB_UNAME_S=Linux RETND_GATE_HOST_OS=Linux -- --shard ui-browser
+assert_contains "Z12 control: RETND_GATE_HOST_OS=Linux runs the specs" "$UI_BROWSER_STUB specs" "$out"
 
 # ------------------------------------------------------------------ result
 
