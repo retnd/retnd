@@ -215,15 +215,18 @@ func migrateUnderExclusiveLock(ctx context.Context, dbPath string) (*state.Journ
 		return nil, nil, err
 	}
 
-	// Only to name the copy kept after a success. Not being able to read it
-	// must not stop a migration, so it falls back to 0 ("unknown").
-	schemaBefore, _ := state.AppliedSchemaVersion(ctx, dbPath)
-
 	snap, err := snapshotSQLite(dbPath)
 	if err != nil {
 		_ = lock.release()
 		return nil, nil, err
 	}
+
+	// Only to name the copy kept after a success. It is read AFTER the
+	// snapshot on purpose: opening a journal through SQLite can recover and
+	// checkpoint a crash WAL, and the snapshot should hold the raw bytes. Not
+	// being able to read it must not stop a migration, so it falls back to 0
+	// ("unknown").
+	schemaBefore, _ := state.AppliedSchemaVersion(ctx, dbPath)
 
 	journal, err := state.Open(ctx, dbPath)
 	if err != nil {

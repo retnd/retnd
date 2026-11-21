@@ -326,3 +326,137 @@ func TestIssue1584_TheNewestCopyIsNeverThePrunedOne(t *testing.T) {
 		t.Fatalf("the copy just written was pruned: %v", retainedCopies(t, dir))
 	}
 }
+
+func TestIssue1584_AnInterruptedStartsHalfCopyIsSweptAndOnlyThat(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := seedJournalBeforeMigration23(t, dir)
+	stale := filepath.Join(dir, ".pre-migration-123456789")
+	if err := os.Mkdir(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "state.db"), []byte("half"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(dir, ".pre-migration-notes")
+	if err := os.Mkdir(foreign, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logs := captureLog(t)
+
+	if err := startAndClose(t, dir, dbPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("the half-written copy from an interrupted start is still there")
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Errorf("a dot-directory that is not the engine's name was removed: %v", err)
+	}
+	if !strings.Contains(logs.String(), stale) {
+		t.Errorf("the sweep did not log the path it removed:\n%s", logs.String())
+	}
+	if c := retainedCopies(t, dir); len(c) != 2 { // the new copy and the foreign directory
+		t.Errorf("entries = %v, want the new copy and the foreign directory only", c)
+	}
+}
+
+func TestIssue1584_ASymlinkNamedLikeACopyIsNeitherFollowedNorPruned(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := seedJournalBeforeMigration23(t, dir)
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "MANIFEST"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "keep.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "pre-migration-20200101T000000Z-schema1")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	// Enough real, older copies to force pruning past the cap.
+	for i := 1; i <= 5; i++ {
+		seedRetainedCopy(t, dir, "pre-migration-2025010"+string(rune('0'+i))+"T000000Z-schema10")
+	}
+	if err := startAndClose(t, dir, dbPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("the symlink was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "keep.txt")); err != nil {
+		t.Errorf("pruning followed the symlink into its target: %v", err)
+	}
+}
+
+// A journal left with committed rows still in its -wal (a process that died, or
+// a crash image) must come out as a faithful copy: db plus -wal, no -shm, that
+// passes integrity_check and holds the rows.
+func TestIssue1584_AJournalWithAnUncheckpointedWALIsCopiedFaithfully(t *testing.T) {
+	src := t.TempDir()
+	seedJournalBeforeMigration23(t, src)
+	srcDB := filepath.Join(src, "state.db")
+	live, err := sql.Open("sqlite", srcDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live.SetMaxOpenConns(1)
+	for _, stmt := range []string{
+		"PRAGMA journal_mode=WAL", "PRAGMA wal_autocheckpoint=0",
+		"CREATE TABLE crash_marker (n INTEGER)", "INSERT INTO crash_marker VALUES (42)",
+	} {
+		if _, err := live.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	dir := t.TempDir()
+	for _, f := range []string{"state.db", "state.db-wal"} {
+		b, err := os.ReadFile(filepath.Join(src, f))
+		if err != nil {
+			t.Fatalf("crash image needs %s: %v", f, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, f), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = live.Close()
+	if fi, _ := os.Stat(filepath.Join(dir, "state.db-wal")); fi == nil || fi.Size() == 0 {
+		t.Fatal("the crash image has no WAL content, so this test proves nothing")
+	}
+
+	if err := startAndClose(t, dir, filepath.Join(dir, "state.db")); err != nil {
+		t.Fatal(err)
+	}
+	copies := retainedCopies(t, dir)
+	if len(copies) != 1 {
+		t.Fatalf("copies = %v, want one", copies)
+	}
+	cdir := filepath.Join(dir, copies[0])
+	if _, err := os.Stat(filepath.Join(cdir, "state.db-shm")); err == nil {
+		t.Error("the copy carries -shm")
+	}
+	scratch := t.TempDir()
+	for _, f := range []string{"state.db", "state.db-wal"} {
+		if b, err := os.ReadFile(filepath.Join(cdir, f)); err == nil {
+			if err := os.WriteFile(filepath.Join(scratch, f), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	db, err := sql.Open("sqlite", filepath.Join(scratch, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var ok string
+	var n, v int
+	if err := db.QueryRow("PRAGMA integrity_check").Scan(&ok); err != nil || ok != "ok" {
+		t.Errorf("integrity_check = %q (%v)", ok, err)
+	}
+	if err := db.QueryRow("SELECT n FROM crash_marker").Scan(&n); err != nil || n != 42 {
+		t.Errorf("the row that lived only in the WAL = %d (%v), want 42: the copy lost committed data", n, err)
+	}
+	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&v); err != nil || v != 22 {
+		t.Errorf("copied schema = %d (%v), want 22", v, err)
+	}
+}

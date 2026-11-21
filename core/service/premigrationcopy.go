@@ -92,6 +92,7 @@ func retainPreMigrationCopy(ctx context.Context, dbPath string, schemaBefore int
 		return
 	}
 	dir := filepath.Dir(dbPath)
+	sweepStalePartialCopies(ctx, dir)
 
 	var total int64
 	for _, p := range snap.paths {
@@ -114,6 +115,32 @@ func retainPreMigrationCopy(ctx context.Context, dbPath string, schemaBefore int
 		"path", final, "schema_before", schemaBefore, "bytes", total)
 
 	pruneRetainedCopies(ctx, dir, filepath.Base(final))
+}
+
+var partialCopyPattern = regexp.MustCompile(`^\.pre-migration-\d+$`)
+
+// sweepStalePartialCopies removes the dot-directories writeRetainedCopy leaves
+// when a process dies between making one and renaming it into place. Each holds
+// a full journal and nothing else would ever clean it. We hold the exclusive
+// journal lock and the startup lock, so no other start is writing one, which is
+// what makes every match stale. Only a real directory (never a symlink) with the
+// exact name MkdirTemp gives is touched, and each removal is logged.
+func sweepStalePartialCopies(ctx context.Context, dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !partialCopyPattern.MatchString(e.Name()) || !e.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		if err := os.RemoveAll(path); err != nil {
+			slog.WarnContext(ctx, "a stale half-written pre-migration copy could not be removed", "path", path, "error", err)
+			continue
+		}
+		slog.WarnContext(ctx, "removed a half-written pre-migration copy left by an interrupted start", "path", path)
+	}
 }
 
 func writeRetainedCopy(dir, dbPath string, schemaBefore int, snap *sqliteSnapshot, now time.Time) (string, error) {

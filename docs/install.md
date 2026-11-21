@@ -545,6 +545,8 @@ worth knowing:
   one it didn't name, or one for a schema newer than this build knows (a newer build made it).
   Move a copy you want to keep out of the state directory.
 - A start that migrates nothing, a first-ever start, and a refused start keep nothing.
+- A start killed while writing a copy can leave a `.pre-migration-<digits>` directory. The next
+  start that migrates removes it and logs the path; until then it's safe to delete by hand.
 
 To go back from it, build an archive-shaped directory out of it and use the steps below with
 `ARCHIVE` pointing there. `local-auth.json` comes from the live state directory, since the
