@@ -25,7 +25,7 @@ import (
 //	encryption copies <source/set/artifact>    which copies are encrypted
 //	encryption verify <source/set/artifact>    decrypt-verify, a content check
 //	encryption encrypt-existing <source/set>   encrypt plaintext copies that already exist
-//	encryption reencrypt --suite|--key|--deprecated   rewrite copies under the active suite and key
+//	encryption reencrypt --suite|--key|--deprecated [--from-local]   rewrite copies under the active suite and key
 //	encryption decrypt <object> ...            open one copy to a file (#1289)
 //	encryption suites                          the encryption suites this build has (#1315)
 //
@@ -82,7 +82,7 @@ func cmdEncryption(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>`, `encryption reencrypt --suite <id> | --key <id> | --deprecated [--to <medium>]`, `encryption decrypt <object> ...` or `encryption suites`")
+	return usageError("encryption: expected `encryption policy`, `encryption backup-set <source/set>`, `encryption key ...`, `encryption provider test`, `encryption copies <source/set/artifact>`, `encryption verify <source/set/artifact>`, `encryption encrypt-existing <source/set> --to <medium>`, `encryption reencrypt --suite <id> | --key <id> | --deprecated [--from-local] [--to <medium>]`, `encryption decrypt <object> ...` or `encryption suites`")
 }
 
 // providerFlags are the flags that declare a key provider, shared by the
@@ -815,6 +815,12 @@ func printEncryptionSuites(l apicontract.ListEncryptionSuitesResponse) {
 // engine's operation (stop it with `assurance cancel`, which is also what the
 // browser's Cancel calls); with nothing serving it runs here, to the end, and
 // an interrupt stops it the same way.
+//
+// --from-local (#1545) is for an artifact that still has an ACTIVE local copy,
+// which the engine otherwise refuses (two ACTIVE copies, and it will not choose
+// which is disposable): the new copy is encrypted straight from the local copy,
+// nothing is read from the old remote copy, and the local copy is never changed.
+// The dry run says per copy which path it takes and prints the bytes per medium.
 func cmdEncryptionReencrypt(args []string) int {
 	fs, cfgPath := newFlagSet("encryption reencrypt")
 	asJSON := fs.Bool("json", false, "print the object the API returns instead of text")
@@ -822,6 +828,7 @@ func cmdEncryptionReencrypt(args []string) int {
 	keyID := fs.String("key", "", "select every copy under this key id")
 	deprecated := fs.Bool("deprecated", false, "select every copy under a deprecated or retired suite")
 	to := fs.String("to", "", "the storage medium the new copies go to; it has to differ from the medium each copy is on")
+	fromLocal := fs.Bool("from-local", false, "for an artifact that still has an ACTIVE local copy, write the new copy from that local copy instead of refusing it; nothing is read from the old remote copy, and the local copy is never changed")
 	dryRun := fs.Bool("dry-run", false, "list the selected copies by suite and key, with what a run would do with each and why not where it would not, without doing anything")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
@@ -830,7 +837,7 @@ func cmdEncryptionReencrypt(args []string) int {
 	if len(operands) != 0 {
 		return usageError("encryption reencrypt: takes no operands; select copies with --suite, --key or --deprecated")
 	}
-	req := apicontract.StartReencryptRequest{SuiteID: *suite, KeyID: *keyID, Deprecated: *deprecated, DestinationMedium: *to}
+	req := apicontract.StartReencryptRequest{SuiteID: *suite, KeyID: *keyID, Deprecated: *deprecated, DestinationMedium: *to, FromLocal: *fromLocal}
 	ctx := context.Background()
 
 	if *dryRun {
@@ -851,8 +858,18 @@ func cmdEncryptionReencrypt(args []string) int {
 						fmt.Printf("  %s on %s: refused (%s): %s\n", c.ArtifactID, c.SourceMedium, c.Refusal, c.Reason)
 						continue
 					}
-					fmt.Printf("  %s on %s: would be re-encrypted onto %s\n", c.ArtifactID, c.SourceMedium, c.DestinationMedium)
+					how := "read from the old copy"
+					if c.Path == "upload_from_local" {
+						how = "written from the local copy, nothing read from the old one"
+					}
+					fmt.Printf("  %s on %s: would be re-encrypted onto %s (%s)\n", c.ArtifactID, c.SourceMedium, c.DestinationMedium, how)
 				}
+			}
+			for _, m := range plan.Media {
+				fmt.Printf("  %s: up to %d bytes read, %d bytes written\n", m.Medium, m.BytesRead, m.BytesWritten)
+			}
+			if plan.SizesUnknown > 0 {
+				fmt.Printf("  %d copies have no recorded size and are not in these totals\n", plan.SizesUnknown)
 			}
 			fmt.Printf("dry run: %d would be re-encrypted, %d refused; nothing was changed\n", plan.WouldReencrypt, plan.Refused)
 		})

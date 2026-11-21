@@ -18,6 +18,17 @@ Worth reading before you upgrade:
 
 ### Added
 
+- **`retnd encryption reencrypt --from-local`** (#1545). An artifact that still has a local copy
+  was refused by `reencrypt` (two ACTIVE copies, and the engine won't choose which one goes), so
+  after a key compromise its copy under the old key sat there until the local copy expired. With
+  `--from-local` the new copy is encrypted straight from the local copy under the active key,
+  decrypt-verified, and only then is the copy under the old key retired. Nothing is read from the
+  old remote copy, so there's no egress for it and the old key doesn't have to resolve, and the
+  local copy is read and never changed. It's off unless you ask, adds no route (it's `from_local`
+  on the two existing ones, which an agent still can't call), and needs no migration. `--dry-run`
+  now says per copy whether it's a `move` or an `upload_from_local` and prints the bytes each
+  medium would read and write. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
+
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
   metric families it already rendered, plus a new `retnd_scrape_rejected_total{reason}`, on
   `GET /metrics`. It is off until you turn it on (`retnd settings observability patch

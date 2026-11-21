@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "f0b548f691bff89aff42595600cb96f9be96b618fe0fccebe28723a2c51c7813";
+export const CONTRACT_SHA256 = "8737c1772087107fbcb2f76303db3557ca14c0b54156f2fdd7db3cd1033f9619";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -5658,10 +5658,14 @@ export interface WireRecoveryTestStarted {
  *  source_key_unavailable, same_medium, no_destination, not_required,
  *  key_unavailable, destination_unverifiable, no_room,
  *  source_unreadable or not_eligible) and reason is the sentence the
- *  run would refuse with. */
+ *  run would refuse with. path is how a run would write the new copy:
+ *  move (read the old remote copy through its own key) or
+ *  upload_from_local (read the artifact's ACTIVE local copy, only
+ *  when from_local was asked for). */
 export interface WireReencryptCandidate {
   artifact_id: string;
   destination_medium?: string;
+  path: string;
   reason?: string;
   refusal?: string;
   source_medium: string;
@@ -5676,13 +5680,32 @@ export interface WireReencryptGroup {
   suite_id: string;
 }
 
+/** The bytes a dry run expects to move through one medium. medium is
+ *  a configured medium id, or local for the local copy an
+ *  upload_from_local candidate is read from (a read of local disk,
+ *  not egress). bytes_read is what is read from it, bytes_written
+ *  what is written to it. For a destination both are an upper bound:
+ *  payload, one 16 byte tag per 64 KiB chunk, the nonce and a 4 KiB
+ *  header allowance, with the verification read-back counted in
+ *  bytes_read. A resumed run reads the destination once more. */
+export interface WireReencryptMedium {
+  bytes_read: number;
+  bytes_written: number;
+  medium: string;
+}
+
 /** GET /encryption/reencrypt. The dry run: every encrypted copy the
  *  selector matches, grouped by suite and then by key, whether a run
  *  would rewrite it under the active suite and key, and why not when
- *  it would not. It changes and reads nothing. */
+ *  it would not. It changes and reads nothing. media is the bytes a
+ *  run would read and write per medium (candidates that would be
+ *  refused add nothing), and sizes_unknown counts the would-be
+ *  candidates with no recorded size, which are not in those totals. */
 export interface WireReencryptPlan {
   groups: WireReencryptGroup[];
+  media: WireReencryptMedium[];
   refused: number;
+  sizes_unknown: number;
   would_reencrypt: number;
 }
 
@@ -6474,10 +6497,19 @@ export interface WireStartRecoveryTestRequest {
  *  is made: a key rotation or a suite deprecation never rewrites a
  *  copy, and each source copy is retired only after its replacement
  *  has been decrypt-verified against the recorded plaintext digest.
- *  The plaintext is never written to local disk. */
+ *  The plaintext is never written to local disk. from_local
+ *  (optional, off unless asked for): an artifact that still has an
+ *  ACTIVE local copy is refused by default, because the engine will
+ *  not choose which of its two copies is disposable. With from_local
+ *  the new copy is encrypted straight from that local copy (nothing
+ *  is read from the old remote copy, so there is no egress for it and
+ *  the old key is not needed), decrypt-verified, and only then is the
+ *  copy under the old key retired. The local copy is read, never
+ *  changed, and no plaintext is written anywhere else. */
 export interface WireStartReencryptRequest {
   deprecated?: boolean;
   destination_medium: string;
+  from_local?: boolean;
   key_id?: string;
   suite_id?: string;
 }

@@ -275,6 +275,11 @@ type Plan struct {
 	// source is refused as already encrypted, which is what #1291's verb
 	// over plaintext copies wants. RunCycle ignores it.
 	Reencrypt bool
+
+	// FromLocal is read by EncryptExisting only, and only with Reencrypt
+	// (#1545): when the artifact still has an ACTIVE local copy, the new
+	// copy is written from that copy instead of from the old remote one.
+	FromLocal bool
 }
 
 // Outcome is what happened to one move.
@@ -412,6 +417,9 @@ func (e *Engine) RunCycle(ctx context.Context, plans []Plan) (CycleReport, error
 			// an expected outcome and a reported error.
 			continue
 		}
+		// The retention cycle never writes the operator's opt-in, so it
+		// never writes a copy from the local one either (#1545).
+		p.FromLocal = false
 		mv, err := e.plan(ctx, p)
 		if err != nil {
 			budget--
@@ -455,7 +463,8 @@ func (e *Engine) plan(ctx context.Context, p Plan) (state.Move, error) {
 	if err != nil {
 		return state.Move{}, err
 	}
-	src, err := e.eligibleSource(rec, p.DestinationMedium)
+	_, skipLocal := activeLocal(rec)
+	src, err := e.eligibleSource(rec, p.DestinationMedium, skipLocal && p.FromLocal && p.Reencrypt)
 	if err != nil {
 		return state.Move{}, err
 	}
@@ -477,7 +486,13 @@ func (e *Engine) plan(ctx context.Context, p Plan) (state.Move, error) {
 //
 // Every refusal here preserves the source, which is the whole point: the
 // engine declines rather than guessing, and declining costs a cycle.
-func (e *Engine) eligibleSource(rec state.Record, destination string) (state.Placement, error) {
+//
+// With ignoreLocal set (#1545), the artifact's ACTIVE local copy is not one of the
+// placements the two-copies rule counts. It is set only for a re-encryption an
+// operator asked to write from that local copy, where the local copy is read
+// and never retired, so there is nothing for the engine to choose between: the
+// remote copy under the old key is the only disposable one.
+func (e *Engine) eligibleSource(rec state.Record, destination string, ignoreLocal bool) (state.Placement, error) {
 	if lifecycle.State(rec.State) != lifecycle.Complete {
 		// FR-30: only COMPLETE is move-eligible. COMMITTED and
 		// REMOTE_DELETE_PENDING still owe FR-15 its pre-delete local-file
@@ -490,7 +505,7 @@ func (e *Engine) eligibleSource(rec state.Record, destination string) (state.Pla
 
 	var active []state.Placement
 	for _, p := range rec.Placements {
-		if p.Status == state.PlacementActive {
+		if p.Status == state.PlacementActive && (!ignoreLocal || p.Medium != config.MediumLocal) {
 			active = append(active, p)
 		}
 	}
@@ -769,7 +784,11 @@ func (e *Engine) startCopy(ctx context.Context, mv state.Move) (state.Move, erro
 	// resumed move was planned by a process that is gone and whose reasons
 	// cannot be inspected. If the artifact stopped being movable in the
 	// meantime, the move is abandoned with nothing copied.
-	if _, err := e.eligibleSource(rec, mv.DestinationMedium); err != nil {
+	_, fromLocal, err := e.fromLocalSource(ctx, mv, rec)
+	if err != nil {
+		return mv, err
+	}
+	if _, err := e.eligibleSource(rec, mv.DestinationMedium, fromLocal); err != nil {
 		return e.abandon(ctx, mv, err.Error())
 	}
 	return e.step(ctx, mv, Planned, Copying, "")
@@ -811,10 +830,20 @@ func (e *Engine) copy(ctx context.Context, mv state.Move) (state.Move, error) {
 		return e.abandon(ctx, mv, why)
 	}
 
+	local, fromLocal, err := e.fromLocalSource(ctx, mv, rec)
+	if err != nil {
+		return mv, err
+	}
+
 	var bytes int64
 	switch {
 	case mv.DestinationMedium == config.MediumLocal:
 		bytes, err = e.copyToLocal(ctx, mv, src)
+	case fromLocal:
+		// #1545: the new copy is written from the artifact's own ACTIVE
+		// local copy. The old remote copy is not opened, which is what makes
+		// this free of egress and independent of the old key.
+		bytes, err = e.copyFromLocal(ctx, mv, local)
 	case mv.SourceMedium == config.MediumLocal:
 		bytes, err = e.copyToMedium(ctx, mv, src)
 	default:

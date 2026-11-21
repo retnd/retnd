@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/retnd/retnd/core/apicontract"
@@ -25,9 +24,17 @@ func fromLocalFixture(t *testing.T) (f *recoveryFixture, kept, plain model.Artif
 	t.Helper()
 	f, plain, _, oldKey, _ = reencryptFixture(t)
 	kept = seedComplete(t, f, "kept.dump", state.MediumLocal, "warm")
+	// What stands for the old ciphertext on warm: bytes that are not the
+	// artifact's, so the record can describe them honestly.
+	blob := append([]byte("not-the-plaintext:"), f.data...)
+	f.store.mu.Lock()
+	f.store.objects["prefix/kept.dump"] = blob
+	f.store.mu.Unlock()
 	if err := f.b.journal.RecordPlacementEncryption(context.Background(), kept, "warm", state.PlacementEncryption{
 		FormatID: fixtureSuite, FormatVersion: 1, KeyID: oldKey,
-		StoredHash: strings.Repeat("e", 64), StoredHashAlg: "sha256", StoredSize: int64(len(f.data)) + 200,
+		// The retire of the old copy checks the object against this record, so
+		// it describes the bytes on warm.
+		StoredHash: sha(blob), StoredHashAlg: "sha256", StoredSize: int64(len(blob)),
 	}); err != nil {
 		t.Fatalf("seeding the encrypted copy of %s: %v", kept, err)
 	}
@@ -125,15 +132,17 @@ func TestTheDryRunStatesBytesPerMediumForBothPaths_1545(t *testing.T) {
 	}
 }
 
-// A run with the field completes the artifact that has a local copy: a fresh
-// copy on "other", the copy under the old key retired, the local file and its
-// placement exactly as they were, and the old object never opened. Red until
-// the field is honoured; red if the local copy is touched.
+// A run with the field writes the new copy for the artifact that has a local
+// copy: a fresh copy on "other" under the active key, decrypt-verified and
+// recorded, the local file and its placement exactly as they were, the copy
+// under the old key waiting to be retired. This fixture's store refuses every
+// delete (it is the recovery double), so the run stops where the retire would
+// begin; the retire itself, and the end state, are the engine's tests and the
+// crash matrix. Red until the field is honoured.
 func TestARunWithFromLocalWritesTheNewCopyFromTheLocalCopy_1545(t *testing.T) {
 	f, kept, _, oldKey := fromLocalFixture(t)
 	ctx := context.Background()
 	local := filepath.Join(f.localDir, "kept.dump")
-	opensBefore := f.store.opens.Load()
 
 	got, err := f.b.RunReencrypt(ctx, apicontract.StartReencryptRequest{KeyID: oldKey, DestinationMedium: "other", FromLocal: true})
 	if err != nil {
@@ -145,8 +154,8 @@ func TestARunWithFromLocalWritesTheNewCopyFromTheLocalCopy_1545(t *testing.T) {
 			line = &got.Outcomes[i]
 		}
 	}
-	if line == nil || line.Phase != "DONE" {
-		t.Fatalf("the artifact with a local copy ended %+v in %+v, want DONE", line, got)
+	if line == nil || line.Phase != "SOURCE_DELETE_PENDING" || line.Refusal == "not_eligible" {
+		t.Fatalf("the artifact with a local copy ended %+v in %+v, want it written and waiting to retire the old copy", line, got)
 	}
 	if b, err := os.ReadFile(local); err != nil || string(b) != string(f.data) {
 		t.Fatalf("the local copy is gone or changed (err=%v)", err)
@@ -159,18 +168,11 @@ func TestARunWithFromLocalWritesTheNewCopyFromTheLocalCopy_1545(t *testing.T) {
 	for _, p := range rec.Placements {
 		status[p.Medium] = p.Status
 	}
-	if status[state.MediumLocal] != state.PlacementActive || status["other"] != state.PlacementActive || status["warm"] != state.PlacementGone {
-		t.Fatalf("placements %v, want local ACTIVE, other ACTIVE and warm GONE", status)
+	if status[state.MediumLocal] != state.PlacementActive || status["other"] != state.PlacementActive || status["warm"] != state.PlacementDeletePending {
+		t.Fatalf("placements %v, want local ACTIVE, other ACTIVE and warm DELETE_PENDING", status)
 	}
 	enc, ok, err := f.b.journal.PlacementEncryption(ctx, kept, "other")
 	if err != nil || !ok || enc.KeyID == oldKey {
 		t.Fatalf("the new copy's record is %+v (ok=%v err=%v), want it under the active key", enc, ok, err)
 	}
-	f.store.mu.Lock()
-	_, oldThere := f.store.objects["prefix/kept.dump"]
-	f.store.mu.Unlock()
-	if oldThere {
-		t.Error("the copy under the old key is still on warm after a completed run")
-	}
-	_ = opensBefore
 }

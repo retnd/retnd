@@ -81,12 +81,6 @@ func (w *fromLocalWorld) localCopyIntact(when string) {
 	}
 }
 
-// plaintextFiles is every file under the backup root holding a run of the
-// plaintext. The only one allowed is the artifact's own local copy.
-func (w *fromLocalWorld) plaintextFiles() []string {
-	return w.reencWorld.plaintextOnDisk()
-}
-
 // Without the mode the refusal #1545 describes stands: two ACTIVE placements,
 // nothing chosen, nothing planned. Green today, and it has to stay green: the
 // mode is opt-in, never the default.
@@ -170,7 +164,7 @@ func TestFromLocalUploadsFreshCopyWithoutReadingTheOldOne_1545(t *testing.T) {
 		t.Errorf("the old copy's placement is %+v (ok=%v), want GONE", p, ok)
 	}
 	w.localCopyIntact("after the run")
-	if files := w.plaintextFiles(); len(files) != 1 || files[0] != w.localPath() {
+	if files := w.plaintextOnDisk(); len(files) != 1 || files[0] != w.localPath() {
 		t.Errorf("plaintext is in %v, want only the artifact's own local copy %s", files, w.localPath())
 	}
 	if left := w.stagingLeftovers(); len(left) != 0 {
