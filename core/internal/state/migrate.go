@@ -186,13 +186,20 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 
-	for version, checksum := range applied {
+	versions := make([]int, 0, len(applied))
+	for version := range applied {
+		versions = append(versions, version)
+	}
+	sort.Ints(versions)
+
+	for _, version := range versions {
+		row := applied[version]
 		m, ok := byVersion[version]
 		if !ok {
-			return fmt.Errorf("%w: version %d is recorded in the database but not compiled into this binary",
-				ErrUnknownSchemaVersion, version)
+			return fmt.Errorf("%w: version %d (%s) is recorded in the database but not compiled into this binary",
+				ErrUnknownSchemaVersion, version, describeAppliedAt(row.appliedAt))
 		}
-		if m.checksum != checksum {
+		if m.checksum != row.checksum {
 			return fmt.Errorf("%w: version %d (%s)", ErrSchemaDrift, version, m.name)
 		}
 	}
@@ -270,11 +277,41 @@ func suspendForeignKeys(ctx context.Context, db *sql.DB) (restore func(), err er
 	}, nil
 }
 
-// appliedMigrations reads schema_migrations into a version-to-checksum
-// map.
+// appliedRow is what schema_migrations records about one applied version.
+// The checksum and the time are read together and used together by migrate,
+// so they travel as one value.
+type appliedRow struct {
+	checksum  string
+	appliedAt string
+}
+
+// describeAppliedAt words the time a recorded migration was applied for the
+// unknown-version refusal (#1583), so an operator can match it to the archive
+// they took before upgrading. A parseable time is printed in UTC whatever
+// offset the row carries; a missing one says so; text that isn't a timestamp
+// is quoted as stored, because a damaged row is still worth showing.
+func describeAppliedAt(raw string) string {
+	if raw == "" {
+		return "applied time not recorded"
+	}
+	t, err := parseTime(raw)
+	if err != nil {
+		if r := []rune(raw); len(r) > 80 {
+			// A damaged row can hold anything; keep the refusal one readable line.
+			return fmt.Sprintf("applied %q, not a timestamp", string(r[:80])+"...")
+		}
+
+		return fmt.Sprintf("applied %q, not a timestamp", raw)
+	}
+
+	return "applied " + formatTime(t)
+}
+
+// appliedMigrations reads schema_migrations into a version-to-row
+// map (checksum and applied_at).
 //
 // Both halves of that pair are needed together, which is why this returns
-// the checksums rather than a set of version numbers: the runner has two
+// the checksums, and the time each was applied, rather than a set of version numbers: the runner has two
 // different questions to ask of the same row, whether this binary knows
 // the version at all and whether the file it knows still hashes to what
 // was recorded, and they produce two different refusals
@@ -282,21 +319,21 @@ func suspendForeignKeys(ctx context.Context, db *sql.DB) (restore func(), err er
 //
 // It is also called by PendingMigration, which never applies anything, so
 // it takes a *sql.DB rather than running inside a migration's transaction.
-func appliedMigrations(ctx context.Context, db *sql.DB) (map[int]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT version, checksum FROM schema_migrations`)
+func appliedMigrations(ctx context.Context, db *sql.DB) (map[int]appliedRow, error) {
+	rows, err := db.QueryContext(ctx, `SELECT version, checksum, applied_at FROM schema_migrations`)
 	if err != nil {
 		return nil, fmt.Errorf("state: read schema_migrations: %w", err)
 	}
 	defer rows.Close()
 
-	applied := make(map[int]string)
+	applied := make(map[int]appliedRow)
 	for rows.Next() {
 		var version int
-		var checksum string
-		if err := rows.Scan(&version, &checksum); err != nil {
+		var row appliedRow
+		if err := rows.Scan(&version, &row.checksum, &row.appliedAt); err != nil {
 			return nil, fmt.Errorf("state: scan schema_migrations: %w", err)
 		}
-		applied[version] = checksum
+		applied[version] = row
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("state: read schema_migrations: %w", err)
