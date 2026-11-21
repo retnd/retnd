@@ -78,7 +78,17 @@ test.describe("#1528 review of the Retire dialog", () => {
       await page.keyboard.press("Shift+Tab");
       expect(await insideDialog(page), "Shift+Tab left the dialog").toBe(true);
     }
+    // Focus may rest on a button whose tooltip the focus opened. Escape puts
+    // that away first and leaves the dialog (#1619), so the dialog's own
+    // Escape is the next press, and the only one when no tooltip is up.
+    const tip = page.locator(".tooltip__pop:not([hidden])");
+    const tooltipUp = (await tip.count()) > 0;
     await page.keyboard.press("Escape");
+    if (tooltipUp) {
+      await expect(tip).toHaveCount(0);
+      await expect(dialog(page)).toHaveCount(1);
+      await page.keyboard.press("Escape");
+    }
     await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Actions for " + WEEK34 })).toBeFocused();
   });
