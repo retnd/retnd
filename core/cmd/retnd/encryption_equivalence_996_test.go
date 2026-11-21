@@ -24,8 +24,9 @@ import (
 // opens a copy. The browser's half is ui/shared/e2e/996-encryption-reconnect.spec.ts
 // and the route-to-verb table apps/common/webhost already pins (#993).
 //
-// These tests were written by reading the verbs, the service and the fake
-// engine, and have not been run. Each names the defect that turns it red.
+// Each names the defect that turns it red; the N2.6 row of
+// docs/conformance/epic-n-matrix.md records the first watched red (MARS,
+// 2026-11-11), and row N2.5 the exit-code control (MARS, 2026-11-20).
 
 // cli996 runs one command in this process and returns its exit code and both
 // streams, so a test can scan either.
