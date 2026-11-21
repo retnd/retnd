@@ -23,8 +23,10 @@ the command runs. Nothing is written to the tree, and `--rm` takes the rest.
 
 `specs` runs `npx playwright test -c <config>` from the config's workspace
 (the directory above the one it sits in) with a per-test timeout, a global
-timeout, the list reporter and --forbid-only: a test.only left in one spec
-would otherwise run that one test and pass for the whole suite. `run` runs any command from the copy's root;
+timeout, the list reporter, a JSON report and --forbid-only: a test.only left
+in one spec would otherwise run that one test and pass for the whole suite, and
+the report is read by ui_skips.py, which refuses any skip that is not an
+E2E_VIDEO-gated recording (#1588). `run` runs any command from the copy's root;
 the gate uses it for the assurance UI self-test.
 
 Every run is bounded twice, because a browser that hangs is the failure the
@@ -118,9 +120,10 @@ case $mode in
   specs)
     cfg=$1
     shift
+    export PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/pw-report.json
     ws=${cfg%/*/*}
     cd "$w/$ws" || exit 96
-    set -- npx playwright test -c "${cfg#"$ws"/}" --output /tmp/pw-out --reporter=list --forbid-only \
+    set -- npx playwright test -c "${cfg#"$ws"/}" --output /tmp/pw-out --reporter=list,json --forbid-only \
       --timeout "$((LANE_TEST_TIMEOUT * 1000))" --global-timeout "$((LANE_CAP * 1000))" "$@"
     ;;
   run)
@@ -161,6 +164,12 @@ done
 wait "$pid"
 status=$?
 wait "$tailer" 2>/dev/null
+# The skip guard (#1588): a green specs run that skipped something other than
+# the E2E_VIDEO recordings ran less than the suite, so it is a failure. Only a
+# run that passed is checked; a red one is already red.
+if [ "$mode" = specs ] && [ "$status" = 0 ]; then
+  python3 "$w/scripts/bdtools/e2e/ui_skips.py" /tmp/pw-report.json || exit 1
+fi
 # 126 and 127 from the command are a defect in the tree (a renamed script, a
 # missing tool), not docker failing to start the container, which owns them
 # on the outside.

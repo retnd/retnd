@@ -2133,6 +2133,9 @@ var routes = map[string]entry{
 			if a.Query.Get("deprecated") == "true" {
 				c = c.bare("deprecated")
 			}
+			if a.Query.Get("from_local") == "true" {
+				c = c.bare("from-local")
+			}
 			return c.flagIfSet("to", a.Query.Get("destination")).bare("dry-run")
 		},
 		examples: []Action{
@@ -2152,6 +2155,9 @@ var routes = map[string]entry{
 				flagIfSet("key", req.KeyID)
 			if req.Deprecated {
 				c = c.bare("deprecated")
+			}
+			if req.FromLocal {
+				c = c.bare("from-local")
 			}
 			return c.flag("to", req.DestinationMedium)
 		},

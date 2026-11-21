@@ -105,8 +105,8 @@ CONTROLS = [
     Control(
         "NF.8 the engine reads the whole plaintext object before encrypting it",
         ("NF.8",),
-        [("core/internal/placement/retroencrypt.go", "\t\"errors\"\n\t\"fmt\"\n\t\"io\"\n\t\"time\"",
-          "\t\"bytes\"\n\t\"errors\"\n\t\"fmt\"\n\t\"io\"\n\t\"time\""),
+        [("core/internal/placement/retroencrypt.go", "\t\"errors\"\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n\t\"time\"",
+          "\t\"bytes\"\n\t\"errors\"\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n\t\"time\""),
          ("core/internal/placement/retroencrypt.go",
           "\tif err := e.sourceCanBeStaged(ctx, medium, src); err != nil {\n\t\treturn nil, err\n\t}\n\treturn e.Store.OpenObject(ctx, medium, src.Location)\n}",
           "\tif err := e.sourceCanBeStaged(ctx, medium, src); err != nil {\n\t\treturn nil, err\n\t}\n"

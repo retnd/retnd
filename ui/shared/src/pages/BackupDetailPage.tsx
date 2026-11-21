@@ -198,6 +198,10 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   const stuck = isRetryable(a);
   const goneFromHost = stuck && sourceNow.data?.check === "absent";
   const ownCopyKept = goneFromHost && !!sourceNow.data?.ownCopy;
+  // Issue #1611: the same copy with the source still there. Retry compares it
+  // with the source; a copy that does not match is refused by name and the
+  // engine's sentence (shown below the buttons) says how to get past it.
+  const ownCopyPresent = stuck && sourceNow.data?.check === "present" && !!sourceNow.data?.ownCopy;
   const sourceGone = goneFromHost && !ownCopyKept;
 
   const retryIngestion = () => {
@@ -327,7 +331,9 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
                 ? "This backup failed an attempt and its source file is gone from the host, so a retry has nothing left to fetch. Retiring it keeps the record and stops counting it as a failure."
                 : ownCopyKept
                   ? "This backup failed an attempt and its source file is gone from the host, but its own copy is already at its final name. Retry keeps that copy if it still matches the checksum recorded when it was verified. If it does not, Retire… closes the books on it and leaves the file where it is."
-                  : "This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own and the Quarantine page will not list it. Re-attempting it is the way back."}
+                  : ownCopyPresent
+                    ? "This backup failed an attempt and its own copy is already at its final name, with the source still on the host. Retry compares that copy with the source and keeps it if they match. If they do not, retry says so and names the way out; the copy is never overwritten."
+                    : "This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own and the Quarantine page will not list it. Re-attempting it is the way back."}
             </p>
             <span style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
               <InfoTooltip id="backups.detail.retry">

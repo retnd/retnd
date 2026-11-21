@@ -48,7 +48,16 @@ func TestRetryOnlyKeepsAnOwnCopyWhenTheSourceIsConfirmedGone_1594(t *testing.T) 
 			before := fileHash1594(t, fx.final)
 
 			err := fx.svc.RetryFailedIngestion(context.Background(), fx.artifact, "issue #1594")
-			if r, ok := AsRetryRefusal(err); ok {
+			if r, ok := AsRetryRefusal(err); ok && tc.name == "source still there with other bytes" {
+				// Issue #1611: a copy that does not match a present source is refused by name, not retried into the collision guard.
+				if r.Code != RefusalRetryOwnCopyMismatch {
+					t.Fatalf("retry refused with %s, want %s", r.Code, RefusalRetryOwnCopyMismatch)
+				}
+				if after := fileHash1594(t, fx.final); after != before {
+					t.Errorf("the copy at %s changed during the refused retry", fx.final)
+				}
+				return
+			} else if ok {
 				t.Fatalf("retry refused with %s; with the source not confirmed gone it takes the ordinary retry: %v", r.Code, err)
 			}
 			if err != nil {

@@ -439,6 +439,14 @@ else
   mounts+=(-v "${vol_prefix}-xdg:/ci/.cache/retnd-tests-gate")
 fi
 
+# Which machine the run started on (#1588). Inside the container `uname -s` is
+# always Linux, and the gate keeps heavy steps (the Chromium lane) off the
+# maintainer's Mac, so a by-hand local run here says what this machine is.
+# A remote run is on the daemon's machine, never this one: Linux.
+if [ -n "$target" ]; then gate_host_os=Linux; else gate_host_os="$(uname -s)"; fi
+[ "${#xdg_env[@]}" -gt 0 ] || xdg_env=(env)
+xdg_env+=("RETND_GATE_HOST_OS=$gate_host_os")
+
 # The host's own uid, not root, plus the socket's group (set once the image
 # exists, below).
 #

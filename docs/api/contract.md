@@ -801,6 +801,11 @@ shape when the copy doesn't verify: there is nothing to fetch and nothing it may
 rather than sending the row round a retry that can only fail. An agent may not send
 `accept_unverified_copy` either.
 
+`RETRY_OWN_COPY_MISMATCH` (409, issue #1611) joins it on the same route for the other half of that shape:
+the own copy at its final name, the source still there, and the copy not matching it. Retry refuses and
+writes nothing, because the ordinary retry it used to fall through to can only meet the collision guard
+on the copy again. The message names the way out (move the file aside, it is kept, then retry).
+
 `ListArtifactsResponse` gained `next_cursor`, required and nullable, and `GET /backups` gained `state`,
 `limit` and `before` (`GET /quarantine` gained `setId`, `limit` and `before`). Without `limit` the answer
 and its order are what they were, and `next_cursor` is null. I made it always present because the MCP
@@ -826,7 +831,7 @@ changes shape, and every new field on a request is optional.
 | `listEncryptionCopies` | `GET /encryption/copies?artifact=` |
 | `startDecryptVerify` | `POST /encryption/verify` (answers `ScrubStarted`; cancel is the existing `POST /assurance/operations/{op}/cancel`) |
 | `planEncryptExisting`, `startEncryptExisting` | `GET`, `POST /encryption/encrypt-existing` (the dry run answers `EncryptExistingPlan`; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
-| `planReencrypt`, `startReencrypt` | `GET`, `POST /encryption/reencrypt?suite=&key=&deprecated=&destination=` (exactly one selector; the dry run answers `ReencryptPlan` grouped by suite and key; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
+| `planReencrypt`, `startReencrypt` | `GET`, `POST /encryption/reencrypt?suite=&key=&deprecated=&destination=&from_local=` (exactly one selector; `from_local` writes artifacts that still have a local copy from that copy; the dry run answers `ReencryptPlan` grouped by suite and key, with each candidate's `path` and the bytes per medium; the run answers `ScrubStarted` and is stopped by the same assurance cancel) |
 
 Five error codes arrive with them: `ENCRYPTION_KEY_NOT_FOUND`,
 `ENCRYPTION_KEY_IN_USE` (the message names the copies), `ENCRYPTION_KEY_STATE`,

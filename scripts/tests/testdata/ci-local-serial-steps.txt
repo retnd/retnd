@@ -36,6 +36,7 @@
 ==> core/ cmd/gotestwatch -race, reading its own INCOMPLETE (#533)
 ==> core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)
 ==> the shipped Promtail and Alloy pipelines label exactly job, instance, level and schema (#903)
+==> the shipped alerting rules pass promtool and its unit tests (#1595)
 ==> apps/common go build, vet, test -race (Docker-backed: the local-auth recovery test starts a container)
 ==> apps/common golangci-lint
 ==> docs site rendered contrast: every visible text node, both themes (#1054)

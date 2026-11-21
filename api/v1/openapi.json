@@ -219,6 +219,7 @@
           "RETIRE_SUCCESSOR_INVALID",
           "AGENT_RETIRE_ACK_REFUSED",
           "RETRY_OWN_COPY_UNVERIFIED",
+          "RETRY_OWN_COPY_MISMATCH",
           "EDIT_HOLD_GONE"
         ],
         "x-code-origins": {
@@ -365,6 +366,7 @@
           "RETIRE_SUCCESSOR_INVALID": "wire",
           "AGENT_RETIRE_ACK_REFUSED": "wire",
           "RETRY_OWN_COPY_UNVERIFIED": "wire",
+          "RETRY_OWN_COPY_MISMATCH": "wire",
           "EDIT_HOLD_GONE": "wire"
         },
         "x-error-classes": {
@@ -458,6 +460,7 @@
             "RETIRE_NO_SUCCESSOR",
             "RETIRE_SUCCESSOR_INVALID",
             "RETRY_OWN_COPY_UNVERIFIED",
+            "RETRY_OWN_COPY_MISMATCH",
             "EDIT_HOLD_GONE"
           ],
           "not-found": [
@@ -9849,7 +9852,7 @@
       },
       "StartReencryptRequest": {
         "type": "object",
-        "description": "POST /encryption/reencrypt. Rewrite encrypted retained copies under the active suite and key, each onto destination_medium. Name exactly one selector: suite_id (every copy under that suite), key_id (every copy under that key) or deprecated (every copy under a deprecated or retired suite). Nothing runs unless this request is made: a key rotation or a suite deprecation never rewrites a copy, and each source copy is retired only after its replacement has been decrypt-verified against the recorded plaintext digest. The plaintext is never written to local disk.",
+        "description": "POST /encryption/reencrypt. Rewrite encrypted retained copies under the active suite and key, each onto destination_medium. Name exactly one selector: suite_id (every copy under that suite), key_id (every copy under that key) or deprecated (every copy under a deprecated or retired suite). Nothing runs unless this request is made: a key rotation or a suite deprecation never rewrites a copy, and each source copy is retired only after its replacement has been decrypt-verified against the recorded plaintext digest. The plaintext is never written to local disk. from_local (optional, off unless asked for): an artifact that still has an ACTIVE local copy is refused by default, because the engine will not choose which of its two copies is disposable. With from_local the new copy is encrypted straight from that local copy (nothing is read from the old remote copy, so there is no egress for it and the old key is not needed), decrypt-verified, and only then is the copy under the old key retired. The local copy is read, never changed, and no plaintext is written anywhere else.",
         "additionalProperties": false,
         "properties": {
           "suite_id": {
@@ -9866,6 +9869,10 @@
           },
           "destination_medium": {
             "type": "string"
+          },
+          "from_local": {
+            "type": "boolean",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -9874,7 +9881,7 @@
       },
       "ReencryptCandidate": {
         "type": "object",
-        "description": "One encrypted copy and what a run would do with it. destination_medium is the medium a run would write the new copy to (the one asked for, or, when none was, the first other configured medium); verdict is would_reencrypt or refused; refusal is the stable reason code of a refusal (already_current, source_key_unavailable, same_medium, no_destination, not_required, key_unavailable, destination_unverifiable, no_room, source_unreadable or not_eligible) and reason is the sentence the run would refuse with.",
+        "description": "One encrypted copy and what a run would do with it. destination_medium is the medium a run would write the new copy to (the one asked for, or, when none was, the first other configured medium); verdict is would_reencrypt or refused; refusal is the stable reason code of a refusal (already_current, source_key_unavailable, same_medium, no_destination, not_required, key_unavailable, destination_unverifiable, no_room, source_unreadable, local_copy_gone or not_eligible) and reason is the sentence the run would refuse with. path is how a run would write the new copy: move (read the old remote copy through its own key) or upload_from_local (read the artifact's ACTIVE local copy, only when from_local was asked for).",
         "additionalProperties": false,
         "properties": {
           "artifact_id": {
@@ -9886,6 +9893,9 @@
           "destination_medium": {
             "type": "string",
             "x-go-omitempty": true
+          },
+          "path": {
+            "type": "string"
           },
           "verdict": {
             "type": "string"
@@ -9902,6 +9912,7 @@
         "required": [
           "artifact_id",
           "source_medium",
+          "path",
           "verdict"
         ]
       },
@@ -9931,7 +9942,7 @@
       },
       "ReencryptPlan": {
         "type": "object",
-        "description": "GET /encryption/reencrypt. The dry run: every encrypted copy the selector matches, grouped by suite and then by key, whether a run would rewrite it under the active suite and key, and why not when it would not. It changes and reads nothing.",
+        "description": "GET /encryption/reencrypt. The dry run: every encrypted copy the selector matches, grouped by suite and then by key, whether a run would rewrite it under the active suite and key, and why not when it would not. It changes and reads nothing. media is the bytes a run would read and write per medium (candidates that would be refused add nothing), and sizes_unknown counts the would-be candidates with no recorded size, which are not in those totals.",
         "additionalProperties": false,
         "properties": {
           "groups": {
@@ -9947,12 +9958,24 @@
           "refused": {
             "type": "integer",
             "format": "int64"
+          },
+          "media": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReencryptMedium"
+            }
+          },
+          "sizes_unknown": {
+            "type": "integer",
+            "format": "int64"
           }
         },
         "required": [
           "groups",
           "would_reencrypt",
-          "refused"
+          "refused",
+          "media",
+          "sizes_unknown"
         ]
       },
       "AgentToken": {
@@ -11010,6 +11033,29 @@
         "required": [
           "token",
           "scrape_token"
+        ]
+      },
+      "ReencryptMedium": {
+        "type": "object",
+        "description": "The bytes a dry run expects to move through one medium. medium is a configured medium id, or local for the local copy an upload_from_local candidate is read from (a read of local disk, not egress). bytes_read is what is read from it, bytes_written what is written to it. For a destination both are an upper bound: payload, one 16 byte tag per 64 KiB chunk, the nonce and a 4 KiB header allowance, with the verification read-back counted in bytes_read. A resumed run reads the destination once more.",
+        "additionalProperties": false,
+        "properties": {
+          "medium": {
+            "type": "string"
+          },
+          "bytes_read": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bytes_written": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "medium",
+          "bytes_read",
+          "bytes_written"
         ]
       }
     },
@@ -16584,7 +16630,7 @@
             ]
           },
           "409": {
-            "description": "Refused: ARTIFACT_NOT_FAILED, RETRY_OWN_COPY_UNVERIFIED. The first: the backup is not stuck: it is either making progress, already finished, or quarantined and waiting for a judgement, which is a different action. The second (issue #1594): the backup's own copy sits at its final name, its source is confirmed gone, and the copy does not match the checksum recorded when it was verified (and no validator passes on it), so there is nothing to fetch it from and nothing a retry may keep. The message is the engine's sentence and names the way out: a validator that passes on the copy, or retiring it with accept_unverified_copy. A copy that does verify is kept instead, and the answer is 204.",
+            "description": "Refused: ARTIFACT_NOT_FAILED, RETRY_OWN_COPY_UNVERIFIED, RETRY_OWN_COPY_MISMATCH. The first: the backup is not stuck: it is either making progress, already finished, or quarantined and waiting for a judgement, which is a different action. The second (issue #1594): the backup's own copy sits at its final name, its source is confirmed gone, and the copy does not match the checksum recorded when it was verified (and no validator passes on it), so there is nothing to fetch it from and nothing a retry may keep. The message is the engine's sentence and names the way out: a validator that passes on the copy, or retiring it with accept_unverified_copy. A copy that does verify is kept instead, and the answer is 204. The third (issue #1611): the backup's own copy sits at its final name, its source is still on the host, and the copy does not match the source object, so a retry would only meet the collision guard on the copy again. Nothing is written; the message is the engine's sentence and says to move that file aside (it is kept) and retry, which fetches a fresh copy.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16594,7 +16640,8 @@
             },
             "x-error-codes": [
               "ARTIFACT_NOT_FAILED",
-              "RETRY_OWN_COPY_UNVERIFIED"
+              "RETRY_OWN_COPY_UNVERIFIED",
+              "RETRY_OWN_COPY_MISMATCH"
             ]
           },
           "500": {
@@ -26621,6 +26668,15 @@
               "type": "string"
             },
             "description": "The configured storage medium the new copies would go to. Left out, each copy is shown with the first other configured medium."
+          },
+          {
+            "name": "from_local",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Plan the artifacts that still have an ACTIVE local copy as upload_from_local: the new copy is encrypted from that local copy instead of being read from the old remote one."
           }
         ],
         "responses": {
