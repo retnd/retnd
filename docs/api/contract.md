@@ -801,6 +801,11 @@ shape when the copy doesn't verify: there is nothing to fetch and nothing it may
 rather than sending the row round a retry that can only fail. An agent may not send
 `accept_unverified_copy` either.
 
+`RETRY_OWN_COPY_MISMATCH` (409, issue #1611) joins it on the same route for the other half of that shape:
+the own copy at its final name, the source still there, and the copy not matching it. Retry refuses and
+writes nothing, because the ordinary retry it used to fall through to can only meet the collision guard
+on the copy again. The message names the way out (move the file aside, it is kept, then retry).
+
 `ListArtifactsResponse` gained `next_cursor`, required and nullable, and `GET /backups` gained `state`,
 `limit` and `before` (`GET /quarantine` gained `setId`, `limit` and `before`). Without `limit` the answer
 and its order are what they were, and `next_cursor` is null. I made it always present because the MCP
