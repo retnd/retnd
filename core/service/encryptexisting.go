@@ -86,6 +86,7 @@ func encryptExistingRefusal(err error) (code string, ok bool) {
 		{placement.ErrEncryptExistingDestinationClass, "destination_unverifiable"},
 		{placement.ErrEncryptExistingNoRoom, "no_room"},
 		{placement.ErrEncryptExistingSourceUnreadable, "source_unreadable"},
+		{placement.ErrReencryptLocalCopyGone, "local_copy_gone"},
 		{placement.ErrNotEligible, "not_eligible"},
 	} {
 		if errors.Is(err, r.err) {

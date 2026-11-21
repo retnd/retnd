@@ -389,7 +389,8 @@ func (s *Service) evaluate(ctx context.Context, rec state.Record, src config.Sou
 func (s *Service) ownCopyRefusal(ctx context.Context, rec state.Record, bs config.BackupSet, check SourceCheck, req RetireRequest) (*RetireRefusal, error) {
 	if check.Result != state.SourceAbsent {
 		return &RetireRefusal{Code: RefusalOwnCopy, Sentence: "This backup's own copy is already at its final name. " +
-			"Retry it instead: retry checks that copy against the source and keeps it."}, nil
+			"Retry it instead: retry checks that copy against the source and keeps it if they match. If they do not match, retry " +
+			"refuses, says so and names the way out; the copy is never overwritten."}, nil
 	}
 	if !req.AcceptUnverifiedCopy {
 		return &RetireRefusal{Code: RefusalOwnCopy, OverridableWith: AckAcceptUnverifiedCopy, Sentence: "This backup's source is gone " +

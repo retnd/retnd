@@ -666,7 +666,7 @@ export const FIELD_HELP = {
     what: "How many seconds one health report is reused before the journal is read again.",
     example: "30",
     effect:
-      "Scrapes inside those 30 seconds all get the report built at the first of them, so ten scrapers cost one journal read. A shorter value shows a fresher view and costs more reads; the smallest the engine accepts is 1 second, and it refuses anything lower and writes nothing."
+      "Scrapes inside those 30 seconds all get the report built at the first of them, so ten scrapers cost one journal read. A shorter value shows a fresher view and costs more reads; the engine accepts 1 second to 2 minutes, and it refuses anything outside that and writes nothing (the bundled report-age alert assumes at most 2 minutes)."
   },
   // Issue #1604 (EPIC O, #901's inputs). Read out of the PATCH and its
   // validation (core/service/observability.go, core/internal/config's

@@ -1297,6 +1297,9 @@ func (c *Client) PlanReencrypt(ctx context.Context, req apicontract.StartReencry
 	if req.DestinationMedium != "" {
 		q.Set("destination", req.DestinationMedium)
 	}
+	if req.FromLocal {
+		q.Set("from_local", "true")
+	}
 	var out apicontract.ReencryptPlan
 	err := c.callQuery(ctx, "planReencrypt", nil, q, nil, &out)
 	return out, err

@@ -682,18 +682,22 @@ func TestIssue662_MismatchedFinalNameContentIsNotReinstated(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	// Issue #1611: the ordinary retry this used to fall through to sent the row
+	// round the pipeline into the collision guard again, forever, so a copy
+	// that does not match the remote is refused by name instead and the row
+	// stays FAILED.
 	err := fx.svc.RetryFailedIngestion(ctx, fx.artifact, "issue #662: mismatched content probe")
-	if err != nil {
-		t.Fatalf("RetryFailedIngestion: %v (a mismatch must fall through to the ordinary retry, which succeeds)", err)
+	if r, ok := AsRetryRefusal(err); !ok || r.Code != RefusalRetryOwnCopyMismatch {
+		t.Fatalf("RetryFailedIngestion = %v, want a %s refusal", err, RefusalRetryOwnCopyMismatch)
 	}
 
 	got := stateOf662(t, fx.journal, fx.artifact)
-	if got != string(lifecycle.Discovered) {
+	if got != string(lifecycle.Failed) {
 		t.Fatalf(
 			"#662 review finding B: state = %s after a retry over a final name whose content does NOT match the "+
-				"remote object. Want DISCOVERED (the ordinary retry, falling through because the comparison "+
-				"failed) -- %s means the artifact was reinstated in place on a file that is not its remote copy.",
-			got, got)
+				"remote object. Want FAILED, untouched (#1611); anything durable means the artifact was reinstated "+
+				"in place on a file that is not its remote copy.",
+			got)
 	}
 
 	after := mustRecord662(t, fx)

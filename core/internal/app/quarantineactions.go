@@ -74,6 +74,12 @@ var ErrNotFailed = errors.New("app: artifact is not failed")
 // fetch and nothing it may keep. It is a wire code.
 const RefusalRetryOwnCopyUnverified = "RETRY_OWN_COPY_UNVERIFIED"
 
+// RefusalRetryOwnCopyMismatch is RetryFailedIngestion's refusal for issue
+// #1611's shape: the row's own copy sits at its final name, the source is
+// still there, and the copy does not match the remote object. It is a wire
+// code.
+const RefusalRetryOwnCopyMismatch = "RETRY_OWN_COPY_MISMATCH"
+
 // RetryRefusal is a named reason a retry was not made. Code is the wire code;
 // Sentence is what an operator reads and names the way out.
 type RetryRefusal struct {
@@ -550,6 +556,37 @@ func (s *Service) keepOwnCopyOnLocalEvidence(ctx context.Context, rec state.Reco
 	return nil
 }
 
+// ownCopyMismatchRefusal is retry's answer to issue #1611: the row's own copy
+// sits at its final name, the source is still there and answered, and the two
+// do not match. Falling through to an ordinary retry is the loop: the next
+// cycle meets the collision guard on the copy and the row is FAILED again.
+// So nothing is written and the sentence says what was found and the way out.
+//
+// What was found is only what this manager measured on its own disk: whether
+// the copy still matches the checksum recorded when it was verified. The remote
+// object's checksum and path are source-chosen, so the sentence does not quote
+// them. The way out is the operator's hand, not this manager's: the file is
+// the only copy of what the source held when it was backed up, so nothing here
+// deletes or renames it. Once it has been moved aside, the collision is gone
+// and a retry is an ordinary one. Outside the set's directory, because that
+// is the one place nothing could mistake it for the set's own file (the
+// catalog rebuild scans the directory for sidecar manifests and the staging
+// sweep removes files with its own temp prefix; neither touches another name,
+// but neither is a promise worth leaning on).
+func ownCopyMismatchRefusal(rec state.Record, final, localHash string) *RetryRefusal {
+	found := "still matches the checksum recorded when it was verified, so the object on the source has changed since"
+	switch {
+	case rec.LocalHash == "":
+		found = "has no checksum recorded to compare it with"
+	case !strings.EqualFold(localHash, rec.LocalHash):
+		found = "does not match the checksum recorded when it was verified, so it may be damaged"
+	}
+	return &RetryRefusal{Code: RefusalRetryOwnCopyMismatch, Sentence: "This backup's own copy at " + final + " " + found +
+		", and it does not match the object on the source, so a retry can neither keep it nor fetch a fresh copy past it. " +
+		"Move that file aside, to a directory outside this backup set's local directory, then retry: the next attempt fetches a new copy from the source. " +
+		"Nothing here deletes the moved file, and retention and the capacity guard do not track it, so it stays yours to keep or remove."}
+}
+
 // completeIngestionInPlace finishes an ingestion whose only remaining
 // obstacle is the artifact's own durable local copy, and reports whether it
 // resolved the artifact.
@@ -630,7 +667,7 @@ func (s *Service) completeIngestionInPlace(
 		s.logger().Error(ctx, "retry-failed", fmt.Errorf(
 			"%s hashes to %s and the remote object %s hashes to %s, so the file at the final name is not this artifact's remote copy",
 			final, localHash, rec.RemotePath, remoteHash))
-		return "", nil
+		return "", ownCopyMismatchRefusal(rec, final, localHash)
 	}
 
 	// The comparison FR-13 would have made has been made, and it passed.

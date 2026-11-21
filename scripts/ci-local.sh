@@ -789,6 +789,15 @@ bash scripts/tests/every-guard-is-a-gate-step.test.sh
 gate_step "the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)"
 bash scripts/tests/selftest-lanes.test.sh
 
+# The agents and encryption self-tests' controls used to hard-code paths on
+# the maintainer's Mac and a hand-built capture image, so the gate left about
+# twenty of them out wholesale (#1543). This lists every control that would
+# not run on a Linux gate host and refuses any without an allowed reason (only
+# the retnd-tests checkout, #1548). Static, a second or two: it imports the two
+# self-tests and reads their lanes.txt.
+gate_step "every agents and encryption self-test control runs on a Linux gate host, in the Chromium lane or where the driver runs, or skips for an allowed reason (#1543)"
+bash scripts/tests/selftest-linux-skips.test.sh
+
 # EPIC U's closing check (#1353), the same shape for the MCP server: the
 # canonical deployment is an empty diff against 9cd53e1f (an agent is a client of
 # /api/v1 and the engine runs exactly as before), the epic adds exactly one
@@ -939,6 +948,12 @@ if [ "$FAST" != "1" ]; then
   # without one.
   gate_docker_step "the shipped Promtail and Alloy pipelines label exactly job, instance, level and schema (#903)"
   bash scripts/observability/log-pipeline.sh
+
+  # The bundle's alerting rules, evaluated rather than read (#1595): promtool in the
+  # pinned Prometheus image checks the rules file and runs the unit tests beside it
+  # (a token rotation stays quiet, a probe still fires, the report-age alert holds).
+  gate_docker_step "the shipped alerting rules pass promtool and its unit tests (#1595)"
+  bash scripts/observability/rule-tests.sh
 fi
 }
 
@@ -1146,7 +1161,12 @@ gate_pw_locked() {
 gate_ui_browser() { # <what it runs, for the ledger> <command...>
   ui_what="$1"
   shift
-  if [ "$(uname -s)" = "Darwin" ]; then
+  # scripts/ci-docker.sh says which OS the run started on (#1588): inside its
+  # container uname is always Linux, so a by-hand run on a Mac would pass for
+  # a Linux box. A gate run directly has no such variable and asks uname.
+  # Either one saying Darwin makes it a Mac: a stale RETND_GATE_HOST_OS=Linux
+  # exported in a Mac shell must not hide a native Mac run.
+  if [ "$(uname -s)" = "Darwin" ] || [ "${RETND_GATE_HOST_OS:-}" = "Darwin" ]; then
     if [ "${RETND_UI_BROWSER_ALLOW_LOCAL:-0}" != "1" ]; then
       gate_note_skip "$ui_what (#1532, #1537): not run on this Mac, where heavy steps do not run. Run the shard on MARS: bash scripts/release/run-gate-shard.sh ui-browser --host mars (RETND_UI_BROWSER_ALLOW_LOCAL=1 runs it here, through the Playwright lock)"
       return 0
@@ -1706,8 +1726,10 @@ if [ "$FAST" != "1" ]; then
   # pinned in scripts/bdtools/<x>/lanes.txt, and the self-test probes this host
   # for each lane: a control whose lane is missing is not run, and lands in this
   # gate's skip ledger through RETND_SELFTEST_SKIP_LEDGER, so the shard ends
-  # INCOMPLETE naming it instead of ok (#1543 runs them in the
-  # Chromium lane of the ui-browser shard).
+  # INCOMPLETE naming it instead of ok. The browser specs, the browser contrast
+  # check and the capture rig go through the Chromium lane (scripts/e2e/ui-browser.sh,
+  # #1537, #1543), which needs only the docker daemon a gate container has; the
+  # three retnd-tests cases have no shard with the checkout yet (#1548).
   #
   # Two copycrypt controls allocate several GiB and are OOM-killed under about
   # 8 GiB, so the shard needs 9 GiB: scripts/release/run-gate-shard.sh asks for

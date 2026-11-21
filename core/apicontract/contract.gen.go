@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f0b548f691bff89aff42595600cb96f9be96b618fe0fccebe28723a2c51c7813"
+const ContractSHA256 = "cad2d7a0be96a31039ce97e38b6defb585b74f554850a6d77a851e9d58e46892"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -190,6 +190,7 @@ const (
 	ErrorCodeRetireSuccessorInvalid                 ErrorCode = "RETIRE_SUCCESSOR_INVALID"
 	ErrorCodeAgentRetireAckRefused                  ErrorCode = "AGENT_RETIRE_ACK_REFUSED"
 	ErrorCodeRetryOwnCopyUnverified                 ErrorCode = "RETRY_OWN_COPY_UNVERIFIED"
+	ErrorCodeRetryOwnCopyMismatch                   ErrorCode = "RETRY_OWN_COPY_MISMATCH"
 	ErrorCodeEditHoldGone                           ErrorCode = "EDIT_HOLD_GONE"
 )
 
@@ -328,6 +329,7 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeRetireSuccessorInvalid,
 	ErrorCodeAgentRetireAckRefused,
 	ErrorCodeRetryOwnCopyUnverified,
+	ErrorCodeRetryOwnCopyMismatch,
 	ErrorCodeEditHoldGone,
 }
 
@@ -490,6 +492,7 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeRetireSuccessorInvalid,
 	ErrorCodeAgentRetireAckRefused,
 	ErrorCodeRetryOwnCopyUnverified,
+	ErrorCodeRetryOwnCopyMismatch,
 	ErrorCodeEditHoldGone,
 }
 
@@ -498,7 +501,7 @@ var ErrorCodes = []ErrorCode{
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid, ErrorCodeAgentTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired, ErrorCodeAgentScopeInsufficient, ErrorCodeAgentRouteDenied, ErrorCodeAgentHttpTransportOff, ErrorCodeAgentRetireAckRefused},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded, ErrorCodeRetireOwnCopyAtFinalName, ErrorCodeRetireSourcePresent, ErrorCodeRetireSourceUnconfirmed, ErrorCodeRetireNoSuccessor, ErrorCodeRetireSuccessorInvalid, ErrorCodeRetryOwnCopyUnverified, ErrorCodeEditHoldGone},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged, ErrorCodeEncryptionKeyInUse, ErrorCodeEncryptionKeyState, ErrorCodeEncryptionKeyUnresolvable, ErrorCodeAgentConfirmationRequired, ErrorCodeAgentConfirmationExpired, ErrorCodeAgentConfirmationDecided, ErrorCodeAgentConfirmationTokenEnded, ErrorCodeRetireOwnCopyAtFinalName, ErrorCodeRetireSourcePresent, ErrorCodeRetireSourceUnconfirmed, ErrorCodeRetireNoSuccessor, ErrorCodeRetireSuccessorInvalid, ErrorCodeRetryOwnCopyUnverified, ErrorCodeRetryOwnCopyMismatch, ErrorCodeEditHoldGone},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeAgentAuditUnavailable, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound, ErrorCodeEncryptionKeyNotFound, ErrorCodeAgentTokenNotFound, ErrorCodeAgentConfirmationNotFound},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy, ErrorCodeAgentConfirmationLimit, ErrorCodeAgentRateLimited},
@@ -1475,7 +1478,7 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
-			409: {ErrorCodeArtifactNotFailed, ErrorCodeRetryOwnCopyUnverified},
+			409: {ErrorCodeArtifactNotFailed, ErrorCodeRetryOwnCopyUnverified, ErrorCodeRetryOwnCopyMismatch},
 			500: {ErrorCodeInternal},
 		},
 	},
@@ -4421,11 +4424,15 @@ type RecoveryTestStarted struct {
 // stable reason code of a refusal (already_current,
 // source_key_unavailable, same_medium, no_destination, not_required,
 // key_unavailable, destination_unverifiable, no_room,
-// source_unreadable or not_eligible) and reason is the sentence the
-// run would refuse with.
+// source_unreadable, local_copy_gone or not_eligible) and reason is
+// the sentence the run would refuse with. path is how a run would
+// write the new copy: move (read the old remote copy through its own
+// key) or upload_from_local (read the artifact's ACTIVE local copy,
+// only when from_local was asked for).
 type ReencryptCandidate struct {
 	ArtifactID        string `json:"artifact_id"`
 	DestinationMedium string `json:"destination_medium,omitempty"`
+	Path              string `json:"path"`
 	Reason            string `json:"reason,omitempty"`
 	Refusal           string `json:"refusal,omitempty"`
 	SourceMedium      string `json:"source_medium"`
@@ -4440,14 +4447,33 @@ type ReencryptGroup struct {
 	SuiteID    string               `json:"suite_id"`
 }
 
+// ReencryptMedium is the bytes a dry run expects to move through one medium. medium is
+// a configured medium id, or local for the local copy an
+// upload_from_local candidate is read from (a read of local disk,
+// not egress). bytes_read is what is read from it, bytes_written
+// what is written to it. For a destination both are an upper bound:
+// payload, one 16 byte tag per 64 KiB chunk, the nonce and a 4 KiB
+// header allowance, with the verification read-back counted in
+// bytes_read. A resumed run reads the destination once more.
+type ReencryptMedium struct {
+	BytesRead    int64  `json:"bytes_read"`
+	BytesWritten int64  `json:"bytes_written"`
+	Medium       string `json:"medium"`
+}
+
 // ReencryptPlan is GET /encryption/reencrypt. The dry run: every encrypted copy the
 // selector matches, grouped by suite and then by key, whether a run
 // would rewrite it under the active suite and key, and why not when
-// it would not. It changes and reads nothing.
+// it would not. It changes and reads nothing. media is the bytes a
+// run would read and write per medium (candidates that would be
+// refused add nothing), and sizes_unknown counts the would-be
+// candidates with no recorded size, which are not in those totals.
 type ReencryptPlan struct {
-	Groups         []ReencryptGroup `json:"groups"`
-	Refused        int64            `json:"refused"`
-	WouldReencrypt int64            `json:"would_reencrypt"`
+	Groups         []ReencryptGroup  `json:"groups"`
+	Media          []ReencryptMedium `json:"media"`
+	Refused        int64             `json:"refused"`
+	SizesUnknown   int64             `json:"sizes_unknown"`
+	WouldReencrypt int64             `json:"would_reencrypt"`
 }
 
 // RepositoryHealth is one repository domain's own health, which is a different question
@@ -5238,10 +5264,19 @@ type StartRecoveryTestRequest struct {
 // is made: a key rotation or a suite deprecation never rewrites a
 // copy, and each source copy is retired only after its replacement
 // has been decrypt-verified against the recorded plaintext digest.
-// The plaintext is never written to local disk.
+// The plaintext is never written to local disk. from_local
+// (optional, off unless asked for): an artifact that still has an
+// ACTIVE local copy is refused by default, because the engine will
+// not choose which of its two copies is disposable. With from_local
+// the new copy is encrypted straight from that local copy (nothing
+// is read from the old remote copy, so there is no egress for it and
+// the old key is not needed), decrypt-verified, and only then is the
+// copy under the old key retired. The local copy is read, never
+// changed, and no plaintext is written anywhere else.
 type StartReencryptRequest struct {
 	Deprecated        bool   `json:"deprecated,omitempty"`
 	DestinationMedium string `json:"destination_medium"`
+	FromLocal         bool   `json:"from_local,omitempty"`
 	KeyID             string `json:"key_id,omitempty"`
 	SuiteID           string `json:"suite_id,omitempty"`
 }
@@ -6147,6 +6182,7 @@ var SchemaTypes = map[string]any{
 	"RecoveryTestStarted":                RecoveryTestStarted{},
 	"ReencryptCandidate":                 ReencryptCandidate{},
 	"ReencryptGroup":                     ReencryptGroup{},
+	"ReencryptMedium":                    ReencryptMedium{},
 	"ReencryptPlan":                      ReencryptPlan{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},

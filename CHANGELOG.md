@@ -18,6 +18,38 @@ Worth reading before you upgrade:
 
 ### Added
 
+- **`retnd encryption reencrypt --from-local`** (#1545). An artifact that still has a local copy
+  was refused by `reencrypt` (two ACTIVE copies, and the engine won't choose which one goes), so
+  after a key compromise its copy under the old key sat there until the local copy expired. With
+  `--from-local` the new copy is encrypted straight from the local copy under the active key,
+  decrypt-verified, and only then is the copy under the old key retired. Nothing is read from the
+  old remote copy, so there's no egress for it and the old key doesn't have to resolve, and the
+  local copy is read and never changed. It's off unless you ask, adds no route (it's `from_local`
+  on the two existing ones, which an agent still can't call), and needs no migration. `--dry-run`
+  now says per copy whether it's a `move` or an `upload_from_local` and prints the bytes each
+  medium would read and write. If a run is killed before it uploads and the local copy expires
+  before the re-run, the re-run with `--from-local` abandons that move by name
+  (`local_copy_gone`, also when the local file is missing or changed) rather than reading the old copy at a cost the dry run didn't show. See [`docs/encrypted-copies.md`](docs/encrypted-copies.md#an-artifact-that-still-has-a-local-copy---from-local).
+
+- **The engine keeps the journal as it was before a migration, once the migration has
+  succeeded** (#1584). Until now the copy it takes before migrating lived in memory and was
+  only used to undo a migration that failed, so someone who upgraded with `docker compose pull`
+  (no installer, so no archive) had nothing to go back to. Now a start that applies a migration
+  to an existing journal writes it to `pre-migration-<UTC time>-schema<N>/` beside `state.db`
+  (directory `0700`, files `0600`, a `MANIFEST` saying what it is), after the commit, from the
+  bytes it already held. It never reads it back. It's a courtesy: with no room (twice the journal's
+  size, at least 1 MiB extra) or a failed write it logs a warning and the migration goes ahead. It keeps the five
+  newest and removes the oldest past that, logging each path, and it never removes the newest,
+  a directory without a `MANIFEST`, or a copy of a schema newer than the running build.
+  [Rolling back a release that carried a migration](docs/install.md#when-nobody-took-an-archive-the-engines-own-copy)
+  says how to go back from it.
+- **The refusal for a schema version this build doesn't carry now says when it was applied**
+  (#1583). The engine reads `applied_at` from the `schema_migrations` row and prints it in UTC
+  (`version 23 (applied 2026-11-21T04:10:00Z) is recorded in the database but not compiled into
+  this binary`), so you can match it to the archive you took before upgrading. A row with no
+  time says so, and with several unknown versions it names the lowest. The sentinel's own text is
+  unchanged. 0.8.0 can't print it, so this helps the next release that carries a migration, not
+  the 0.8.1 door.
 - **An authenticated Prometheus scrape endpoint** (#899, EPIC O). The engine now serves the 46
   metric families it already rendered, plus a new `retnd_scrape_rejected_total{reason}`, on
   `GET /metrics`. It is off until you turn it on (`retnd settings observability patch
@@ -78,6 +110,14 @@ Worth reading before you upgrade:
 
 ### Fixed
 
+- **Example observability bundle polish** (#1595). `RetndScrapeRefused` no longer fires for 15
+  minutes after every scrape-token rotation (Prometheus's own refused scrapes were counted); it
+  now only fires while Prometheus's own scrape is healthy. `observability.metrics.min_rebuild_interval`
+  has a ceiling of 2m, which the report-age alert and panel rely on, and a longer value is refused
+  at load naming the key. The bundle's secret scan now also catches credentials under JSON-quoted
+  keys, Grafana's password in JSON, an inline `Authorization: Bearer` literal and a literal `rsc_`
+  token under any key. The alerting rules now have promtool unit tests.
+
 - **A heartbeat that lands after leaving edit mode no longer puts the edit hold back** (#1606).
   Taking and renewing an edit hold were the same call, so a renewal still in flight when you left
   edit mode could land after the release, pause the backup set for another 90 seconds and stop a
@@ -110,6 +150,17 @@ Worth reading before you upgrade:
   at the new path, or point `--config` at it). Both hold something and they're different
   directories: exit 1 naming the conflict. Only the new one, or neither (a fresh install),
   starts as before.
+
+- **A failed backup whose own copy doesn't match a source that is still there no longer loops on
+  retry** (#1611). With the copy at its final name and the source answering, retry compared the two,
+  saw they differed and fell through to an ordinary retry; the next cycle met the collision guard on
+  the copy and the row was FAILED again, with nothing said. Now `retnd retry` and `POST .../retry`
+  refuse it by name, `RETRY_OWN_COPY_MISMATCH` (409), and write nothing. The sentence says whether
+  the copy still matches the checksum recorded when it was verified (so the source changed) or not
+  (so it may be damaged), and the way out: move that file aside, which keeps it, then retry, and the
+  next attempt fetches a fresh copy. Nothing deletes or renames the copy for you, and the Recovery
+  card and the retire refusal say the same. A retry that can't ask the remote for its checksum is
+  unchanged.
 
 - **A failed backup with its own copy at the final name gets out of FAILED once its source is gone**
   (#1594). That shape (#662's) used to be stuck for good: retire refused it with "retry instead", and

@@ -220,7 +220,11 @@ const gifs = {
     path: "/settings",
     async run(page, clip) {
       const audit = card(page).locator('[data-agents-region="audit"]');
+      // #1525: the region starts collapsed, so open it as a person would.
+      const toggle = audit.getByRole("button", { name: /^Audit/ });
+      if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
       await audit.locator('[data-agents-table="audit"]').waitFor();
+      await audit.locator("tbody tr").first().waitFor();
       await top(audit);
       await clip.frame(1.6);
       await audit.getByLabel("Token", { exact: true }).selectOption({ label: "agent:recovery-drill" });

@@ -37,19 +37,30 @@ groups:
           summary: retnd's health report has not been rebuilt for 5 minutes
           description: >-
             The scrape answers but the report behind it is more than 5 minutes
-            old, so the readings below it are stale.
+            old, so the readings below it are stale. The 5 minutes assumes
+            observability.metrics.min_rebuild_interval is at its 2m ceiling or
+            below, which the engine enforces.
 
+      # Prometheus's own refusals count too: after a token rotation it keeps
+      # presenting the old token until the file is updated, and every refused
+      # scrape (up is 0 for it) is counted as unauthenticated, then shows up as
+      # one jump on the first good scrape. So a refusal only counts when
+      # Prometheus's own scrape was healthy for the whole window, which is the
+      # only case where the refused requests cannot have been its own.
       - alert: RetndScrapeRefused
-        expr: increase(retnd_scrape_rejected_total{reason="unauthenticated"}[15m]) > 0
+        expr: >-
+          increase(retnd_scrape_rejected_total{reason="unauthenticated"}[15m]) > 0
+          and on (job, instance) min_over_time(up{job="retnd"}[15m]) == 1
         labels:
           severity: warning
         annotations:
-          summary: Something is presenting a wrong scrape token to retnd
+          summary: Something other than Prometheus is presenting a wrong scrape token to retnd
           description: >-
-            The engine refused {{ $value }} scrapes without a valid token in the last
-            15 minutes. Prometheus's own scrape is fine (this series is read through
-            it), so it is something else: a second scraper still holding a token from
-            before a rotation, or something probing the endpoint.
+            The engine refused {{ $value }} scrapes without a valid token in the last 15
+            minutes, while Prometheus's own scrape kept succeeding, so it is not
+            Prometheus: a second scraper holding a token from before a rotation,
+            or something probing the endpoint. Prometheus's own refusals after a
+            rotation are not counted here, RetndScrapeDown covers those.
 
   - name: retnd-backup-health
     rules:
