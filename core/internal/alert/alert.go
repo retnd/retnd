@@ -568,10 +568,21 @@ type firingCondition struct {
 	// (AdoptState), and a stamp that ran ahead of a send which then failed
 	// had the rebuilt dispatcher wait a whole interval past an alert that
 	// was about to expire (#1567).
+	//
+	// gone is set, under the lock, by the pass that resolves the entry, and
+	// is never cleared: a recurrence is a new entry. A refresh that was
+	// queued past the send cap checks it just before it sends and drops out
+	// (#1607). flight is open while a refresh is on its way to the receiver,
+	// and the resolve waits on it, so the receiver sees the refresh before
+	// the resolve and never the other way round. failures counts refreshes
+	// that failed in a row and sets how long the next retry backs off.
 	alert    Alert
 	sentAt   time.Time
 	inFlight bool
 	retryAt  time.Time
+	gone     bool
+	flight   chan struct{}
+	failures int
 }
 
 const (
@@ -697,7 +708,7 @@ type attempt struct {
 // plan is the whole of Observe's state update and the only part that
 // takes the lock: it records what is now observed, forgets what has
 // resolved, and returns the deliveries to make once the lock is gone.
-func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) (pending []attempt, resolved []Alert) {
+func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) (pending []attempt, resolved []attempt) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -751,8 +762,10 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 		if _, cannotTell := unknown[key]; cannotTell {
 			continue
 		}
-		if entry := d.firing[key]; entry.delivered && d.refreshes() {
-			resolved = append(resolved, entry.alert)
+		entry := d.firing[key]
+		entry.gone = true
+		if entry.delivered && d.refreshes() {
+			resolved = append(resolved, attempt{entry: entry, alert: entry.alert})
 		}
 		delete(d.firing, key)
 	}

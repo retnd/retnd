@@ -117,18 +117,44 @@ func (d *Dispatcher) refreshDue(entry *firingCondition, now time.Time) (attempt,
 // told about, and the refresh is tried again a quarter interval later
 // (retryAt), which is when a loop sleeping on NextRefresh wakes for it.
 func (d *Dispatcher) refreshOne(ctx context.Context, a attempt, now time.Time) {
+	// A refresh can wait for a send slot behind the cap, or for a slow
+	// connect, while a pass resolves its alert. Checked here, under the same
+	// lock the resolving pass takes, it either sees the alert gone and drops
+	// out, or is registered as in flight before the resolve looks, so the
+	// resolve waits for it (#1607).
+	d.mu.Lock()
+	if a.entry.gone {
+		a.entry.inFlight = false
+		d.mu.Unlock()
+		return
+	}
+	flight := make(chan struct{})
+	a.entry.flight = flight
+	d.mu.Unlock()
+
+	began := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 	defer cancel()
 	err := d.refreshing().Refresh(ctx, a.alert, now)
 	d.noteDestination(ctx, err)
+	every := d.refreshing().RefreshInterval()
 	d.mu.Lock()
 	a.entry.inFlight = false
+	a.entry.flight = nil
 	if err == nil {
 		a.entry.sentAt = now
 		a.entry.retryAt = time.Time{}
+		a.entry.failures = 0
 	} else {
-		a.entry.retryAt = now.Add(d.refreshing().RefreshInterval() / 4)
+		// A quarter interval after the failure ended, doubling per failure
+		// in a row up to one interval, so a receiver that keeps timing out
+		// is not hit back to back. Counted from the end of the attempt: a
+		// send that took thirty seconds must not have its retry already due.
+		a.entry.failures++
+		delay := min(every/4<<min(a.entry.failures-1, 8), every)
+		a.entry.retryAt = now.Add(time.Since(began) + delay)
 	}
+	close(flight)
 	d.mu.Unlock()
 	if err != nil {
 		d.logger.Error(ctx, "alert-delivery",
@@ -180,12 +206,25 @@ func (d *Dispatcher) sendEach(n int, send func(i int)) {
 // refreshAndResolve closes every alert a pass found resolved. It is best
 // effort by design: the receiver expires the alert on its own at endsAt,
 // so a lost resolve costs a few minutes, never a false alarm.
-func (d *Dispatcher) refreshAndResolve(ctx context.Context, now time.Time, resolved []Alert) {
+func (d *Dispatcher) refreshAndResolve(ctx context.Context, now time.Time, resolved []attempt) {
 	rs := d.refreshing()
 	if rs == nil {
 		return
 	}
-	for _, a := range resolved {
+	for _, r := range resolved {
+		a := r.alert
+		// A refresh already on its way for this alert finishes first. One
+		// still queued sees the entry gone and never sends.
+		d.mu.Lock()
+		flight := r.entry.flight
+		d.mu.Unlock()
+		if flight != nil {
+			select {
+			case <-flight:
+			case <-ctx.Done():
+				continue
+			}
+		}
 		cctx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 		err := rs.Resolve(cctx, a, now)
 		d.noteDestination(cctx, err)
@@ -242,6 +281,7 @@ func (d *Dispatcher) AdoptState(prev *Dispatcher) {
 		// this dispatcher re-send as soon as that is due, rather than wait on
 		// an attempt that may be failing (#1567).
 		c.inFlight = false
+		c.flight = nil
 		copied[k] = &c
 	}
 	// The destination state travels too, so a reference that stays broken
