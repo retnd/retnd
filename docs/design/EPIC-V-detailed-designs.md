@@ -556,6 +556,8 @@ The hint does not promise the copies can move: a key that is lost cannot open th
 
 #### The dry run states its bill
 
+`media`, `sizes_unknown`, the bound and the CLI lines landed with #1545 (PR #1634), which also adds `path` per candidate and a `local` row for a copy written from the local disk. V1.3 cites `TestTheDryRunStatesBytesPerMediumForBothPaths_1545` and `TestTheDryRunSizeBoundHoldsForEveryRegisteredSuite_1545` and owns only the retire hint, the key-list print, `TestNothingStartsAReencryptionOnItsOwn_1515` and the plant `V the dry run drops the verification read`.
+
 `ReencryptPlan` gains:
 
 ```json
@@ -636,7 +638,7 @@ Controls:
 
 1. Red tests.
 2. The retire hint.
-3. `media` and `sizes_unknown` in the contract, `PlanReencrypt`, the CLI print.
+3. (Landed early with #1545, PR #1634: `media`, `sizes_unknown`, `PlanReencrypt`, the CLI print.)
 4. The CLI key list print.
 5. The source guard. Controls. Matrix V-14, V-16, V-17 flip; V-15 is removed with the metric.
 
