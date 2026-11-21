@@ -2,10 +2,10 @@
 
 **Spec:** `docs/EPIC-V-encryption-residue.md` and `docs/conformance/epic-v-matrix.md` (#1511, draft PR #1519).
 **Tracker:** #1512. **Sub-issues:** V1.1 #1513, V1.2 #1514, V1.3 #1515, V2.1 #1516, V2.2 #1517.
-**Read on:** 2026-11-19, against the spec branch `docs/epic-v-encryption-residue` at `bc5f0ed5` (code as on `origin/main` at the spec's base). Every `path:line` below is from that tree. The code those lines cite is unchanged on `origin/main` at `791ac5e5`.
+**Read on:** 2026-11-19, against the spec branch `docs/epic-v-encryption-residue` at `bc5f0ed5` (code as on `origin/main` at the spec's base). Every `path:line` below is from that tree. Main has moved since: the code those lines cite is unchanged except in `core/internal/placement/retroencrypt.go` and `engine.go`, which #1545 (PR #1634) grew for `--from-local`. The two citations about the medium-to-medium rule and the two-ACTIVE-placements refusal are updated to the new lines; the other `retroencrypt.go` lines cite the same code a few lines to fifty lines further down (`EncryptExisting` is at `:321`, the `WithKey` at the source open at `:531`).
 **Decisions:** D-1 to D-6 below were answered on 2026-11-19, and the spec in #1519 was rewritten to them and to the list of spec changes.
 
-This is one design per sub-issue, written so that whoever picks an issue up can build it without coming back to ask. Before designing anything I put each sub-issue in front of seven experts, each with one lens, and told them to reject first. The verdicts and the dissents that survived are under each section. Where the code showed the spec to be wrong, I say so and say what has to change.
+This is one design per sub-issue, written so that whoever picks an issue up can build it without coming back to ask. Before designing anything I put each sub-issue through seven review lenses, with the rule to reject first. The verdicts and the dissents that survived are under each section. Where the code showed the spec to be wrong, I say so and say what has to change.
 
 ---
 
@@ -44,7 +44,7 @@ All eleven are applied in the spec's 2026-11-19 revision (#1519), together with 
 - **D-1. One config field, `retained_copy_encryption.previous_external_keys`: yes, as designed in V1.2.** Opt-in: only `--keep-previous` writes it, `omitempty` keeps every other file byte for byte, and the way back is deleting the key by hand, which the CHANGELOG says. Compat fixtures `15` and `70`. The per-run fallback below stays written down as the rejected alternative. Keeping the reference in the journal or in a state-directory file was also rejected: a `command` reference is argv the daemon executes, and it belongs in the file an operator reviews.
 - **D-2. Delete `keycustody.Store.RotateExternal`: yes.** It has no caller and encodes the one-active-slot model that is wrong.
 - **D-3. One new event, `key_superseded`: yes.** One constant, one `Logger` method, one feed sentence, a `Result` on success and refusal.
-- **D-4. Re-encrypting artifacts that still have a local plaintext copy: a follow-up issue, #1545, outside V.** The move engine refuses an artifact with two ACTIVE placements (`core/internal/placement/engine.go:513-517`), so recent copies under a compromised key stay under it until their local copy expires. The fix (upload a fresh copy from the local plaintext, no egress) is a new run mode with its own crash cells, and both of V's phases are full. The issue says the upload reads the local plaintext copy the engine already holds and adds no new place plaintext lands.
+- **D-4. Re-encrypting artifacts that still have a local plaintext copy: a follow-up issue, #1545, outside V. It has since landed as `retnd encryption reencrypt --from-local` (PR #1634).** The move engine refuses an artifact with two ACTIVE placements (`core/internal/placement/engine.go:528-531`), so recent copies under a compromised key stay under it until their local copy expires. The fix (upload a fresh copy from the local plaintext, no egress) is a new run mode with its own crash cells, and both of V's phases are full. The issue says the upload reads the local plaintext copy the engine already holds and adds no new place plaintext lands.
 - **D-5. FR-107's shrink: yes.** No health field, no metric. The CLI print, the retire hint and the dry-run bytes stay.
 - **D-6. `not_checked` in the key list's `resolvability`, plus `checked_at`: yes**, so the read surface stops running commands. `checked_at` is a timestamp, and the `reason` for `not_checked` is a fixed sentence, never anything a resolver printed.
 
@@ -52,14 +52,14 @@ All eleven are applied in the spec's 2026-11-19 revision (#1519), together with 
 
 ## How I ran the review
 
-Seven experts, one lens each, told to reject any item whose benefit could not be read off the code:
+Seven lenses, told to reject any item whose benefit could not be read off the code:
 
-1. **The crypto expert:** formats, key lifecycle, what a status means.
-2. **The custody expert:** where key material and secret-adjacent text can travel.
-3. **The data-path expert:** streaming, crash safety and resume at every durable boundary.
-4. **The egress expert:** what a step costs in reads, writes, calls and hours.
-5. **The recovery expert:** disaster recovery as a procedure a stressed person follows.
-6. **The parity expert:** API, CLI and web parity, and security UX.
+1. **The crypto lens:** formats, key lifecycle, what a status means.
+2. **The custody lens:** where key material and secret-adjacent text can travel.
+3. **The data-path lens:** streaming, crash safety and resume at every durable boundary.
+4. **The egress lens:** what a step costs in reads, writes, calls and hours.
+5. **The recovery lens:** disaster recovery as a procedure a stressed person follows.
+6. **The parity lens:** API, CLI and web parity, and security UX.
 7. **The skeptic:** conformance and tests, and whether each thing should exist at all.
 
 Each gave an initial verdict per sub-issue. Then I took a consensus position and recorded what still disagreed. Nobody accepted a claim from the spec without the line that backs it.
@@ -77,7 +77,7 @@ These are cited from the sections that use them.
 - **F-7. The per-key count exists.** `EncryptionKeyStatus.CopiesRecording` (`contract.gen.go:3213`), computed per key (`core/service/encryption.go:465-469`) and drawn in the keys card's Copies column with a link to the filtered Backups list (`ui/shared/src/encryption/EncryptionCard.tsx:331-337`). The CLI's `key list` does not print it (`core/cmd/retnd/encryption.go:626-635`).
 - **F-8. The keys card draws `superseded` as "Retired".** `KEY_STATUS_WORDS` maps both to "Retired" (`EncryptionCard.tsx:81`), and the Retire button is offered on exactly those rows (`:339`). The rotate dialog repeats it (`:447`). Design note 994 chose the word (`docs/design/994-retained-copy-encryption.html:205`) before retirement existed as a separate state, and it is now a contradiction on screen.
 - **F-9. The key status has no provider.** `KeyRecord.Provider` is `json:"-"` (`core/internal/keycustody/registry.go:55`) and `EncryptionKeyStatus` has no field for it (`contract.gen.go:3209-3222`), so the browser cannot tell an external key from a managed one. The table is labelled "Managed keys" (`EncryptionCard.tsx:315`) though it lists both.
-- **F-10. Re-encryption reaches only single-copy artifacts with a second medium.** Medium to medium only (`retroencrypt.go:209-215`), and an artifact with two ACTIVE placements is refused (`engine.go:513-517`). A deployment with one off-site medium cannot re-encrypt at all; recent artifacts with a local copy are refused until the local copy expires.
+- **F-10. Re-encryption reaches only single-copy artifacts with a second medium.** Medium to medium only (`retroencrypt.go:207-210`), and an artifact with two ACTIVE placements is refused (`engine.go:528-531`). A deployment with one off-site medium cannot re-encrypt at all; recent artifacts with a local copy are refused until the local copy expires, unless the run says `--from-local` (#1545, landed after this was written).
 - **F-11. Most of V1.1's guards exist.** `scripts/bdtools/encryption/controls_n_a.py` already plants "a fourth source field on the external key reference", "the automatic revalidation ceiling raised to content" and "the object key of a copy gains an encrypted suffix", and `controls_n_b.py` plants "NV an unresolvable key downgraded to an existence pass". The journal already refuses a stored size no larger than the plaintext (`core/internal/state/encryption.go:475`), which stops a compressing path on compressible data.
 
 ---
@@ -86,7 +86,7 @@ These are cited from the sections that use them.
 
 ### Verdicts
 
-| Expert | Initial verdict | Consensus position |
+| Lens | Initial verdict | Consensus position |
 |---|---|---|
 | Crypto | **Reject.** A "worked example" that is a stub proves retnd's error handling, not a KMS integration; calling it a provider example oversells it. | Accept if the docs call it what it is: a stub command shaped like a resolver, and a sample script nobody here ran against a real service. |
 | Custody | **Reject.** The spec promises stderr reaches nothing; the code sends it to alert emails (F-6). And a per-run cache keeps material in memory longer. | Accept with the stderr boundary below and a cache that is per operation, `command` only, zeroed at close, never global. Dissent survives on the cache (below). |
@@ -96,7 +96,7 @@ These are cited from the sections that use them.
 | Parity | **Reject.** Withholding stderr from alerts leaves an operator with less to go on. | Accept because the full stderr stays on `provider test`, which the alert text names. |
 | Skeptic | **Reject.** Five of the nine rows certify guards that already have controls; writing them again is padding. | Accept a smaller V1.1: cite the existing controls, add the two guards that are missing (kopia, compression equation), and spend the effort on F-4, F-5 and F-6. |
 
-**Consensus: keep, re-scoped.** **Surviving dissent:** the custody expert would rather cache only "this reference yields recipient R" and not the material, accepting two command runs per copy instead of zero. The others held that two runs per copy of a thousand-copy pass is the failure the spec named, and that the material already sits in the same process for every copy's decrypt.
+**Consensus: keep, re-scoped.** **Surviving dissent:** the custody lens would rather cache only "this reference yields recipient R" and not the material, accepting two command runs per copy instead of zero. The others held that two runs per copy of a thousand-copy pass is the failure the spec named, and that the material already sits in the same process for every copy's decrypt.
 
 ### The problem in the code today
 
@@ -172,7 +172,7 @@ func WithResolutionSession(ctx context.Context) (context.Context, func())
 | One alert tick | `app.Service.AlertTick` (`core/internal/app/alerts.go:117`) |
 | Supersede (V1.2) | `service.BackupService.SupersedeEncryptionKey` |
 
-Nothing opens a session for longer than one of these, and there is no session on `Store` or in a package variable. The data-path expert asked for a test that a session cannot be stored: `TestNoResolutionSessionOutlivesItsOperation_1513` greps non-test files for `WithResolutionSession(` and requires each call to be followed by a `defer` of its end function in the same function.
+Nothing opens a session for longer than one of these, and there is no session on `Store` or in a package variable. The data-path lens asked for a test that a session cannot be stored: `TestNoResolutionSessionOutlivesItsOperation_1513` greps non-test files for `WithResolutionSession(` and requires each call to be followed by a `defer` of its end function in the same function.
 
 **Count after the change.** Per operation, each distinct `command` reference runs at most once. The ten resolutions per re-encrypted copy remain as calls, but nine of them are memory lookups.
 
@@ -225,9 +225,9 @@ The stub lives in `core/internal/keycustody/testdata/resolver.sh`: it takes a mo
 
 - **A provider interface.** Rejected for the reasons ADR 0036 item 1 records.
 - **Cache material for the daemon's lifetime.** Rejected: a key that survives a config reload or the operator's revocation in Vault is a correctness and custody bug.
-- **Cache only reference to recipient (the custody expert's option).** Cuts ten runs to two per copy. Rejected by the majority as still per copy; kept as the recorded dissent.
+- **Cache only reference to recipient (the custody lens's option).** Cuts ten runs to two per copy. Rejected by the majority as still per copy; kept as the recorded dissent.
 - **Leave stderr as is and document it.** Rejected: alert emails and webhooks leave the machine, and a resolver that prints the key is one `set -x` away.
-- **Strip stderr everywhere, including `provider test`.** Rejected by the parity expert: an operator debugging a resolver needs it, and `provider test` is the explicit, interactive place to ask.
+- **Strip stderr everywhere, including `provider test`.** Rejected by the parity lens: an operator debugging a resolver needs it, and `provider test` is the explicit, interactive place to ask.
 
 ### Red-first test plan
 
@@ -293,7 +293,7 @@ Existing controls the matrix cites unchanged: "a fourth source field on the exte
 
 ### Verdicts
 
-| Expert | Initial verdict | Consensus position |
+| Lens | Initial verdict | Consensus position |
 |---|---|---|
 | Crypto | **Reject** wiring `RotateExternal`: it models one active external slot, which migration 0015 deliberately does not have. And a superseded key that a config edit can quietly reactivate is not superseded. | Accept a status-only supersede plus a hard refusal to write under a non-active external key. A decrypt-only key list is the standard keyring pattern. |
 | Custody | **Reject** any route that takes a reference to keep for the duration of a background run: a command reference held by an operation is a new place one lives. | Accept references kept in config, where every reference already lives, entered once and read back only as descriptions. |
@@ -304,7 +304,7 @@ Existing controls the matrix cites unchanged: "a fourth source field on the exte
 | Skeptic | **Reject.** How many deployments use external keys? If few, document the limitation and drop V1.2. | Accept, because the stuck state is real and permanent: today an external key can never be retired, and a dropped reference raises an alert that cannot be cleared except by restoring it. |
 
 **Consensus: keep, re-scoped around a decrypt-only reference list and a supersede verb. D-1 was accepted on 2026-11-19.**
-**Surviving dissents:** the skeptic still thinks the number of external-key deployments may not justify a config field, and would ship the fallback below first. The parity expert wanted a "rotate external" convenience route that does the config move and the supersede in one call; the others rejected it because the two writes are to different stores and the verb would need its own resume rule (see Alternatives).
+**Surviving dissents:** the skeptic still thinks the number of external-key deployments may not justify a config field, and would ship the fallback below first. The parity lens wanted a "rotate external" convenience route that does the config move and the supersede in one call; the others rejected it because the two writes are to different stores and the verb would need its own resume rule (see Alternatives).
 
 ### The problem in the code today
 
@@ -386,7 +386,7 @@ wrapping `ErrClassUnavailable` and `ErrKeyUnresolvable`, so the copy is refused 
 
 `Store.Resolvability` (`store.go:440-468`) gains the same check after it derives the recipient: if `externalKeyID(recipient)` names a row that is not active, the probe is `Unreachable` with that sentence. `AlertConditions` (`conditions.go:39-67`) then raises `ENCRYPTION_KEY_UNRESOLVABLE` for the set, so a refusal is never silent.
 
-There is no un-supersede. The crypto expert held this line: a key superseded after a compromise must not come back because somebody pasted an old path. An operator who superseded the wrong key mints or points at a new one; the docs say so.
+There is no un-supersede. The crypto lens held this line: a key superseded after a compromise must not come back because somebody pasted an old path. An operator who superseded the wrong key mints or points at a new one; the docs say so.
 
 #### `RotateExternal` is deleted (D-2)
 
@@ -428,7 +428,7 @@ There is no un-supersede. The crypto expert held this line: a key superseded aft
 
 Out of order: B2 before B1 is refused (a writer yields K1). B5 before B3 is refused while R1 still opens K1's copies. B4 before B3 is refused naming the copies. Dropping R1 by hand-editing config before B3 is the one unguarded move, and the existing at-risk alert covers it within a tick (`core/service/keycustody.go:228-304`), naming K1 and its copies.
 
-Every state from A to F keeps every ACTIVE copy readable, provided R1 is not dropped by hand. That is the property the recovery expert asked for.
+Every state from A to F keeps every ACTIVE copy readable, provided R1 is not dropped by hand. That is the property the recovery lens asked for.
 
 #### Egress and cost
 
@@ -446,14 +446,14 @@ No medium is read or written by B1, B2, B4 or B5. Command runs: B1 none (config 
 
 - Routine rotation does not work: until every old copy is re-encrypted, the daemon cannot open them, so scrubs report "Key missing" and the at-risk alert fires for weeks.
 - A run that dies before VERIFIED needs the operator to pass the reference again; the next ordinary cycle cannot finish it.
-- A command reference held by a background operation is a new place one lives (the custody expert's objection).
+- A command reference held by a background operation is a new place one lives (the custody lens's objection).
 
 ### Alternatives considered
 
 - **Wire `RotateExternal` as the spec says.** It registers and supersedes in one write, but the reference it registers has to be in config anyway for any copy to be written under it, and the old reference still drops out of config, so F-2 is untouched. Rejected.
 - **Supersede implicitly when the policy patch changes the reference.** Two durable writes to two stores in one request, a resume rule nobody can see, and a hand edit of `config.yaml` bypasses it. Rejected; the UI chains the two explicit steps instead (V2.1).
-- **A "rotate external" route doing config move and supersede together** (the parity expert's proposal). Same two-store problem; a crash between them leaves a state the route's re-run cannot recognise, because the old reference is no longer the provider. Rejected, recorded as a dissent.
-- **Adopt the external key into the managed store** (copy its material into `retained_copy_keys/`). Readable for ever with no config. Rejected by the custody expert: the operator chose to keep the key off the host, and a routine retirement must not move it onto the host.
+- **A "rotate external" route doing config move and supersede together** (the parity lens's proposal). Same two-store problem; a crash between them leaves a state the route's re-run cannot recognise, because the old reference is no longer the provider. Rejected, recorded as a dissent.
+- **Adopt the external key into the managed store** (copy its material into `retained_copy_keys/`). Readable for ever with no config. Rejected by the custody lens: the operator chose to keep the key off the host, and a routine retirement must not move it onto the host.
 - **Let `retire` accept an active external key that no writer yields.** Saves a verb, but leaves a status ("active") that means nothing for an external key, and the backlog (copies under keys no longer written) cannot be counted by status. Rejected.
 - **Per-set kept lists.** Rejected: a kept reference belongs to a key, not a set.
 
@@ -518,7 +518,7 @@ Controls for `controls_v.py`:
 
 ### Verdicts
 
-| Expert | Initial verdict | Consensus position |
+| Lens | Initial verdict | Consensus position |
 |---|---|---|
 | Crypto | **Reject** a metric: a backlog under a superseded key is the normal state after every routine rotation, so the number means nothing without the operator's intent. | Accept the key list as the backlog's one source, with status and count. |
 | Custody | **Reject** nothing; worries only that a label could carry a key id. | Moot once the metric is dropped; the key list carries ids, which are not secret. |
@@ -528,7 +528,7 @@ Controls for `controls_v.py`:
 | Parity | **Reject** a CLI that does not print what the API returns (F-7). | Accept the print and a footer. |
 | Skeptic | **Reject** the health field and the metric as features with no reader; also wanted V1.3 merged into V1.2. | Accept the shrink. Merge rejected by the others (different code, parallel work). |
 
-**Consensus: shrink.** Drop the health field and the metric (D-5). **Surviving dissents:** the egress expert would keep the metric for people who graph a drain across a fleet; the skeptic would merge V1.3 into V1.2.
+**Consensus: shrink.** Drop the health field and the metric (D-5). **Surviving dissents:** the egress lens would keep the metric for people who graph a drain across a fleet; the skeptic would merge V1.3 into V1.2.
 
 ### The problem in the code today
 
@@ -555,7 +555,7 @@ The footer is computed from the response, so `--json` is unchanged apart from V1
 
 `KeyInUseError.Error()` (`keyretire.go:72-86`) appends: `; to move them under the active key, start with retnd encryption reencrypt --key <id> --dry-run, which says per copy whether it can move and what it would read and write`. The browser shows the same sentence (`writeEncryptionError` passes the text whole, `apps/common/webhost/handlers_encryption.go:463-466`). `placement` already hard-codes the binary name in refusals (`encryption.go:146`), so this follows that precedent.
 
-The hint does not promise the copies can move: a key that is lost cannot open them, an artifact with a local copy is refused (F-10), and a deployment with one medium has nowhere to write. The dry run says which, per copy.
+The hint does not promise the copies can move: a key that is lost cannot open them, an artifact with a local copy is refused unless the run says `--from-local` (F-10, #1545), and a deployment with one medium has nowhere to write. The dry run says which, per copy.
 
 #### The dry run states its bill
 
@@ -577,7 +577,7 @@ Computed in `PlanReencrypt` from journal numbers only, over the candidates whose
 - `bound = P + 16 * max(1, ceil(P / 65536)) + 16 + 4096`, where `P` is the copy's recorded plaintext size (`state.Placement.Size`). This is an upper bound: payload, one 16-byte tag per 64 KiB chunk, the 16-byte nonce, and a header bound of 4 KiB. `bytes_written[dest] += bound` and `bytes_read[dest] += bound`, the second for the decrypt-verify read-back the run must do.
 - A copy whose `P` is unknown adds to `sizes_unknown` and to nothing else.
 
-`TestTheDryRunSizeBoundHoldsForEveryRegisteredSuite_1515` seals an empty plaintext under every suite in `copycrypt.Suites()` and asserts its header is under 4 KiB, so adding a suite with a bigger header turns this red rather than making the bound a lie.
+`TestTheDryRunSizeBoundHoldsForEveryRegisteredSuite_1545` seals an empty plaintext under every suite in `copycrypt.Suites()` and asserts its header is under 4 KiB, so adding a suite with a bigger header turns this red rather than making the bound a lie.
 
 The CLI prints after the groups:
 
@@ -601,16 +601,15 @@ The OpenAPI description of `media` says: bytes, upper bound for the destination,
 - **Adding a `key_status` label to `retained_copy_encrypted_copies`.** Changes an existing family's label set, which the spec forbids as a rename. Rejected.
 - **An exact written-size figure** from a per-suite header measurement at run time. Needs a throwaway keygen per suite per dry run for a number the operator rounds anyway. Rejected for the bound.
 - **Money instead of bytes.** No price table, and a wrong price is worse than none. Rejected.
-- **Showing medium type (free `local_dir` against billed) beside each line.** The egress expert wanted it; the others held that `costOf` lives in `recoverytest` (`core/internal/recoverytest/recoverytest.go:673`) and duplicating its rule here is a copy that drifts. Left out; the docs say a `local_dir` medium costs nothing to read.
+- **Showing medium type (free `local_dir` against billed) beside each line.** The egress lens wanted it; the others held that `costOf` lives in `recoverytest` (`core/internal/recoverytest/recoverytest.go:673`) and duplicating its rule here is a copy that drifts. Left out; the docs say a `local_dir` medium costs nothing to read.
 
 ### Red-first test plan
 
 | Test | Red today because | Row |
 |---|---|---|
 | `TestTheRetireRefusalNamesTheDryRun_1515` | no hint | V-16 |
-| `TestTheDryRunStatesBytesPerMedium_1515`: two copies on M1 (stored sizes 70000 and 131073, plaintext 65536 and 131072) to M2; asserts M1 read 201073, M2 written and read equal to the two bounds | no field | V-16 |
-| `TestACopyWithNoRecordedSizeIsCountedNotGuessed_1515` | no field | V-16 |
-| `TestTheDryRunSizeBoundHoldsForEveryRegisteredSuite_1515` | no bound | V-16 |
+| `TestTheDryRunStatesBytesPerMediumForBothPaths_1545` (landed with #1545, cited as it stands) | no field | V-16 |
+| `TestTheDryRunSizeBoundHoldsForEveryRegisteredSuite_1545` (landed with #1545, cited as it stands) | no bound | V-16 |
 | `TestTheKeyListPrintsTheCountAndTheWayOut_1515` (CLI golden) | no print | V-14 |
 | `TestTheKeyListCountsCopiesPerKeyNotPerSuite_1515`: three keys of one suite, two superseded with 4 and 7 copies, one active with 5 | passes today (the code exists): a guard, proven by planting | V-14 |
 | `TestNothingStartsAReencryptionOnItsOwn_1515` | passes today: a guard | V-17 |
@@ -621,7 +620,7 @@ Controls:
 |---|---|---|
 | `V the backlog counted by suite` | `CopiesRecording` from `ActiveEncryptedCopiesBySuite[rec.SuiteID]` | `TestTheKeyListCountsCopiesPerKeyNotPerSuite_1515` |
 | `V the retire refusal loses its way out` | drop the hint | `TestTheRetireRefusalNamesTheDryRun_1515` |
-| `V the dry run drops the verification read` | omit `bytes_read[dest]` | `TestTheDryRunStatesBytesPerMedium_1515` |
+| `V the dry run drops the verification read` | omit `bytes_read[dest]` | `TestTheDryRunStatesBytesPerMediumForBothPaths_1545` |
 | `V a rotation starts a re-encryption` | call `b.StartReencrypt` from `RotateEncryptionKey` | `TestNothingStartsAReencryptionOnItsOwn_1515` |
 
 **Negative controls:** a key with zero copies prints `0 ACTIVE copies` and no footer; a dry run with nothing selected has an empty `media` list, not an absent one; refused candidates add no bytes.
@@ -630,7 +629,7 @@ Controls:
 
 ### Checklist sections
 
-3 (the CLI print; the refusal identical on both routes), 4 (nothing new in the feed; a dry run is a read), 6 (`media`, `sizes_unknown` in `openapi.json`, both bindings, `docs/api/contract.md`), 7 (no migration; computed), 12.
+3 (the CLI print; the refusal identical on both routes), 4 (nothing new in the feed; a dry run is a read), 6 (the retire refusal on both routes; `media` and `sizes_unknown` already in `openapi.json` from #1545), 7 (no migration; computed), 12.
 
 ### Risks
 
@@ -651,7 +650,7 @@ Controls:
 
 ### Verdicts
 
-| Expert | Initial verdict | Consensus position |
+| Lens | Initial verdict | Consensus position |
 |---|---|---|
 | Crypto | **Reject** shipping anything on a card that calls a superseded key "Retired" (F-8). | Accept with three distinct words and states: Active, Superseded, Retired. |
 | Custody | **Reject** a keep-previous checkbox that defaults off: the default today strands copies silently. | Accept default on when the replaced reference is external and its key has ACTIVE copies. |
@@ -661,7 +660,7 @@ Controls:
 | Parity | **Reject** a per-copy "old key" chip with no CLI twin and no clear meaning after routine rotations. | Accept no per-copy chip; every action has its CLI line in `CommandEcho`. |
 | Skeptic | **Reject** most of it: the key list already shows the count and links to the copies. | Accept the bug fix, the three controls V1.2 needs, re-encrypt by key, and the captures. Nothing else. |
 
-**Consensus: shrink and fix the bug.** **Surviving dissent:** the recovery expert would still like a per-copy marker in the Backups list during a compromise response; the others held that the key filter link (`EncryptionCard.tsx:333`) already shows exactly those copies.
+**Consensus: shrink and fix the bug.** **Surviving dissent:** the recovery lens would still like a per-copy marker in the Backups list during a compromise response; the others held that the key filter link (`EncryptionCard.tsx:333`) already shows exactly those copies.
 
 ### The problem in the code today
 
@@ -774,7 +773,7 @@ A step in `docs/site/tools/capture-encryption.mjs` and `encryption-captures.json
 ### Alternatives considered
 
 - **Keep "Retired" for superseded** (the 994 decision). Now contradicts the Retire button and the API; rejected.
-- **A per-copy chip "under a superseded key".** Rejected as above, with the recovery expert's dissent.
+- **A per-copy chip "under a superseded key".** Rejected as above, with the recovery lens's dissent.
 - **Supersede automatically after saving a new reference.** Rejected in V1.2; the chained prompt keeps it a separate, visible act.
 - **A dedicated "Rotate external key" wizard.** More surface than the two existing dialogs plus one prompt; rejected.
 
@@ -822,7 +821,7 @@ Controls in `scripts/bdtools/encryption/controls_ui.py`:
 
 ### Verdicts
 
-| Expert | Initial verdict | Consensus position |
+| Lens | Initial verdict | Consensus position |
 |---|---|---|
 | Crypto | **Reject** an e2e that only proves the managed path, which already works. | Accept with the external path as the main case. |
 | Custody | **Reject** unless the canary corpus covers every new surface. | Accept V-22 extended over V1.1's and V1.2's surfaces. |
@@ -852,7 +851,7 @@ One suite, `encryption-external-rotation`, with `scripts/e2e/tests-repo.pin` mov
 
 #### Documentation
 
-- `docs/encrypted-copies.md`: replace `:291-302` with the lifecycle (active, superseded, retired; the kept list); two procedures ("Retiring an external key" and "After a key is compromised"); the honest sentences: re-encryption writes to another medium and needs one; it reads the old copy and reads the new one back, about twice the data in reads; it cannot move an artifact that still has a local copy yet (#1545 tracks the run mode that would); it cannot open copies under a key that is lost, and those copies keep the key from being retired; it does not recall copies a provider retains (bucket versioning, provider backups), so keep the old key offline until those are purged. Update `:530-540`.
+- `docs/encrypted-copies.md`: replace `:291-302` with the lifecycle (active, superseded, retired; the kept list); two procedures ("Retiring an external key" and "After a key is compromised"); the honest sentences: re-encryption writes to another medium and needs one; it reads the old copy and reads the new one back, about twice the data in reads; an artifact that still has a local copy is refused unless the run says `--from-local` (#1545, landed); it cannot open copies under a key that is lost, and those copies keep the key from being retired; it does not recall copies a provider retains (bucket versioning, provider backups), so keep the old key offline until those are purged. Update `:530-540`.
 - `docs/recovery.md` and `docs/recovery-without-a-terminal.md`: one paragraph each pointing at the compromise procedure, and the note that a copy under a superseded key still decrypts with the stock tool and its own key.
 - `README.md` subcommand list; `docs/site/reference.html` (`key supersede`, `--keep-previous`, `--forget-previous`); `docs/site/index.html#honest` (no real KMS or Vault was operated; the sample scripts were not run against one; no fleet; no real bucket at scale); `docs/api/contract.md`; `CHANGELOG.md` under `[Unreleased]` naming #1512 and the sub-issues, what an existing deployment sees (nothing, unless it uses an external key; the keys card says Superseded where it said Retired; the key list stops running commands), and the one-way door sentence for `previous_external_keys`.
 - `docs/compliance/` and `docs/submission/`: a sentence each that what is stored did not change, except references in config, which were already stored there.
