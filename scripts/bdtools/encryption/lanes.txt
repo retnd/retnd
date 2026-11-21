@@ -6,7 +6,7 @@ chromium-lane	CAP a post-quantum recipient drawn in a captured still
 chromium-lane	CAP a post-quantum recipient drawn in a GIF frame
 retnd-tests	RT any suite id passes Validate, under Suite A
 retnd-tests	RT the policy line always reports age-pq/v1 as the suite in force, under Suite A
-retnd-tests	RT the CLI exits 0 on a failing scrub, under Suite C
+retnd-tests,retnd-tests-browser	RT the CLI exits 0 on a failing scrub, under Suite C
 chromium-lane	UI the suite change saves without the rotate step
 chromium-lane	UI Verified recoverable drawn with the glyph and colours of Encrypted
 node	UI the per-set encryption control taken off the set card
