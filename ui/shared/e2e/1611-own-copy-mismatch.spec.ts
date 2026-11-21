@@ -37,7 +37,7 @@ test.describe("#1611 a failed backup with its own copy at the final name and its
     const said = recovery(page).getByRole("status");
     await expect(said).toContainText("does not match");
     await expect(said).toContainText("Move that file aside");
-    await expect(said).toContainText("nothing here deletes it");
+    await expect(said).toContainText("do not track it");
     await expect(page.getByRole("button", { name: "Retry ingestion" })).toBeVisible();
     await said.scrollIntoViewIfNeeded();
     await hold(page);

@@ -101,11 +101,32 @@ export interface HoverPopover<T extends HTMLElement = HTMLElement> {
    *  common "point at the icon, then press it" does not toggle straight
    *  back off. */
   toggle(): void;
+  /** Wires a control this pop-up explains from OUTSIDE its host (the control
+   *  a label is for, #1619): focus on it, or inside it, shows the pop-up the
+   *  way hover on the host does, leaving closes it, and the control counts as
+   *  part of the pop-up's own furniture, so the click a touch tap on the label
+   *  forwards to it does not read as a click away. Returns the undo. */
+  attachControl(control: Element): () => void;
   /** The close "x", and only the close "x". Escape and a click away close
    *  a pop-up too and deliberately do not come through here: #829 asks its
    *  question about the "x" because pressing it is the one exit aimed AT
    *  the pop-up rather than at the page behind it. */
   dismiss(): void;
+}
+
+/** Whether the last thing the operator did was press Tab. Focus on a control
+ *  a label explains opens its pop-up only then (#1619): a dialog that focuses
+ *  its first field, or a refusal that sends focus back to one, has not asked
+ *  for help, and a pop-up opening on it would also take the dialog's Escape.
+ *  A pointer press or any other key puts it back to false. */
+let keyboardDriven = false;
+let watching = false;
+function watchModality() {
+  if (watching || typeof document === "undefined") return;
+  watching = true;
+  document.addEventListener("keydown", (e) => { keyboardDriven = e.key === "Tab"; }, true);
+  document.addEventListener("pointerdown", () => { keyboardDriven = false; }, true);
+  document.addEventListener("mousedown", () => { keyboardDriven = false; }, true);
 }
 
 export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
@@ -121,11 +142,17 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
   const ref = useRef<T | null>(null);
   const popRef = useRef<HTMLElement | null>(null);
 
+  /** Controls wired by `attachControl` (#1619). */
+  const attached = useRef(new Set<Element>());
+
   /** Whether a node is part of this pop-up's own furniture — the host and
    *  the pop-up, which are one thing to the operator and two subtrees to
-   *  the DOM since #847 portalled the second one out of the first. */
+   *  the DOM since #847 portalled the second one out of the first, and any
+   *  control wired to it from outside. */
   const ours = (node: Node) =>
-    ref.current?.contains(node) === true || popRef.current?.contains(node) === true;
+    ref.current?.contains(node) === true ||
+    popRef.current?.contains(node) === true ||
+    Array.from(attached.current).some((c) => c.contains(node));
 
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -155,13 +182,18 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
   // somewhere else entirely, not only for the keyboard case.
   useEffect(() => {
     if (!shown) return;
+    // Capture, and it stops there: a dialog listens for Escape on the window
+    // or on its own element, and one press must close the pop-up OR the
+    // dialog, never both (#1619). This listener only exists while a pop-up
+    // is up, so with none showing Escape reaches the dialog untouched.
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      event.stopPropagation();
       setPinned(false);
       setDismissed(true);
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [shown]);
 
   /** Focus moving between the control and the close button is movement
@@ -195,6 +227,37 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
       }
       setPinned(true);
       setDismissed(false);
+    },
+    attachControl: (control) => {
+      const onIn = () => {
+        // Only focus the keyboard brought. A dialog's autofocus, or focus a
+        // refusal sends back to a field, is script and not a request for help.
+        if (!enabled || !keyboardDriven) return;
+        setFocused(true);
+        setDismissed(false);
+      };
+      const onOut = (event: Event) => {
+        const next = (event as globalThis.FocusEvent).relatedTarget;
+        if (next instanceof Node && (control.contains(next) || ours(next))) return;
+        setFocused(false);
+      };
+      // A mouse click on the control puts the pop-up away, as a click on a
+      // wrapped control does. A pinned one stays: that is a touch tap on the
+      // label, whose forwarded click lands here.
+      const onClick = () => {
+        if (!pinned) setDismissed(true);
+      };
+      watchModality();
+      control.addEventListener("focusin", onIn);
+      control.addEventListener("focusout", onOut);
+      control.addEventListener("click", onClick);
+      attached.current.add(control);
+      return () => {
+        control.removeEventListener("focusin", onIn);
+        control.removeEventListener("focusout", onOut);
+        control.removeEventListener("click", onClick);
+        attached.current.delete(control);
+      };
     },
     dismiss: () => {
       setPinned(false);

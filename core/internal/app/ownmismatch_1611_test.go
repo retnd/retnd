@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Issue #1611: a FAILED backup whose own copy sits at its final name, whose
@@ -96,7 +98,7 @@ func TestTheMismatchRefusalNamesTheWayOutAndNothingTheRemoteChose_1611(t *testin
 		t.Run(kind, func(t *testing.T) {
 			fx := ownCopyMismatch1611(t, kind)
 			s := r1611(fx.svc.RetryFailedIngestion(context.Background(), fx.artifact, "")).Sentence
-			for _, want := range []string{wantFact, "Move", "retry", "kept"} {
+			for _, want := range []string{wantFact, "Move", "outside", "retry", "do not track"} {
 				if !strings.Contains(s, want) {
 					t.Errorf("sentence lacks %q: %s", want, s)
 				}
@@ -140,9 +142,8 @@ func TestMovingTheMismatchedCopyAsideLetsRetryFetchAFreshOne_1611(t *testing.T) 
 	}
 }
 
-// What stays as it was: a copy that matches the remote is still kept in place,
-// and a remote that cannot be asked for its checksum is not a mismatch.
-func TestARetryThatCannotCompareIsNotAMismatch_1611(t *testing.T) {
+// What stays as it was: a copy that matches the remote is still kept in place.
+func TestAMatchingOwnCopyIsStillKeptInPlace_1611(t *testing.T) {
 	fx := newDeadEndFixture(t, true)
 	walkToFailed662(t, fx)
 	if err := fx.svc.RetryFailedIngestion(context.Background(), fx.artifact, ""); err != nil {
@@ -150,6 +151,40 @@ func TestARetryThatCannotCompareIsNotAMismatch_1611(t *testing.T) {
 	}
 	if got := lifecycle.State(stateOf662(t, fx.journal, fx.artifact)); !durable(got) {
 		t.Errorf("a matching copy ends %s, want it kept in a durable state", got)
+	}
+}
+
+// Only a definite mismatch is refused. A retry that cannot get a checksum (the
+// remote does not answer for it, or the copy cannot be read) knows nothing
+// about the two differing, so it takes the ordinary retry as #1594 pinned, and
+// the copy is not touched.
+func TestARetryThatCannotCompareIsNotAMismatch_1611(t *testing.T) {
+	for _, tc := range []string{"remote checksum fails", "copy unreadable"} {
+		t.Run(tc, func(t *testing.T) {
+			fx := newDeadEndFixture(t, true)
+			walkToFailed662(t, fx)
+			if tc == "remote checksum fails" {
+				fx.tr.remoteHashErr = transport.NewError(transport.Transient, "remote_hash", errors.New("the host did not answer"))
+			} else {
+				if os.Geteuid() == 0 {
+					t.Skip("root reads a mode 0 file")
+				}
+				if err := os.Chmod(fx.final, 0); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.Chmod(fx.final, 0o644) })
+			}
+			err := fx.svc.RetryFailedIngestion(context.Background(), fx.artifact, "")
+			if r, ok := AsRetryRefusal(err); ok {
+				t.Fatalf("refused with %s although nothing showed the copy differs from the source", r.Code)
+			}
+			if err != nil {
+				t.Fatalf("RetryFailedIngestion: %v", err)
+			}
+			if got := lifecycle.State(stateOf662(t, fx.journal, fx.artifact)); got != lifecycle.Discovered {
+				t.Errorf("%s is %s, want DISCOVERED (the ordinary retry)", fx.artifact, got)
+			}
+		})
 	}
 }
 

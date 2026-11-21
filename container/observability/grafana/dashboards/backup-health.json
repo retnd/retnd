@@ -128,8 +128,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Health report age (under a minute when nothing is wrong)",
-      "description": "How old the health report behind this scrape is. The engine rebuilds it at most every observability.metrics.min_rebuild_interval (15s by default), so with a 15s scrape this stays well under a minute. A number that keeps climbing is a report the engine has stopped rebuilding.",
+      "title": "Health report age (no older than the rebuild interval when nothing is wrong)",
+      "description": "How old the health report behind this scrape is. The engine rebuilds it at most every observability.metrics.min_rebuild_interval (15s by default, 2m at most), so this reads between zero and that interval. A number that keeps climbing past it is a report the engine has stopped rebuilding.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -163,7 +163,7 @@
               },
               {
                 "color": "orange",
-                "value": 60
+                "value": 150
               },
               {
                 "color": "red",

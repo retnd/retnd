@@ -568,7 +568,11 @@ func (s *Service) keepOwnCopyOnLocalEvidence(ctx context.Context, rec state.Reco
 // them. The way out is the operator's hand, not this manager's: the file is
 // the only copy of what the source held when it was backed up, so nothing here
 // deletes or renames it. Once it has been moved aside, the collision is gone
-// and a retry is an ordinary one.
+// and a retry is an ordinary one. Outside the set's directory, because that
+// is the one place nothing could mistake it for the set's own file (the
+// catalog rebuild scans the directory for sidecar manifests and the staging
+// sweep removes files with its own temp prefix; neither touches another name,
+// but neither is a promise worth leaning on).
 func ownCopyMismatchRefusal(rec state.Record, final, localHash string) *RetryRefusal {
 	found := "still matches the checksum recorded when it was verified, so the object on the source has changed since"
 	switch {
@@ -579,7 +583,8 @@ func ownCopyMismatchRefusal(rec state.Record, final, localHash string) *RetryRef
 	}
 	return &RetryRefusal{Code: RefusalRetryOwnCopyMismatch, Sentence: "This backup's own copy at " + final + " " + found +
 		", and it does not match the object on the source, so a retry can neither keep it nor fetch a fresh copy past it. " +
-		"Move that file aside (it is kept, nothing here deletes it), then retry: the next attempt fetches a new copy from the source."}
+		"Move that file aside, to a directory outside this backup set's local directory, then retry: the next attempt fetches a new copy from the source. " +
+		"Nothing here deletes the moved file, and retention and the capacity guard do not track it, so it stays yours to keep or remove."}
 }
 
 // completeIngestionInPlace finishes an ingestion whose only remaining

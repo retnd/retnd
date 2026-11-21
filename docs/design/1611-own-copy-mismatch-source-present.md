@@ -26,7 +26,7 @@ The same three lines in the log every cycle, and nothing for the operator to act
    refusal as a follow-up.
 3. **Refuse by name, say what was found and the way out.** This is the one I built. Retry writes
    nothing and answers `RETRY_OWN_COPY_MISMATCH` (409). The operator moves the file aside by hand
-   (it is kept, nothing here deletes it), and the retry after that is an ordinary one: the stat of the
+   (to a directory outside the set's local directory, kept, nothing here deletes it), and the retry after that is an ordinary one: the stat of the
    final name fails, so retry skips the own-copy path, the row goes to DISCOVERED and the next cycle
    fetches a fresh copy. A test walks exactly that, and checks the aside file is untouched.
 
@@ -41,9 +41,12 @@ from the hash of the file at the final name. Everything else is as it was:
 | copy differs from the remote, source answered | refused, `RETRY_OWN_COPY_MISMATCH`, nothing written |
 | source gone (confirmed) | #1594: kept on local evidence or `RETRY_OWN_COPY_UNVERIFIED` |
 | the remote can't give a checksum (not answering, hash unsupported) | ordinary retry, as #1594 pinned |
+| the copy can't be read (unreadable file) | ordinary retry; the collision guard refuses it again |
 
-The last row can still loop if the source keeps not answering. Nobody knows what the source holds
-then, so there is nothing true to refuse on, and it clears when the source answers. I left it alone.
+The last two rows can still loop. Nobody knows what the source holds (or what the file holds), so
+there is nothing true to refuse on. A silent source clears when it answers. An unreadable copy stays
+until someone fixes its permissions or moves it aside. Both are known limits, and I left them alone.
+Tests pin that neither is called a mismatch.
 
 The sentence says one measured fact about the local disk: whether the copy still matches the checksum
 recorded when it was verified ("so the object on the source has changed since"), doesn't match it ("so
@@ -68,3 +71,12 @@ which ends in the artifact's name, like #1594's sentence does.
 - Retire still refuses this shape while the source is there. Retiring a backup whose source can still
   be fetched isn't the answer; moving the copy aside and retrying is.
 - The collision guard is untouched.
+
+## Where the moved-aside file goes
+
+Outside the backup set's local directory. I checked what looks at that directory: catalog rebuild
+reads it for sidecar manifests only, the staging sweep removes files carrying its own temp prefix
+only, and nothing in core walks it for anything else, so a renamed copy beside the original would
+survive. Outside is still the answer the sentence gives, because nothing should have to be right
+about that. Retention and the capacity guard do not track the moved file, so it is the operator's to
+keep or remove, and the sentence says so.

@@ -939,6 +939,12 @@ if [ "$FAST" != "1" ]; then
   # without one.
   gate_docker_step "the shipped Promtail and Alloy pipelines label exactly job, instance, level and schema (#903)"
   bash scripts/observability/log-pipeline.sh
+
+  # The bundle's alerting rules, evaluated rather than read (#1595): promtool in the
+  # pinned Prometheus image checks the rules file and runs the unit tests beside it
+  # (a token rotation stays quiet, a probe still fires, the report-age alert holds).
+  gate_docker_step "the shipped alerting rules pass promtool and its unit tests (#1595)"
+  bash scripts/observability/rule-tests.sh
 fi
 }
 

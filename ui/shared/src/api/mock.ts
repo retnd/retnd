@@ -5601,7 +5601,8 @@ export function createMockApi(
             code: "RETRY_OWN_COPY_MISMATCH",
             message:
               "This backup's own copy at " + found.localPath + " does not match the checksum recorded when it was verified, and it does not match the object on the source either, so a retry can neither keep it nor fetch a fresh copy past it. " +
-              "Move that file aside (it is kept, nothing here deletes it), then retry: the next attempt fetches a new copy from the source.",
+              "Move that file aside, to a directory outside this backup set's local directory, then retry: the next attempt fetches a new copy from the source. " +
+              "Nothing here deletes the moved file, and retention and the capacity guard do not track it, so it stays yours to keep or remove.",
             correlationId: "cid_mockretry1611"
           });
         });

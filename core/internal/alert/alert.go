@@ -568,10 +568,21 @@ type firingCondition struct {
 	// (AdoptState), and a stamp that ran ahead of a send which then failed
 	// had the rebuilt dispatcher wait a whole interval past an alert that
 	// was about to expire (#1567).
+	//
+	// gone is set, under the lock, by the pass that resolves the entry, and
+	// is never cleared: a recurrence is a new entry. A refresh that was
+	// queued past the send cap checks it just before it sends and drops out
+	// (#1607). flight is open while a refresh, or the first delivery, is on
+	// its way to the receiver, and the resolve waits on it, so the receiver
+	// sees it before the resolve and never the other way round (#1628). failures counts refreshes
+	// that failed in a row and sets how long the next retry backs off.
 	alert    Alert
 	sentAt   time.Time
 	inFlight bool
 	retryAt  time.Time
+	gone     bool
+	flight   chan struct{}
+	failures int
 }
 
 const (
@@ -647,9 +658,13 @@ func NewDispatcher(sink Sink, logger *obs.Logger) *Dispatcher {
 // attempt per alert, so a slow or hung Sink can never stall the cycle
 // that called this. For a sink whose receiver expires alerts the attempts
 // run in parallel (sendEach), so no alert's expiry runs down while it waits
-// behind another's send; any other sink gets them one at a time. A condition that resolves while its own notification
-// is still in flight is simply forgotten; the late delivery marks an
-// entry that is no longer in the map, which changes nothing.
+// behind another's send; any other sink gets them one at a time.
+//
+// A condition that resolves while its own notification is still in flight
+// is handled by the kind of sink. A plain sink simply forgets it: the late
+// delivery marks an entry that is no longer in the map, which changes
+// nothing. For a sink whose receiver a resolve closes, the pass waits for
+// that delivery and sends the resolve after it, if it succeeded (#1628).
 func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, unevaluated []Subject, now time.Time) []Alert {
 	if d == nil {
 		return nil
@@ -663,14 +678,34 @@ func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, uneval
 			d.refreshOne(ctx, a, now)
 			return
 		}
-		if err := d.deliver(ctx, a.alert); err != nil {
-			return
+		// For a sink whose receiver is closed by a resolve, the first
+		// delivery is tracked like a refresh: checked for gone and registered
+		// as in flight under the lock the resolving pass takes, so the pass
+		// either sees the alert gone and never sends it, or waits for it and
+		// closes it afterwards (#1628).
+		var flight chan struct{}
+		if d.refreshes() {
+			d.mu.Lock()
+			if a.entry.gone {
+				d.mu.Unlock()
+				return
+			}
+			flight = make(chan struct{})
+			a.entry.flight = flight
+			d.mu.Unlock()
 		}
+		err := d.deliver(ctx, a.alert)
 		d.mu.Lock()
-		a.entry.delivered = true
-		a.entry.sentAt = now
+		if err == nil {
+			a.entry.delivered = true
+			a.entry.sentAt = now
+		}
+		if flight != nil {
+			a.entry.flight = nil
+			close(flight)
+		}
 		d.mu.Unlock()
-		ok[i] = true
+		ok[i] = err == nil
 	})
 	var delivered []Alert
 	for i, a := range pending {
@@ -697,7 +732,7 @@ type attempt struct {
 // plan is the whole of Observe's state update and the only part that
 // takes the lock: it records what is now observed, forgets what has
 // resolved, and returns the deliveries to make once the lock is gone.
-func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) (pending []attempt, resolved []Alert) {
+func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now time.Time) (pending []attempt, resolved []attempt) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -751,8 +786,12 @@ func (d *Dispatcher) plan(conditions []Condition, unevaluated []Subject, now tim
 		if _, cannotTell := unknown[key]; cannotTell {
 			continue
 		}
-		if entry := d.firing[key]; entry.delivered && d.refreshes() {
-			resolved = append(resolved, entry.alert)
+		entry := d.firing[key]
+		entry.gone = true
+		// A first delivery still on its way counts: refreshAndResolve waits
+		// for it and closes the alert only if it landed (#1628).
+		if (entry.delivered || entry.flight != nil) && d.refreshes() {
+			resolved = append(resolved, attempt{entry: entry, alert: entry.alert})
 		}
 		delete(d.firing, key)
 	}

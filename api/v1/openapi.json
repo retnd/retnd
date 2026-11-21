@@ -10797,7 +10797,7 @@
           "min_rebuild_interval_seconds": {
             "type": "integer",
             "format": "int64",
-            "description": "How long a built health report is reused, so N scrapers cost one journal read per interval. Default 15, floor 1."
+            "description": "How long a built health report is reused, so N scrapers cost one journal read per interval. Default 15, floor 1, ceiling 120 (2m)."
           },
           "scrape_token": {
             "$ref": "#/components/schemas/ScrapeTokenState"
