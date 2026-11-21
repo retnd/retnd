@@ -45,9 +45,18 @@ from bdtools import harness
 from bdtools.e2e import tests_pin
 
 PROGRAM = "tests checkout"
-# Every git call is bounded. A hung remote is INCOMPLETE, not a hung shard.
-GIT_TIMEOUT = 600.0
-GIT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true", "GIT_CONFIG_NOSYSTEM": "1"}
+# Every git call is bounded, the on-main check included. A hung remote is INCOMPLETE, not a hung shard.
+# RETND_TESTS_CHECKOUT_GIT_TIMEOUT (seconds) is for the tests, which use a short one.
+GIT_TIMEOUT = float(os.environ.get("RETND_TESTS_CHECKOUT_GIT_TIMEOUT", "600"))
+# No prompt, no askpass, and no user, global or system git config, so an insteadOf rewrite to ssh or a
+# credential helper cannot apply: the fetch is anonymous https or it fails.
+GIT_ENV = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ASKPASS": "true",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_SYSTEM": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+}
 
 
 def read_the_pin(root: Path) -> tuple[str, str]:
@@ -59,10 +68,13 @@ def read_the_pin(root: Path) -> tuple[str, str]:
     if not tests_pin.SHA.match(sha):
         harness.die(f"{tests_pin.PIN_RELATIVE} does not carry a full 40-character commit sha.")
     parts = urlsplit(url)
-    if not url or parts.username or parts.password or "@" in parts.netloc:
+    # https only. file:// is a seam for the unit cases, named by the test and nothing else.
+    schemes = {"https", *filter(None, os.environ.get("RETND_TESTS_CHECKOUT_TEST_SCHEMES", "").split(","))}
+    if not url or parts.scheme not in schemes or parts.username or parts.password or "@" in parts.netloc:
         harness.die(
-            f"{tests_pin.PIN_RELATIVE} has a TESTS_REPO_URL that is empty or carries credentials.",
-            "retnd-tests is public and is fetched anonymously; a token in the pin would land on disk and in git.",
+            f"{tests_pin.PIN_RELATIVE} has a TESTS_REPO_URL that is empty, is not https, or carries credentials.",
+            "retnd-tests is public and is fetched anonymously over https; an ssh or scp URL would use a key on the "
+            "host, and a token in the pin would land on disk and in git.",
         )
     return url, sha
 
@@ -70,6 +82,14 @@ def read_the_pin(root: Path) -> tuple[str, str]:
 def git(args: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ, **GIT_ENV)
     return harness.sh(["git", *args], cwd=cwd, env=env, timeout=GIT_TIMEOUT, check=check)
+
+
+def verified(checkout: Path, sha: str) -> bool:
+    """A cache hit is only a hit when the directory is a git checkout whose HEAD is the pinned sha."""
+    if not (checkout / ".complete").is_file():
+        return False
+    head = git(["rev-parse", "HEAD"], cwd=checkout, check=False)
+    return head.returncode == 0 and head.stdout.strip() == sha
 
 
 def body(root: Path) -> int:
@@ -81,18 +101,25 @@ def body(root: Path) -> int:
         harness.cannot_run(failure.message, *failure.details)
     if not reachable:
         harness.cannot_run(f"{url} cannot be reached, so the retnd-tests checkout cannot be made.")
-    tests_pin.require_on_main(url, sha)
+    try:
+        tests_pin.require_on_main(url, sha, timeout=GIT_TIMEOUT, env=dict(os.environ, **GIT_ENV))
+    except tests_pin.Unreachable as unreachable:
+        harness.cannot_run(unreachable.message, *unreachable.details)
 
     cache_home = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
     cache_root = Path(cache_home) / "retnd-tests-gate"
     checkout = cache_root / f"{sha}.src"
-    if not (checkout / ".complete").is_file():
+    if not verified(checkout, sha):
         print(f"==> {PROGRAM}: fetching retnd-tests at {sha[:12]}", file=sys.stderr, flush=True)
         cache_root.mkdir(parents=True, exist_ok=True)
         # Built beside the final place and renamed in once whole, so an
         # interrupted fetch is never mistaken for a checkout. A losing or
         # failed scratch directory is left where it is: this path is outside
         # any workspace directory, and leaking one is cheaper than a delete.
+        if checkout.exists():
+            # Something sits where the checkout goes and is not the pinned tree. Move it aside inside the cache
+            # (nothing is deleted) and fetch into a fresh directory.
+            os.rename(str(checkout), str(cache_root / f"{sha}.src.rejected.{os.getpid()}.{int(time.time())}"))
         scratch = cache_root / f"scratch-src.{os.getpid()}.{int(time.time())}"
         scratch.mkdir()
         try:
@@ -110,7 +137,7 @@ def body(root: Path) -> int:
             os.rename(str(scratch), str(checkout))
         except OSError:
             pass
-        if not (checkout / ".complete").is_file():
+        if not verified(checkout, sha):
             harness.die(f"could not publish the checkout to {checkout} (scratch left at {scratch}).")
     print(checkout)
     return harness.EXIT_OK
