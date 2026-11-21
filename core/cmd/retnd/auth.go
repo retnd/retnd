@@ -141,6 +141,11 @@ func authClient(ctx context.Context, cfgPath, verb string) (*apiclient.Client, i
 func anonymousAuthClient(cfgPath, verb string) (*apiclient.Client, int) {
 	noRoute := fmt.Errorf("%s is sent to the process serving this deployment as nobody in particular (there is no account to sign in as), and this command has no route to one. Set $%s to the engine's address (http://127.0.0.1:8080 from inside its container, or the published Web UI port); the two credential variables are not needed for this verb",
 		verb, apiURLEnv)
+	// Before hasLocalConfig, as engineOnlyRemote does: nothing at the new
+	// path is not "no deployment here" when the old path holds one (#1609).
+	if err := checkPreRenamePath(cfgPath); err != nil {
+		return nil, fail(fmt.Errorf("%s: %w", verb, err))
+	}
 	if hasLocalConfig(cfgPath) {
 		if _, err := config.LoadAndValidate(cfgPath); err != nil {
 			return nil, fail(fmt.Errorf("config: %w", err))

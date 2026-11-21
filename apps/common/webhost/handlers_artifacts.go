@@ -67,6 +67,9 @@ type artifactResponse struct {
 	Quarantined             bool   `json:"quarantined"`
 	QuarantineIrrecoverable bool   `json:"quarantine_irrecoverable"`
 	QuarantineReason        string `json:"quarantine_reason,omitempty"`
+	// Retirement is issue #1528's record of a RETIRED backup; absent for
+	// every other state.
+	Retirement *retirementRecordResponse `json:"retirement,omitempty"`
 
 	RetentionTier string `json:"retention_tier,omitempty"`
 
@@ -139,6 +142,9 @@ type placementResponse struct {
 // breaking a client that parsed a bare top-level array.
 type listArtifactsResponse struct {
 	Artifacts []artifactResponse `json:"artifacts"`
+	// NextCursor is issue #1528's cursor: the value to send back as
+	// `before` for the next page, or null when there is none.
+	NextCursor *string `json:"next_cursor"`
 }
 
 // artifactCheckResponse is POST /api/v1/quarantine/{id}/revalidate's body.
@@ -190,6 +196,10 @@ func toArtifactResponse(a service.Artifact) artifactResponse {
 	resp.DiscoveredAt = formatTime(a.DiscoveredAt)
 	resp.UpdatedAt = formatTime(a.UpdatedAt)
 	resp.RemoteSourceRemovedAt = formatTime(a.RemoteSourceRemovedAt)
+	if a.Retirement != nil {
+		r := toRetirementRecordResponse(*a.Retirement)
+		resp.Retirement = &r
+	}
 	return resp
 }
 
@@ -231,10 +241,24 @@ func formatTime(t time.Time) string {
 // zero rather than leaving it nil. That is what makes an empty result an
 // empty JSON array instead of null, and the two are not interchangeable to
 // a client: one iterates and the other has to be guarded first.
-func writeArtifactsResponse(w http.ResponseWriter, artifacts []service.Artifact) {
+//
+// Issue #1528 added the state filter and the cursor, and next_cursor is
+// always present (null at the end): it is how an agent's MCP client knows
+// this route can be asked for a smaller page instead of refusing an answer
+// over its result cap.
+func writeArtifactsResponse(w http.ResponseWriter, r *http.Request, all []service.Artifact) {
+	artifacts, next, ok := pageArtifacts(r, all)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
+			"state must be one or more lifecycle states separated by commas, limit must be a number, and before must be a next_cursor this route issued")
+		return
+	}
 	resp := listArtifactsResponse{Artifacts: make([]artifactResponse, 0, len(artifacts))}
 	for _, a := range artifacts {
 		resp.Artifacts = append(resp.Artifacts, toArtifactResponse(a))
+	}
+	if next != "" {
+		resp.NextCursor = &next
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -263,18 +287,25 @@ func (h *handlers) listArtifacts(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, "INTERNAL", "failed to list backups", err)
 		return
 	}
-	writeArtifactsResponse(w, artifacts)
+	writeArtifactsResponse(w, r, artifacts)
 }
 
 // listQuarantine is GET /api/v1/quarantine: the same read, narrowed to
 // the backups being held for a human. Read-only.
 func (h *handlers) listQuarantine(w http.ResponseWriter, r *http.Request) {
-	artifacts, err := h.backend.ListArtifacts(r.Context(), service.ArtifactFilter{QuarantinedOnly: true})
+	artifacts, err := h.backend.ListArtifacts(r.Context(), service.ArtifactFilter{
+		QuarantinedOnly: true,
+		BackupSetID:     r.URL.Query().Get("setId"),
+	})
 	if err != nil {
+		if errors.Is(err, service.ErrBackupSetNotFound) {
+			writeError(w, http.StatusNotFound, "BACKUP_SET_NOT_FOUND", "no such backup set")
+			return
+		}
 		h.internalError(w, r, "INTERNAL", "failed to list quarantined backups", err)
 		return
 	}
-	writeArtifactsResponse(w, artifacts)
+	writeArtifactsResponse(w, r, artifacts)
 }
 
 // getArtifact is GET /api/v1/backups/{id}. Read-only.
@@ -422,6 +453,21 @@ func (h *handlers) retryFailedIngestion(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := h.backend.RetryFailedArtifact(r.Context(), artifactIDFrom(r), req.Note); err != nil {
+		// Issue #1594: the engine refuses a retry that has nothing to
+		// fetch and a copy it cannot verify, and (#1611) one whose copy does
+		// not match the source that is still there, by name and with its own
+		// sentence, which names the way out. Spelled out code by code, like
+		// the retire refusals: a code the engine grows later is an internal
+		// error here until the contract declares it.
+		var refusal *service.RetryRefusal
+		if errors.As(err, &refusal) && refusal.Code == "RETRY_OWN_COPY_UNVERIFIED" {
+			writeError(w, http.StatusConflict, "RETRY_OWN_COPY_UNVERIFIED", refusal.Sentence)
+			return
+		}
+		if errors.As(err, &refusal) && refusal.Code == "RETRY_OWN_COPY_MISMATCH" {
+			writeError(w, http.StatusConflict, "RETRY_OWN_COPY_MISMATCH", refusal.Sentence)
+			return
+		}
 		if errors.Is(err, service.ErrArtifactNotFailed) {
 			writeError(w, http.StatusConflict, "ARTIFACT_NOT_FAILED",
 				"this backup is not stuck: it is making progress, already finished, or quarantined and waiting for a judgement")

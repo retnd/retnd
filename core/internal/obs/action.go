@@ -203,6 +203,13 @@ type mark struct {
 	result   Result
 	action   string
 	actionID string
+
+	// pastFloor writes the line whatever the floor is. Only Startup sets
+	// it: the startup line carries log_schema, the one place the schema
+	// version is written, and the service puts the configured floor on
+	// before any caller logs startup, so at warn or error it was dropped
+	// (#900 review). It adds no attribute.
+	pastFloor bool
 }
 
 // attrs renders the mark as the attributes it contributes to the log

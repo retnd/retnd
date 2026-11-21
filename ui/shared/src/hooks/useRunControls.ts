@@ -48,6 +48,7 @@
  * this paragraph a claim something can fail on rather than a description.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useMounted } from "./useMounted";
 
 import { useApi } from "@shared/api/ApiContext";
 import { newIdempotencyKey } from "@shared/api/client";
@@ -178,6 +179,7 @@ export function useRunControls(scope: RunScope = { kind: "all" }): RunControls {
   // refusal is the SAME logical submission, and the whole value of the
   // header is that the service can see that.
   const pendingKeys = useRef(new Map<string, string>());
+  const mountedRef = useMounted();
 
   const configRevision = version.data?.configRevision;
   const ready = typeof configRevision === "string" && configRevision !== "";
@@ -224,7 +226,7 @@ export function useRunControls(scope: RunScope = { kind: "all" }): RunControls {
         () => {
           // Done with this submission, so the next press is a new one.
           pendingKeys.current.delete(keyFor);
-          setBusy(false);
+          if (mountedRef.current) setBusy(false);
           emitBrowserNotice({
             outcome: "ok",
             code: "unknown",
@@ -234,7 +236,7 @@ export function useRunControls(scope: RunScope = { kind: "all" }): RunControls {
           });
         },
         (e: unknown) => {
-          setBusy(false);
+          if (mountedRef.current) setBusy(false);
           // The key is deliberately KEPT: pressing the button again is
           // the same submission retried, which is what the header is for.
           const failure = apiErrorOf(e);
@@ -260,7 +262,7 @@ export function useRunControls(scope: RunScope = { kind: "all" }): RunControls {
         }
       );
     },
-    [api, configRevision, enabledSetIds, ready]
+    [api, configRevision, enabledSetIds, ready, mountedRef]
   );
 
   // Narrowed to a plain string so the memo below depends on a value

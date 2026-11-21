@@ -167,6 +167,13 @@ export interface BackupSet {
    */
   readOnlyRetainedCount: number;
   /**
+   * How many of this set's backups are RETIRED (issue #1528): failures whose
+   * source is gone, kept on record and no longer counted as failing. From
+   * this set's own entry in GET /system/health (`retired_count`); absent or
+   * 0 when that report could not be read.
+   */
+  retiredCount?: number;
+  /**
    * Why the manager could not connect to this backup set the last time it
    * tried, so nothing was backed up. Absent when no refusal is on record
    * (#245).
@@ -555,6 +562,12 @@ export interface BackupArtifact {
    * everything else as "not that".
    */
   state: string;
+  /**
+   * The engine's record of a RETIRED backup (issue #1528): who or what
+   * retired it, what the source looked like then and which backup replaced
+   * it. Absent for every other state.
+   */
+  retirement?: ArtifactRetirement;
   validation: "verified" | "failed" | "pending";
   retentionClasses: RetentionClass[];
   /** Remote deletion is a lifecycle FACT, never a user action. */
@@ -806,4 +819,17 @@ export interface RetentionPlan {
    *  force, and that is the question this dialog exists to answer before
    *  an operator authorises a deletion. */
   retentionIsOverride: boolean;
+}
+
+/** A retirement record as the engine keeps it (issue #1528). */
+export interface ArtifactRetirement {
+  /** "automatic" (the engine's own pass), "operator" or "agent". */
+  actorKind: string;
+  actor: string;
+  retiredAt: string;
+  /** "absent", "present" or "unknown": what the source said then. */
+  sourceCheck: string;
+  /** The backup that replaced it, or "" when nothing does. */
+  supersededBy: string;
+  note: string;
 }

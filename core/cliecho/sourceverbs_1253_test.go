@@ -98,3 +98,26 @@ func TestEcho1253_SourceHostDescriptionIsTheReadOnlyPreflight(t *testing.T) {
 		}
 	}
 }
+
+// #1606: a body naming a holder token is that holder's renewal or release,
+// so the line says --token, with a placeholder for the value: the lease it
+// names is gone within ninety seconds of nobody renewing it, and the value
+// itself never goes on a line.
+func TestEcho1606_ATokenInTheBodyIsAPlaceholderOnTheLine(t *testing.T) {
+	params := map[string]string{"source": "api-server", "set": "var-backups"}
+	body := []byte(`{"token":"3f9c0d2a"}`)
+	for route, verb := range map[string]string{
+		"/backup-sets/{source}/{set}/edit-hold":         "--take",
+		"/backup-sets/{source}/{set}/edit-hold/release": "--release",
+	} {
+		line := Echo(Action{Method: "POST", Route: route, Params: params, Body: body})
+		got := strings.Join(line.Command, " ")
+		want := "retnd backup-set edit-hold api-server/var-backups " + verb + " --token <the token --take printed>"
+		if got != want {
+			t.Errorf("POST %s with a token echoes %q, want %q", route, got, want)
+		}
+		if strings.Contains(got, "3f9c0d2a") {
+			t.Errorf("POST %s put the token's value on the line: %s", route, got)
+		}
+	}
+}

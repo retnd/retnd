@@ -166,6 +166,18 @@ var queryValues = map[string][]string{
 // queryParamsNotEchoed is every declared query parameter a builder leaves
 // off its line on purpose, with the reason.
 var queryParamsNotEchoed = map[string]map[string]string{
+	// Issue #1528's paging. Both page the same list the terminal prints
+	// whole, so a line carrying them would describe less than the command
+	// prints.
+	"GET /backups": {
+		"limit":  "pages the list for a client with a size cap; `artifacts` prints the whole list, which is every page at once",
+		"before": "the cursor into a paged list; `artifacts` prints the whole list, so it has nothing to continue from",
+	},
+	"GET /quarantine": {
+		"limit":  "pages the list for a client with a size cap; `quarantine list` prints the whole list",
+		"before": "the cursor into a paged list; `quarantine list` prints the whole list",
+		"setId":  "narrows the list to one backup set; `quarantine list` has no set filter and prints every set's quarantined backups, which include that set's",
+	},
 	"GET /activity/live": {
 		"since":  "the browser's resume cursor into a feed it is already reading; a follow started at a terminal starts from now, and the verb has no flag for it",
 		"before": "a page backwards through the record while the live feed is open; the terminal reads older events with `activity --before`, which is GET /activity's line, and this route's line stays the follow",

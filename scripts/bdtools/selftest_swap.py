@@ -394,9 +394,34 @@ def mutant(root: Path, tmp: Path, name: str, *, dry_run: bool) -> Path:
 def discard(d: Path, root: Path) -> None:
     """Remove a mutant copy once its control has its verdict, so the copies do
     not pile up (127 of them at about 315 MB each in the recovery self-test).
-    The real tree, which `mutant` returns under `dry_run`, is never touched."""
-    if d != root:
-        shutil.rmtree(d, ignore_errors=True)
+    The real tree, which `mutant` returns under `dry_run`, is never touched,
+    however its path is spelled, and neither is a directory that holds it."""
+    real = root.resolve()
+    gone = d.resolve()
+    if gone == real or gone in real.parents:
+        return
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def one_at_a_time(make: Callable[[str], Path], root: Path) -> Callable[[str], Path]:
+    """`make`, with the copy it handed out last discarded first (#1580).
+
+    For a self-test whose cases each take a fresh copy in turn and never go
+    back to an earlier one. Each copy is about as big as the tree, and
+    keeping every one until the run's temporary directory went at the end
+    meant up to about thirty of them on disk at once; on a host whose /tmp
+    is tmpfs that is memory too. The last copy goes with the temporary
+    directory, as before, and so does everything when a case raises.
+    """
+    held: list[Path] = []
+
+    def next_copy(name: str) -> Path:
+        while held:
+            discard(held.pop(), root)
+        held.append(make(name))
+        return held[0]
+
+    return next_copy
 
 
 class Tally:

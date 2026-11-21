@@ -43,6 +43,13 @@ type Row struct {
 	Description string
 	Untrusted   []string
 	Why         string
+
+	// AgentMayNotSet names top-level body fields an agent may not send on
+	// this tool's request (issue #1528). The proposer refuses a request
+	// carrying any of them with AGENT_RETIRE_ACK_REFUSED before a person is
+	// asked, so an agent can propose only the conservative form of the act
+	// and a person's acknowledgement stays a person's.
+	AgentMayNotSet []string
 }
 
 // Key is "METHOD /route", the string cliecho keys its table by.
@@ -54,6 +61,7 @@ func Rows() []Row {
 	out := make([]Row, len(rows))
 	for i, r := range rows {
 		r.Untrusted = slices.Clone(r.Untrusted)
+		r.AgentMayNotSet = slices.Clone(r.AgentMayNotSet)
 		out[i] = r
 	}
 	return out
@@ -217,6 +225,22 @@ var toolRows = []Row{
 			"artifacts[].id", "artifacts[].name", "artifacts[].remote_path", "artifacts[].local_path", "artifacts[].validation_detail",
 			"artifacts[].quarantine_reason", "artifacts[].placements[].location",
 			"artifacts[].placements[].last_failure_reason", "artifacts[].placements[].recovery_failure_reason",
+			// Issue #1528: a RETIRED row carries its retirement record. The
+			// successor is a file name the source chose, the failure reason a
+			// remote error's text, and the note and actor are typed by people.
+			"artifacts[].retirement.superseded_by", "artifacts[].retirement.failure_reason",
+			"artifacts[].retirement.note", "artifacts[].retirement.actor",
+		},
+	},
+	{
+		Tool: "backup_retirement_show", Method: "GET", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeRead,
+		Description: "Read what retiring one failed backup would do: whether its source object is still there, which newer backup would replace it, and the refusal or effects. It changes nothing.",
+		Untrusted: []string{
+			"artifact", "failure_reason", "proposed_successor.name", "successor_candidates[].name", "retirement.superseded_by", "retirement.note",
+			"retirement.failure_reason", "retirement.actor", "command",
+			// Issue #1594: an effect line may name the kept own copy's path, and
+			// that path ends in the file name the source chose.
+			"effects[]",
 		},
 	},
 	{
@@ -225,6 +249,7 @@ var toolRows = []Row{
 		Untrusted: []string{
 			"id", "name", "remote_path", "local_path", "validation_detail", "quarantine_reason",
 			"placements[].location", "placements[].last_failure_reason", "placements[].recovery_failure_reason",
+			"retirement.superseded_by", "retirement.failure_reason", "retirement.note", "retirement.actor",
 		},
 	},
 	{
@@ -346,6 +371,12 @@ var toolRows = []Row{
 		Tool: "retry_backup", Method: "POST", Route: "/backups/{source}/{set}/{name}/retry", Scope: ScopeOperate,
 		Description: "Propose retrying one backup that failed. A person confirms it before anything starts.",
 		Untrusted:   []string{},
+	},
+	{
+		Tool: "retire_backup", Method: "POST", Route: "/backups/{source}/{set}/{name}/retire", Scope: ScopeOperate,
+		Description:    "Propose retiring one failed backup whose source object is gone and that a newer good backup replaces. A person confirms it before anything changes.",
+		Untrusted:      []string{"artifact", "retirement.superseded_by", "retirement.note", "retirement.failure_reason", "retirement.actor"},
+		AgentMayNotSet: []string{"accept_source_present", "no_successor", "accept_unverified_copy"},
 	},
 	{
 		Tool: "quarantine_revalidate", Method: "POST", Route: "/quarantine/{source}/{set}/{name}/revalidate", Scope: ScopeOperate,

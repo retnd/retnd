@@ -109,6 +109,7 @@ func wireBackupSetHealth(bs service.BackupSetHealth) apicontract.BackupSetHealth
 		Failures:              bs.Failures,
 		QuarantinedCount:      bs.QuarantinedCount,
 		QuarantinedLostCount:  bs.QuarantinedLostCount,
+		RetiredCount:          bs.RetiredCount,
 
 		ReinstatedRemoteRetainedCount: bs.ReinstatedRemoteRetainedCount,
 		ReadOnlyRetainedCount:         bs.ReadOnlyRetainedCount,

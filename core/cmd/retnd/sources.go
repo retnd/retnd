@@ -36,6 +36,11 @@ func cmdSources(args []string) int {
 		return printSourcesJSON(context.Background(), *cfgPath)
 	}
 
+	// #1609: or a deployment still mounted at its pre-0.5.0 path is told its
+	// configuration file does not exist.
+	if err := checkPreRenamePath(*cfgPath); err != nil {
+		return fail(err)
+	}
 	cfg, err := config.LoadAndValidate(*cfgPath)
 	if err != nil {
 		return fail(fmt.Errorf("config: %w", err))

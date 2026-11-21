@@ -343,13 +343,17 @@ def body(root: Path, dry_run: bool) -> int:
     with tempfile.TemporaryDirectory(prefix="retnd-retention-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
+        # One copy on disk at a time (#1580): the next case's copy replaces this one.
+        mutant = selftest_swap.one_at_a_time(
+            lambda name: selftest_swap.mutant(root, tmp, name, dry_run=dry_run), root
+        )
 
         print("==> negative control: the retention apply evidence is clean on the real tree")
         expect_gate_passes(tracker, tally, "the retention apply evidence on an unmutated tree", root, PASS_PATTERN)
 
         print()
         print("==> the apply carries out the plan")
-        d = selftest_swap.mutant(root, tmp, "apply-deletes-nothing", dry_run=dry_run)
+        d = mutant("apply-deletes-nothing")
         tracker.swap(d / PRUNE_GO, APPLY_DELETES_NOTHING_OLD, APPLY_DELETES_NOTHING_NEW)
         expect_gate_fails(
             tracker,
@@ -362,7 +366,7 @@ def body(root: Path, dry_run: bool) -> int:
 
         print()
         print("==> the apply removes ONLY what the plan named")
-        d = selftest_swap.mutant(root, tmp, "apply-reaches-past-its-plan", dry_run=dry_run)
+        d = mutant("apply-reaches-past-its-plan")
         tracker.swap(d / PRUNE_GO, APPLY_REACHES_PAST_ITS_PLAN_OLD, APPLY_REACHES_PAST_ITS_PLAN_NEW)
         expect_gate_fails(
             tracker,
@@ -375,7 +379,7 @@ def body(root: Path, dry_run: bool) -> int:
 
         print()
         print("==> FR-20: a symlink at a final path is refused, never followed")
-        d = selftest_swap.mutant(root, tmp, "symlink-followed", dry_run=dry_run)
+        d = mutant("symlink-followed")
         tracker.swap(d / PRUNE_GO, SYMLINK_FOLLOWED_OLD, SYMLINK_FOLLOWED_NEW)
         expect_gate_fails(
             tracker,
@@ -389,7 +393,7 @@ def body(root: Path, dry_run: bool) -> int:
 
         print()
         print("==> FR-19 and FR-30: the last known good")
-        d = selftest_swap.mutant(root, tmp, "last-known-good-never-decided", dry_run=dry_run)
+        d = mutant("last-known-good-never-decided")
         tracker.swap(d / LASTKNOWNGOOD_GO, LAST_KNOWN_GOOD_NEVER_DECIDED_OLD, LAST_KNOWN_GOOD_NEVER_DECIDED_NEW)
         expect_gate_fails(
             tracker,
@@ -401,7 +405,7 @@ def body(root: Path, dry_run: bool) -> int:
             "TestPruneDecideKeepsLastKnownGoodArtifact",
         )
 
-        d = selftest_swap.mutant(root, tmp, "last-known-good-copy-not-confirmed", dry_run=dry_run)
+        d = mutant("last-known-good-copy-not-confirmed")
         tracker.swap(
             d / PRUNE_GO, LAST_KNOWN_GOOD_COPY_NOT_CONFIRMED_OLD, LAST_KNOWN_GOOD_COPY_NOT_CONFIRMED_NEW
         )
@@ -415,7 +419,7 @@ def body(root: Path, dry_run: bool) -> int:
             "TestPruneRefusesEveryDeleteWhenTheLastKnownGood",
         )
 
-        d = selftest_swap.mutant(root, tmp, "apply-time-last-known-good-not-reconfirmed", dry_run=dry_run)
+        d = mutant("apply-time-last-known-good-not-reconfirmed")
         tracker.swap(
             d / PRUNE_GO,
             APPLY_TIME_LAST_KNOWN_GOOD_NOT_RECONFIRMED_OLD,
@@ -432,7 +436,7 @@ def body(root: Path, dry_run: bool) -> int:
 
         print()
         print("==> the CLI verb's confirmation")
-        d = selftest_swap.mutant(root, tmp, "acknowledge-not-required", dry_run=dry_run)
+        d = mutant("acknowledge-not-required")
         tracker.swap(d / RETENTIONAPPLY_GO, ACKNOWLEDGE_NOT_REQUIRED_OLD, ACKNOWLEDGE_NOT_REQUIRED_NEW)
         expect_gate_fails(
             tracker,
@@ -445,7 +449,7 @@ def body(root: Path, dry_run: bool) -> int:
 
         print()
         print("==> the guard on the guard")
-        d = selftest_swap.mutant(root, tmp, "comparison-cannot-fail", dry_run=dry_run)
+        d = mutant("comparison-cannot-fail")
         tracker.swap(d / RETENTIONAPPLYEVIDENCE_TEST_GO, COMPARISON_CANNOT_FAIL_OLD, COMPARISON_CANNOT_FAIL_NEW)
         expect_gate_fails(
             tracker,

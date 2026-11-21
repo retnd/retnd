@@ -65,6 +65,12 @@ type BackupSetHealth struct {
 	QuarantinedCount     int
 	QuarantinedLostCount int
 
+	// RetiredCount is how many of this set's backups are RETIRED (issue
+	// #1528): failures nobody needs to act on any more, counted apart from
+	// Failures so nothing is hidden. See internal/health's field of the
+	// same name.
+	RetiredCount int
+
 	// ReinstatedRemoteRetainedCount is how many artifacts in this set were
 	// returned to service out of quarantine and still hold a remote source
 	// this manager has undertaken never to delete (issue #227). It only
@@ -328,6 +334,7 @@ func toServiceBackupSetHealth(bs health.BackupSetHealth) BackupSetHealth {
 		Failures:             bs.Failures,
 		QuarantinedCount:     bs.QuarantinedCount,
 		QuarantinedLostCount: bs.QuarantinedLostCount,
+		RetiredCount:         bs.RetiredCount,
 
 		ReinstatedRemoteRetainedCount: bs.ReinstatedRemoteRetainedCount,
 		ReadOnlyRetainedCount:         bs.ReadOnlyRetainedCount,

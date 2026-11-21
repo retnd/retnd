@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { RetndError } from "@shared/api/contracts";
 import type {
@@ -196,6 +197,7 @@ function RetentionPolicyEditor({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<ApiError | null>(null);
+  const mountedRef = useMounted();
   const [saved, setSaved] = useState(false);
 
   const namePattern = new RegExp(schema.tierNamePattern);
@@ -262,6 +264,7 @@ function RetentionPolicyEditor({
         // against the draft: defaults it resolved and values it
         // canonicalised are part of the answer, and the next "has
         // anything changed" comparison has to be made against those.
+        if (!mountedRef.current) return;
         setBaseline(next.retention);
         setTimezone(next.retention.timezone);
         setWeekStartsOn(next.retention.weekStartsOn);
@@ -271,6 +274,7 @@ function RetentionPolicyEditor({
         setSaved(true);
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setSaveError(
           e instanceof RetndError
             ? e.api
@@ -281,7 +285,7 @@ function RetentionPolicyEditor({
               }
         );
       })
-      .finally(() => setBusy(false));
+      .finally(() => { if (mountedRef.current) setBusy(false); });
   }
 
   function onSave() {

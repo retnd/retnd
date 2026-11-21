@@ -75,6 +75,7 @@ gate_announce() {
   gate_clock
   if [ -n "$gate_clock_prev" ]; then
     gate_clock_note="previous step $((gate_clock_epoch - gate_clock_prev))s"
+    gate_watchdog_record_done "$gate_last_step"
   else
     gate_clock_start="$gate_clock_epoch"
     gate_clock_note="run start"
@@ -108,13 +109,16 @@ gate_clock_close() {
   echo "==> step clock: $gate_last_step took $((gate_clock_epoch - gate_clock_prev))s, run took $((gate_clock_epoch - gate_clock_start))s"
 }
 
-# gate_step <heading>
+# gate_step <heading> [--stall-min N] [--cap-min N]
 # A step that needs no Docker daemon. It also gives the gate lock back
 # (#1260): the lock is held across the Docker-backed steps only, so a run
 # sitting in a Docker-free stretch is not holding thirty other lanes up.
+# The options override the stall watchdog's limits for this one step
+# (#1540, see gate_watchdog_step).
 gate_step() {
   gate_lock_release
   gate_announce "$1"
+  gate_watchdog_step "$@"
 }
 
 # gate_lint <module dir> [package...]
@@ -238,8 +242,13 @@ GATE_DOCKER_SUITES="core/tests/... (the crash matrix), the SFTP integration test
 # `docker info` rather than `command -v docker`: the binary being installed
 # says nothing about the daemon being up, and it is the daemon that decides
 # whether those suites run or t.Skip.
+#
+# Bounded (#1540 review): a daemon that has wedged answers `docker info`
+# never, and a probe that never returns is a gate that never moves. Past
+# GATE_DOCKER_INFO_TIMEOUT seconds the daemon counts as unavailable.
+GATE_DOCKER_INFO_TIMEOUT="${GATE_DOCKER_INFO_TIMEOUT:-120}"
 gate_docker_state() {
-  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1 && gate_bounded "$GATE_DOCKER_INFO_TIMEOUT" docker info >/dev/null 2>&1; then
     echo available
   else
     echo unavailable
@@ -334,12 +343,16 @@ gate_recheck_docker() {
     return 0
   fi
 
+  # From here on the step runs with no daemon, so its Docker suites t.Skip
+  # and it ends early: the stall watchdog must not record that time (#1540).
   if [ "$gate_docker_verified" != 1 ]; then
+    gate_wd_step_soft=1
     gate_note_docker_skip "the Docker daemon was never reachable in this run, so those tests t.Skip themselves and report ok"
     return 0
   fi
 
   if [ "${CI_LOCAL_SKIP_DOCKER:-0}" = "1" ]; then
+    gate_wd_step_soft=1
     gate_note_docker_skip "the Docker daemon answered at the preflight and had gone away by \"$1\", so those tests t.Skip themselves and report ok (CI_LOCAL_SKIP_DOCKER=1)"
     return 0
   fi
@@ -361,15 +374,58 @@ gate_recheck_docker() {
   return 1
 }
 
-# gate_docker_step <heading>
+# gate_docker_step <heading> [--stall-min N] [--cap-min N]
 # gate_step for a step that cannot honestly run without the daemon: announce
 # it, then prove the daemon is still there before its command runs. One
 # function rather than two lines per step, because the guard that gets
 # forgotten at one call site is the one that matters.
+#
+# The watchdog is paused while the lock is waited for: that wait has its own
+# limit (GATE_LOCK_TIMEOUT) and prints one line in two hours, so watching it
+# for output would kill every lane that queues. The step's clock starts the
+# moment the lock is held, before the daemon probe: a probe that hangs while
+# this run holds the lock is exactly the stall everyone else queues behind.
 gate_docker_step() {
   gate_announce "$1"
+  gate_watchdog_pause "$1"
   gate_lock_acquire
+  gate_watchdog_step "$@"
   gate_recheck_docker "$1"
+}
+
+# gate_bounded <seconds> <command...>
+# The command, killed after <seconds>. timeout(1) where it exists; a stock
+# macOS has none, so otherwise a background sleeper does the same job.
+gate_bounded() {
+  gate_bd_secs="$1"
+  shift
+  # The status is passed on by number: a bare `return` in a function called
+  # from a trap hands back the status from before the trap (the gate's exit
+  # status, in gate_on_exit), not the command's.
+  if command -v timeout >/dev/null 2>&1; then
+    gate_bd_rc=0
+    timeout "$gate_bd_secs" "$@" || gate_bd_rc=$?
+    return "$gate_bd_rc"
+  fi
+  # The command runs as an asynchronous list, so its stdin is /dev/null and
+  # it ignores SIGINT: right for docker info, ps and rm, worth knowing before
+  # this is used for anything that reads input. The sleeper waits on its own
+  # sleep and takes it down when it is stopped, so a command that finishes in
+  # time leaves no stray `sleep <seconds>` behind.
+  "$@" &
+  gate_bd_pid=$!
+  (
+    trap 'kill "$gate_bd_nap" 2>/dev/null; exit 0' TERM
+    sleep "$gate_bd_secs" &
+    gate_bd_nap=$!
+    wait "$gate_bd_nap" && kill "$gate_bd_pid" 2>/dev/null
+  ) >/dev/null 2>&1 &
+  gate_bd_sleeper=$!
+  gate_bd_rc=0
+  wait "$gate_bd_pid" || gate_bd_rc=$?
+  kill "$gate_bd_sleeper" 2>/dev/null || true
+  wait "$gate_bd_sleeper" 2>/dev/null || true
+  return "$gate_bd_rc"
 }
 
 # ------------------------------------------------------------ the gate lock
@@ -811,6 +867,571 @@ gate_stop_docker_sentinel() {
   docker rm -f "$gate_sentinel_going" >/dev/null 2>&1 || true
 }
 
+# ------------------------------------------------------ the stall watchdog
+#
+# A step that hangs (a container waiting on a lock, a browser that never
+# exits, a self-test stuck on a network call) used to hold its shard and its
+# host until somebody noticed by hand (#1540). Every step is watched now, from
+# a small background process that the first step starts:
+#
+#   - no progress: when nothing the gate prints grows for RETND_GATE_STALL_MIN
+#     minutes (default 10), the step is stalled;
+#   - hard cap: a step that keeps printing and never ends is stopped once it
+#     has run 1.5 times the longest of its last three recorded durations
+#     (never less than RETND_GATE_STEP_CAP_FLOOR_MIN, default 20, or two of
+#     the step's own stall windows, whichever is more), or
+#     RETND_GATE_STEP_CAP_MIN (default 180) when this host has no record of
+#     it yet. A step that completes without adding to the skip ledger records
+#     how long it took in <git common dir>/ci-local-step-durations.<host id>,
+#     where the host id is RETND_GATE_HOST_ID, else the hostname. A hostname
+#     of twelve hex digits is a container's own id, new every run, so under
+#     it nothing is recorded (scripts/ci-docker.sh names its containers).
+#
+# Waits on a lock are not counted against the step: its clocks start once
+# the lock is held. The gate lock (gate_docker_step) has its own limit,
+# GATE_LOCK_TIMEOUT; the Playwright lock (gate_watchdog_hold) has none, so
+# that wait is bounded by RETND_GATE_STEP_CAP_MIN.
+#
+# A stalled step gets its diagnostics captured first (the last 40 lines it
+# printed, its processes, the containers labelled with this worktree's
+# dockerlease owner), then its processes get TERM and, GATE_STALL_GRACE
+# seconds later, KILL, its containers are removed, and the run ends
+#
+#   ==> ci-local: FAILED (STALLED: <step>, <why>)
+#
+# STALLED is its own word inside the FAILED verdict rather than a fourth
+# verdict, because everything that reads this gate (the recorder, the shard
+# runner, merge-gate.sh) already reads FAILED, and a stalled step is a failure.
+#
+# Progress is measured on the gate's own output: once the first step starts,
+# the gate's stdout and stderr go through tee into a log the watchdog
+# measures, so a step's commands see a pipe where they might have seen a
+# terminal. Both limits at 0 turn all of it off.
+
+RETND_GATE_STALL_MIN="${RETND_GATE_STALL_MIN:-10}"
+RETND_GATE_STEP_CAP_MIN="${RETND_GATE_STEP_CAP_MIN:-180}"
+RETND_GATE_STEP_CAP_FLOOR_MIN="${RETND_GATE_STEP_CAP_FLOOR_MIN:-20}"
+GATE_STALL_POLL="${GATE_STALL_POLL:-15}"
+GATE_STALL_GRACE="${GATE_STALL_GRACE:-10}"
+
+gate_wd_armed=0
+gate_wd_dir=""
+gate_wd_pid=""
+gate_wd_tees=""
+gate_wd_serial=0
+gate_wd_segment=""
+gate_wd_durations=""
+gate_wd_owner=""
+gate_wd_step_began=""
+gate_wd_step_skips=""
+gate_wd_resume=""
+gate_wd_step_soft=""
+
+# gate_minutes_to_seconds <minutes> -> whole seconds, or nothing at all for a
+# value that is not a plain number of minutes (fractions are fine).
+gate_minutes_to_seconds() {
+  awk -v m="$1" 'BEGIN { if (m ~ /^[0-9]+(\.[0-9]+)?$/ || m ~ /^\.[0-9]+$/) printf "%d\n", m * 60 }'
+}
+
+# gate_watchdog_arm
+# Called once by ci-local.sh after the traps. It only checks the knobs; the
+# watchdog itself starts with the first step, so --list-shards and the
+# preflight refusals start nothing.
+gate_watchdog_arm() {
+  gate_wd_stall_s="$(gate_minutes_to_seconds "$RETND_GATE_STALL_MIN")"
+  gate_wd_cap_s="$(gate_minutes_to_seconds "$RETND_GATE_STEP_CAP_MIN")"
+  gate_wd_floor_s="$(gate_minutes_to_seconds "$RETND_GATE_STEP_CAP_FLOOR_MIN")"
+  if [ -z "$gate_wd_stall_s" ] || [ -z "$gate_wd_cap_s" ] || [ -z "$gate_wd_floor_s" ]; then
+    gate_marked=1
+    echo "==> ci-local: FAILED (stall watchdog). RETND_GATE_STALL_MIN=[$RETND_GATE_STALL_MIN], RETND_GATE_STEP_CAP_MIN=[$RETND_GATE_STEP_CAP_MIN] and RETND_GATE_STEP_CAP_FLOOR_MIN=[$RETND_GATE_STEP_CAP_FLOOR_MIN] have to be a number of minutes; 0 turns the first two off." >&2
+    return 1
+  fi
+  if [ "$gate_wd_stall_s" = 0 ] && [ "$gate_wd_cap_s" = 0 ]; then
+    echo "==> stall watchdog: off (RETND_GATE_STALL_MIN=0 and RETND_GATE_STEP_CAP_MIN=0)"
+    return 0
+  fi
+  gate_wd_armed=1
+}
+
+# gate_watchdog_owner -> the dockerlease owner of this worktree's test
+# containers, computed exactly as core/tests/dockerlease does: the first 12
+# hex digits of sha256(RETND_TEST_OWNER, else the git toplevel, else
+# "host:<hostname>").
+gate_watchdog_owner() {
+  gwo_in="${RETND_TEST_OWNER:-}"
+  [ -n "$gwo_in" ] || gwo_in="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$gwo_in" ] || gwo_in="host:$(hostname)"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$gwo_in" | sha256sum | cut -c1-12
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$gwo_in" | shasum -a 256 | cut -c1-12
+  else
+    printf '%s' "$gwo_in" | openssl dgst -sha256 -r 2>/dev/null | cut -c1-12
+  fi
+}
+
+# gate_watchdog_docker <docker args...>
+# docker for the watchdog's own calls, always bounded, because the daemon not
+# answering is one of the ways a step stalls.
+gate_watchdog_docker() {
+  gate_bounded 30 docker "$@"
+}
+
+# gate_watchdog_host_id -> the name this host's duration records go under,
+# or nothing when there is no stable one. RETND_GATE_HOST_ID wins; otherwise
+# the hostname, unless it is twelve hex digits: that is a container's own id,
+# a new one every run, and records under it would never be read back.
+gate_watchdog_host_id() {
+  gwh="${RETND_GATE_HOST_ID:-}"
+  if [ -z "$gwh" ]; then
+    gwh="$(hostname 2>/dev/null || true)"
+    if printf '%s' "$gwh" | grep -qE '^[0-9a-f]{12}$'; then
+      return 0
+    fi
+  fi
+  [ -n "$gwh" ] || return 0
+  printf '%s' "$gwh" | tr -c 'A-Za-z0-9._-' '_'
+}
+
+# gate_watchdog_start
+# Runs in the gate's own shell, at the first step. Puts the gate's output
+# through tee into the log the watchdog measures, then starts the watchdog.
+# One tee when stdout and stderr are the same file (a terminal, or 2>&1), so
+# their order survives; two when a caller keeps them apart. The tees ignore
+# INT, TERM and HUP so a signal sent to the whole process group (timeout(1)
+# does that) cannot take them down before the gate prints its verdict; they
+# end when the gate closes its side.
+gate_watchdog_start() {
+  gate_wd_armed=0
+  gate_wd_dir="$(mktemp -d "${TMPDIR:-/tmp}/ci-local-watch.XXXXXX" 2>/dev/null || true)"
+  if [ -z "$gate_wd_dir" ] || ! mkfifo "$gate_wd_dir/out" 2>/dev/null ||
+     { ! [ /dev/fd/1 -ef /dev/fd/2 ] && ! mkfifo "$gate_wd_dir/err" 2>/dev/null; }; then
+    echo "==> stall watchdog: could not set up here (mktemp or mkfifo failed), so this run's steps are not watched for stalls" >&2
+    [ -z "$gate_wd_dir" ] || rm -rf "$gate_wd_dir"
+    gate_wd_dir=""
+    return 0
+  fi
+  gate_wd_log="$gate_wd_dir/log"
+  : >"$gate_wd_log"
+  gate_wd_owner="$(gate_watchdog_owner)"
+  gate_wd_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  gate_wd_host="$(gate_watchdog_host_id)"
+  if [ -n "$gate_wd_common" ] && [ -n "$gate_wd_host" ]; then
+    gate_wd_durations="$gate_wd_common/ci-local-step-durations.$gate_wd_host"
+  fi
+  gate_wd_gate=$$
+  (trap '' INT TERM HUP; exec tee -a "$gate_wd_log") <"$gate_wd_dir/out" &
+  gate_wd_tees="$!"
+  if [ -p "$gate_wd_dir/err" ]; then
+    (trap '' INT TERM HUP; exec tee -a "$gate_wd_log" >&2) <"$gate_wd_dir/err" &
+    gate_wd_tees="$gate_wd_tees $!"
+    exec >"$gate_wd_dir/out" 2>"$gate_wd_dir/err"
+  else
+    exec >"$gate_wd_dir/out" 2>&1
+  fi
+  gate_watchdog_loop </dev/null >/dev/null 2>&1 &
+  gate_wd_pid="$!"
+  echo "$gate_wd_pid $gate_wd_tees" >"$gate_wd_dir/spared"
+  if [ "$gate_wd_stall_s" = 0 ]; then
+    gws_what="the no-progress check is off (RETND_GATE_STALL_MIN=0)"
+  else
+    gws_what="after ${gate_wd_stall_s}s with no output (RETND_GATE_STALL_MIN)"
+  fi
+  if [ "$gate_wd_cap_s" = 0 ]; then
+    gws_what="$gws_what; the hard cap is off (RETND_GATE_STEP_CAP_MIN=0)"
+  else
+    gws_what="$gws_what, or past its hard cap (1.5 times its longest recent duration, at least ${gate_wd_floor_s}s, else ${gate_wd_cap_s}s)"
+  fi
+  echo "==> stall watchdog: a step is stopped and ledgered STALLED $gws_what (#1540)"
+  if [ -z "$gate_wd_durations" ]; then
+    echo "==> stall watchdog: no stable host id here (no git dir, or the hostname is a container's id), so step durations are not recorded; RETND_GATE_HOST_ID names one"
+  fi
+}
+
+# gate_watchdog_step <heading> [--stall-min N] [--cap-min N]
+# Hands the step that starts now to the watchdog: its limits, and a serial
+# number so the watchdog can tell it from the step before it.
+gate_watchdog_step() {
+  gws_heading="$1"
+  shift
+  gws_stall=""
+  gws_cap=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --stall-min|--cap-min)
+        gws_s=""
+        [ "$#" -lt 2 ] || gws_s="$(gate_minutes_to_seconds "$2")"
+        if [ -z "$gws_s" ]; then
+          gate_marked=1
+          echo "==> ci-local: FAILED ($gws_heading). gate_step $1 needs a number of minutes." >&2
+          return 1
+        fi
+        if [ "$1" = --stall-min ]; then gws_stall="$gws_s"; else gws_cap="$gws_s"; fi
+        shift 2
+        ;;
+      *)
+        gate_marked=1
+        echo "==> ci-local: FAILED ($gws_heading). gate_step does not know the option [$1]." >&2
+        return 1
+        ;;
+    esac
+  done
+  [ "$gate_wd_armed" != 1 ] || gate_watchdog_start
+  [ -n "$gate_wd_dir" ] || return 0
+  [ -n "$gws_stall" ] || gws_stall="$gate_wd_stall_s"
+  if [ -z "$gws_cap" ]; then
+    gws_cap="$gate_wd_cap_s"
+    if [ "$gate_wd_cap_s" != 0 ]; then
+      gws_rec="$(gate_watchdog_recorded "$gws_heading")"
+      if [ -n "$gws_rec" ]; then
+        # The floor is RETND_GATE_STEP_CAP_FLOOR_MIN or two of this step's own
+        # stall windows, whichever is more: a step given a long window (the
+        # core go test steps, --stall-min 50) is one whose healthy cold run
+        # is long, while its cached runs are what fill the record.
+        gws_floor="$gate_wd_floor_s"
+        [ "$gws_floor" -ge $((gws_stall * 2)) ] || gws_floor=$((gws_stall * 2))
+        gws_cap=$((gws_rec * 3 / 2))
+        [ "$gws_cap" -ge "$gws_floor" ] || gws_cap="$gws_floor"
+        [ "$gws_cap" -gt 0 ] || gws_cap="$gate_wd_cap_s"
+      fi
+    fi
+  fi
+  gate_wd_cur_heading="$gws_heading"
+  gate_wd_cur_stall="$gws_stall"
+  gate_wd_cur_cap="$gws_cap"
+  gate_wd_step_began="$(date +%s)"
+  gate_wd_step_skips="$gate_skipped"
+  gate_wd_step_soft=""
+  gate_wd_resume=""
+  gate_wd_serial=$((gate_wd_serial + 1))
+  gate_watchdog_write "$gate_wd_serial" "$gws_stall" "$gws_cap" "$gws_heading" ""
+}
+
+# gate_watchdog_pause <heading>
+# A step with no limits, for the wait on the gate lock.
+gate_watchdog_pause() {
+  [ -n "$gate_wd_dir" ] || return 0
+  gate_wd_serial=$((gate_wd_serial + 1))
+  gate_watchdog_write "$gate_wd_serial" 0 0 "$1 (waiting for the gate lock)" ""
+}
+
+# gate_watchdog_hold
+# For a wait inside the step's own command on a lock that is not the step's
+# (the Playwright lock, which has no limit of its own, so the wait is
+# bounded by RETND_GATE_STEP_CAP_MIN): the step's clocks stop until the command writes the time
+# into $gate_wd_resume, which this sets (empty when no watchdog runs), and
+# start again from that moment with the step's own limits. The command runs as
+#   <lock> sh -c '[ -z "$1" ] || date +%s >"$1"; shift; exec "$@"' sh "$gate_wd_resume" <command...>
+gate_watchdog_hold() {
+  gate_wd_resume=""
+  [ -n "$gate_wd_dir" ] || return 0
+  gate_wd_serial=$((gate_wd_serial + 1))
+  gate_wd_resume="$gate_wd_dir/resume.$gate_wd_serial"
+  gate_watchdog_write "$gate_wd_serial" "$gate_wd_cur_stall" "$gate_wd_cur_cap" "$gate_wd_cur_heading" "$gate_wd_resume"
+}
+
+# gate_watchdog_write <serial> <stall seconds> <cap seconds> <heading> <resume file>
+# Written whole and renamed into place, so the watchdog never reads half.
+gate_watchdog_write() {
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$1" "$(date +%s)" "$2" "$3" "$4" "$gate_wd_segment" "$5" >"$gate_wd_dir/step.tmp"
+  mv -f "$gate_wd_dir/step.tmp" "$gate_wd_dir/step"
+}
+
+# gate_watchdog_recorded <heading> -> the longest of the (up to three) runs
+# of that step this host has on record, in seconds, or nothing.
+gate_watchdog_recorded() {
+  [ -n "$gate_wd_durations" ] && [ -f "$gate_wd_durations" ] || return 0
+  GATE_WD_HEADING="$1" awk -F '\t' '$2 == ENVIRON["GATE_WD_HEADING"] && $1 ~ /^[0-9]+$/ && $1 + 0 > m + 0 { m = $1 } END { if (m != "") print m }' "$gate_wd_durations" 2>/dev/null || true
+}
+
+# gate_watchdog_record_done <heading>
+# The step that just ended, on record: from the moment its clocks started
+# (after the gate lock, after the Playwright lock) to now, keeping its last
+# three runs. Not a step that added to the skip ledger: one that ended early
+# and let the run carry on (the e2e lane exiting 3, a self-test left out for
+# memory) took less time than the step does, and would cap the next healthy
+# run short. Best effort, and only while the watchdog runs (so the library's
+# own self-test, which drives these functions in the real checkout, writes
+# nothing into the real git directory).
+gate_watchdog_record_done() {
+  [ -n "$gate_wd_dir" ] && [ -n "$gate_wd_durations" ] && [ -n "$gate_wd_step_began" ] || return 0
+  [ "$gate_skipped" = "$gate_wd_step_skips" ] || return 0
+  # A Docker step that ran without a daemon: its suites t.Skip, and the
+  # ledger only takes that once per run, so the string test above misses
+  # every Docker step after the first (gate_recheck_docker sets this).
+  [ -z "${gate_wd_step_soft:-}" ] || return 0
+  grd_began="$gate_wd_step_began"
+  if [ -n "$gate_wd_resume" ] && [ -s "$gate_wd_resume" ]; then
+    grd_began="$(head -n 1 "$gate_wd_resume")"
+    case "$grd_began" in ''|*[!0-9]*) grd_began="$gate_wd_step_began" ;; esac
+  fi
+  grd_secs=$(( $(date +%s) - grd_began ))
+  gate_wd_step_began=""
+  {
+    [ ! -f "$gate_wd_durations" ] || GATE_WD_HEADING="$1" awk -F '\t' '
+      { line[NR] = $0; if ($2 == ENVIRON["GATE_WD_HEADING"]) mine[++n] = NR }
+      END {
+        for (j = 1; j <= n - 2; j++) drop[mine[j]] = 1
+        for (i = 1; i <= NR; i++) if (!(i in drop)) print line[i]
+      }' "$gate_wd_durations"
+    printf '%s\t%s\n' "$grd_secs" "$1"
+  } >"$gate_wd_durations.$$" 2>/dev/null && mv -f "$gate_wd_durations.$$" "$gate_wd_durations" 2>/dev/null || rm -f "$gate_wd_durations.$$" 2>/dev/null || true
+}
+
+# gate_watchdog_tree <root pids> <spared pids> -> every descendant of the roots
+# (one pid, or several separated by spaces), leaving out the roots, the spared
+# processes and everything under them.
+gate_watchdog_tree() {
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v roots="$1" -v spared="$2" '
+    { parent[$1] = $2; order[NR] = $1 }
+    END {
+      n = split(spared, s, " ")
+      for (i = 1; i <= n; i++) skip[s[i]] = 1
+      n = split(roots, r, " ")
+      for (i = 1; i <= n; i++) { mine[r[i]] = 1; root[r[i]] = 1 }
+      do {
+        grew = 0
+        for (i = 1; i <= NR; i++) {
+          p = order[i]
+          if (!(p in mine) && !(p in skip) && (parent[p] in mine)) { mine[p] = 1; grew = 1 }
+        }
+      } while (grew)
+      for (p in mine) if (!(p in root)) print p
+    }'
+}
+
+# gate_watchdog_loop
+# The watchdog. A background child of the gate, holding none of its output.
+# It ends with the gate: when the gate goes (even by SIGKILL, which runs no
+# trap) it removes the state directory itself.
+gate_watchdog_loop() {
+  gwl_serial=""
+  gwl_size=""
+  gwl_quiet=0
+  gwl_start=0
+  gwl_held=""
+  while gate_watchdog_alive; do
+    sleep "$GATE_STALL_POLL"
+    [ -f "$gate_wd_dir/step" ] || continue
+    {
+      read -r gwl_s_serial
+      read -r gwl_s_epoch
+      read -r gwl_s_stall
+      read -r gwl_s_cap
+      read -r gwl_s_heading
+      read -r gwl_s_segment
+      read -r gwl_s_hold
+    } <"$gate_wd_dir/step" || continue
+    gwl_now="$(date +%s)"
+    gwl_cur="$(wc -c <"$gate_wd_log" | tr -d ' ')"
+    if [ "$gwl_s_serial" != "$gwl_serial" ]; then
+      gwl_serial="$gwl_s_serial"
+      gwl_size="$gwl_cur"
+      gwl_quiet="$gwl_now"
+      gwl_start="$gwl_s_epoch"
+      gwl_held="$gwl_s_hold"
+      continue
+    fi
+    # Held for a lock inside the step: nothing counts until the step's
+    # command says it has the lock, and then both clocks start from there.
+    # That lock (xdg-pw-lock.sh) has no limit of its own and waits on a live
+    # holder for ever, so the wait is bounded by RETND_GATE_STEP_CAP_MIN: a
+    # Playwright run hung in another repository must not hold this gate, and
+    # the gate lock it holds, for good.
+    if [ -n "$gwl_held" ]; then
+      if [ -e "$gwl_held" ]; then
+        gwl_held=""
+        gwl_size="$gwl_cur"
+        gwl_quiet="$gwl_now"
+        gwl_start="$gwl_now"
+        continue
+      fi
+      if [ "$gate_wd_cap_s" -gt 0 ] && [ $((gwl_now - gwl_start)) -ge "$gate_wd_cap_s" ]; then
+        gwl_why="waited $((gwl_now - gwl_start))s for the lock its command runs under, past the ${gate_wd_cap_s}s RETND_GATE_STEP_CAP_MIN"
+        [ "$(head -n 1 "$gate_wd_dir/step" 2>/dev/null)" = "$gwl_serial" ] || continue
+        gate_watchdog_fire "$gwl_s_heading" "$gwl_why" "$gwl_s_segment" "$gwl_serial" || continue
+        return 0
+      fi
+      continue
+    fi
+    if [ "$gwl_cur" != "$gwl_size" ]; then
+      gwl_size="$gwl_cur"
+      gwl_quiet="$gwl_now"
+    fi
+    gwl_why=""
+    if [ "$gwl_s_stall" -gt 0 ] && [ $((gwl_now - gwl_quiet)) -ge "$gwl_s_stall" ]; then
+      gwl_why="no output for $((gwl_now - gwl_quiet))s, past the ${gwl_s_stall}s no-progress limit"
+    elif [ "$gwl_s_cap" -gt 0 ] && [ $((gwl_now - gwl_start)) -ge "$gwl_s_cap" ]; then
+      gwl_why="still running after $((gwl_now - gwl_start))s, past its ${gwl_s_cap}s hard cap"
+    fi
+    [ -n "$gwl_why" ] || continue
+    # The gate may have moved on to the next step since the read above.
+    [ "$(head -n 1 "$gate_wd_dir/step" 2>/dev/null)" = "$gwl_serial" ] || continue
+    gate_watchdog_fire "$gwl_s_heading" "$gwl_why" "$gwl_s_segment" "$gwl_serial" || continue
+    return 0
+  done
+  rm -rf "$gate_wd_dir"
+}
+
+# gate_watchdog_alive -> 0 while the gate is running. A zombie (killed, not
+# yet reaped) is not running, and nothing should be fired at it.
+gate_watchdog_alive() {
+  kill -0 "$gate_wd_gate" 2>/dev/null || return 1
+  case "$(ps -o stat= -p "$gate_wd_gate" 2>/dev/null || true)" in *Z*) return 1 ;; esac
+  return 0
+}
+
+# gate_watchdog_started <pid...> -> "<pid> <start time>" per live process, so
+# a pid can be told apart from a new process that reused it.
+gate_watchdog_started() {
+  for gws_p in "$@"; do
+    gws_t="$(ps -o lstart= -p "$gws_p" 2>/dev/null | sed 's/^ *//; s/ *$//' || true)"
+    [ -z "$gws_t" ] || printf '%s %s\n' "$gws_p" "$gws_t"
+  done
+}
+
+# gate_watchdog_fire <heading> <why> <segment> <serial>
+# Diagnostics first, while there is still something to look at. They can take
+# a while (docker ps is bounded at 30s), so the step is checked again after
+# them: if the gate moved on, this was not a stall and the next step is left
+# alone (returns 1). Then the signal that tells the gate, then the step's
+# processes, taken afresh: TERM, and KILL after GATE_STALL_GRACE seconds for
+# whatever from that list is still the same process (including a child whose
+# parent died and left it to init) and everything under it, never a pid some
+# other process has since been given.
+gate_watchdog_fire() {
+  gwf_spared="$(cat "$gate_wd_dir/spared" 2>/dev/null || true)"
+  gwf_shown="$(gate_watchdog_tree "$gate_wd_gate" "$gwf_spared" | tr '\n' ' ')"
+  {
+    echo "step: $1"
+    echo "why: $2"
+    [ -z "$3" ] || echo "segment: $3"
+    echo "--- the last 40 lines it printed ---"
+    tail -n 40 "$gate_wd_log"
+    echo "--- its processes (pid, ppid, elapsed, command) ---"
+    # shellcheck disable=SC2086  # one pid per word
+    gwf_list="$(printf '%s,' $gwf_shown)"
+    if [ -n "${gwf_list%,}" ]; then
+      ps -o pid= -o ppid= -o etime= -o args= -p "${gwf_list%,}" 2>&1 || true
+    else
+      echo "(none)"
+    fi
+    echo "--- its containers (label retnd-test=$gate_wd_owner) ---"
+    gate_watchdog_docker ps -a --filter "label=retnd-test=$gate_wd_owner" --format '{{.ID}} {{.Names}} {{.Status}} {{.Image}}' 2>&1 || echo "(docker did not answer)"
+  } >"$gate_wd_dir/stall.tmp" 2>&1
+  if [ "$(head -n 1 "$gate_wd_dir/step" 2>/dev/null)" != "$4" ] || ! gate_watchdog_alive; then
+    rm -f "$gate_wd_dir/stall.tmp"
+    return 1
+  fi
+  gwf_pids="$(gate_watchdog_tree "$gate_wd_gate" "$gwf_spared" | tr '\n' ' ')"
+  # shellcheck disable=SC2086  # one pid per word
+  gwf_seen="$(gate_watchdog_started $gwf_pids)"
+  mv -f "$gate_wd_dir/stall.tmp" "$gate_wd_dir/stall"
+  kill -USR1 "$gate_wd_gate" 2>/dev/null || true
+  # shellcheck disable=SC2086  # one pid per word
+  [ -z "${gwf_pids%% }" ] || kill -TERM $gwf_pids 2>/dev/null || true
+  gwf_waited=0
+  while [ "$gwf_waited" -lt "$GATE_STALL_GRACE" ]; do
+    gwf_alive=""
+    for gwf_p in $gwf_pids; do
+      if kill -0 "$gwf_p" 2>/dev/null; then gwf_alive=1; break; fi
+    done
+    [ -n "$gwf_alive" ] || break
+    sleep 1
+    gwf_waited=$((gwf_waited + 1))
+  done
+  # The survivors, and what they started since: never the gate's own children
+  # by now, because the gate is already in its exit path, printing the report
+  # and removing the containers, and a KILL there ends it with no verdict.
+  gwf_same="$(printf '%s\n' "$gwf_seen" | while read -r gwf_p gwf_t; do
+    [ -n "$gwf_p" ] || continue
+    [ "$(ps -o lstart= -p "$gwf_p" 2>/dev/null | sed 's/^ *//; s/ *$//' || true)" = "$gwf_t" ] && echo "$gwf_p"
+  done | tr '\n' ' ')"
+  gwf_under=""
+  [ -z "${gwf_same%% }" ] || gwf_under="$(gate_watchdog_tree "$gwf_same" "$gwf_spared" | tr '\n' ' ')"
+  # shellcheck disable=SC2086
+  set -- $gwf_same $gwf_under
+  [ "$#" -eq 0 ] || kill -KILL "$@" 2>/dev/null || true
+}
+
+# gate_watchdog_stalled -> 0 when the watchdog has stopped a step in this run.
+gate_watchdog_stalled() {
+  [ -n "$gate_wd_dir" ] && [ -f "$gate_wd_dir/stall" ]
+}
+
+# gate_watchdog_halt
+# Stop the watchdog without letting it judge anything else (the way out).
+gate_watchdog_halt() {
+  [ -n "$gate_wd_pid" ] || return 0
+  kill "$gate_wd_pid" 2>/dev/null || true
+  wait "$gate_wd_pid" 2>/dev/null || true
+  gate_wd_pid=""
+}
+
+# gate_watchdog_report
+# The stalled step, said out loud: what the watchdog captured, and the step's
+# containers removed. Waits for the watchdog first, so the KILL of whatever
+# ignored TERM has happened before anything here claims the step is stopped.
+gate_watchdog_report() {
+  # Polled rather than `wait`ed: from inside the trap that got us here, wait
+  # can return before the watchdog is done, and its last KILL sweep then takes
+  # the docker calls below for the step's. A zombie counts as done. Bounded,
+  # in case it never ends.
+  if [ -n "$gate_wd_pid" ]; then
+    gwr_waited=0
+    while kill -0 "$gate_wd_pid" 2>/dev/null && [ "$gwr_waited" -lt $(( (GATE_STALL_GRACE + 60) * 5 )) ]; do
+      case "$(ps -o stat= -p "$gate_wd_pid" 2>/dev/null || true)" in *Z*) break ;; esac
+      sleep 0.2 || true
+      gwr_waited=$((gwr_waited + 1))
+    done
+    wait "$gate_wd_pid" 2>/dev/null || true
+  fi
+  gate_wd_pid=""
+  gate_marked=1
+  gate_wd_why="$(sed -n 's/^why: //p' "$gate_wd_dir/stall" | head -n 1)"
+  gate_wd_stalled_step="$(sed -n 's/^step: //p' "$gate_wd_dir/stall" | head -n 1)"
+  [ -n "$gate_wd_stalled_step" ] || gate_wd_stalled_step="$gate_last_step"
+  echo "" >&2
+  echo "==> stall watchdog: STALLED: $gate_wd_stalled_step ($gate_wd_why). Its processes were stopped. What it looked like:" >&2
+  sed 's/^/        /' "$gate_wd_dir/stall" >&2
+  if command -v docker >/dev/null 2>&1; then
+    gate_wd_ids="$(gate_watchdog_docker ps -aq --filter "label=retnd-test=$gate_wd_owner" 2>/dev/null || true)"
+    if [ -z "$gate_wd_ids" ]; then
+      echo "==> stall watchdog: no container labelled retnd-test=$gate_wd_owner to stop" >&2
+    fi
+    for gate_wd_id in $gate_wd_ids; do
+      gate_wd_rm=0
+      gate_watchdog_docker rm -f "$gate_wd_id" >/dev/null 2>&1 || gate_wd_rm=$?
+      if [ "$gate_wd_rm" = 0 ]; then
+        echo "==> stall watchdog: stopped and removed container $gate_wd_id" >&2
+      else
+        echo "==> stall watchdog: could not remove container $gate_wd_id (docker rm -f exited $gate_wd_rm)" >&2
+      fi
+    done
+  fi
+}
+
+# gate_watchdog_close
+# The last thing on the way out, after the verdict: let go of the pipe into
+# the tees, let them drain (for a few seconds at most, in case a process the
+# step leaked still holds the pipe), and remove the state directory. Nothing
+# prints after this, so the gate's side goes to /dev/null rather than back to
+# a saved copy of the original output that every step would have inherited.
+gate_watchdog_close() {
+  [ -n "$gate_wd_dir" ] || return 0
+  gate_watchdog_halt
+  exec >/dev/null 2>&1
+  gwc_waited=0
+  for gwc_tee in $gate_wd_tees; do
+    while kill -0 "$gwc_tee" 2>/dev/null && [ "$gwc_waited" -lt 50 ]; do
+      sleep 0.1 || true
+      gwc_waited=$((gwc_waited + 1))
+    done
+  done
+  rm -rf "$gate_wd_dir"
+  gate_wd_dir=""
+}
+
 # Shards (#1457). GATE_SHARD is empty for a serial run, which runs every
 # segment in the order ci-local.sh lists them, and otherwise names one entry
 # of scripts/release/gate-shards.txt. A segment is a function holding steps
@@ -834,6 +1455,8 @@ gate_shard_wants() {
 gate_run_segment() {
   # shellcheck disable=SC2086
   if gate_shard_wants $1; then
+    # The stall watchdog names the segment a stalled step was in (#1540).
+    gate_wd_segment="$2"
     "$2"
   fi
 }
@@ -891,6 +1514,7 @@ gate_github_ledger_close() {
 gate_summary() {
   gate_marked=1
   gate_clock_close
+  [ -z "$gate_clock_prev" ] || gate_watchdog_record_done "$gate_last_step"
   if [ -z "$gate_skipped" ]; then
     echo "==> ci-local: ok${GATE_SHARD:+ (shard $GATE_SHARD)}"
     return 0
@@ -920,6 +1544,7 @@ gate_exit_marker() {
   # and 3 is the one number .husky/pre-commit commits on. It leaves as 1
   # (#1261 review, item 8). `exit` inside an EXIT trap sets the status.
   if [ "$1" -eq "$GATE_INCOMPLETE" ]; then
+    gate_watchdog_close
     exit 1
   fi
 }
@@ -932,10 +1557,41 @@ gate_exit_marker() {
 # that has to happen on the way out composes here, in order: drop the
 # sentinel container first (it is a real resource, and the marker is only
 # text), then print the verdict.
+#
+# A step the stall watchdog stopped (#1540) ends here too, whichever way the
+# shell got here (the USR1 trap, or `set -e` on the killed command's status):
+# its diagnostics and containers first, then the same teardown, then the
+# STALLED verdict, and the output is handed back last so the verdict still
+# goes through the log.
 gate_on_exit() {
+  # A USR1 still pending when `set -e` got here first must not run
+  # gate_on_stall's `exit` halfway through this handler.
+  trap '' USR1
+  gate_on_exit_stalled=0
+  if gate_watchdog_stalled; then
+    gate_on_exit_stalled=1
+    gate_watchdog_report
+  else
+    gate_watchdog_halt
+  fi
   gate_stop_docker_sentinel
   gate_lock_release
+  if [ "$gate_on_exit_stalled" = 1 ]; then
+    gate_clock_close >&2
+    echo "==> ci-local: FAILED (STALLED: $gate_wd_stalled_step, $gate_wd_why${GATE_SHARD:+, shard $GATE_SHARD})" >&2
+    gate_watchdog_close
+    exit 1
+  fi
   gate_exit_marker "$1"
+  gate_watchdog_close
+}
+
+# gate_on_stall
+# The USR1 trap. The watchdog sends it before it kills the step, and the
+# shell runs it once the killed command returns; gate_on_exit says the rest.
+gate_on_stall() {
+  gate_watchdog_stalled || return 0
+  exit 1
 }
 
 # gate_on_signal <signal name> <exit status>
@@ -965,4 +1621,5 @@ gate_install_traps() {
   trap 'gate_on_signal INT 130' INT
   trap 'gate_on_signal TERM 143' TERM
   trap 'gate_on_signal HUP 129' HUP
+  trap 'gate_on_stall' USR1
 }

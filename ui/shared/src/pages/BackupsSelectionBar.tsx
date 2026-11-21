@@ -26,6 +26,7 @@
  */
 import "@shared/assurance/assurance.css";
 import { useEffect, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
 import { useRecoveryTarget } from "@shared/assurance/useRecoveryTarget";
 import { useSourceRecovery } from "@shared/assurance/useSourceRecovery";
@@ -79,6 +80,7 @@ export function BackupsSelectionBar({
   // were made for: a selection that moves to another set, or to several,
   // asks again. Describing a set never writes, so moving does not probe.
   const source = useSourceRecovery(sets.length === 1 ? sets[0] : null, { resetKey: setsKey, spread: sets.length, bytes: total });
+  const mountedRef = useMounted();
   const stillChosen = picked && (picked !== "source" || pickedFor === setsKey) ? picked : null;
   const chosen: RunTarget["kind"] | "download" | null = stillChosen ?? (
     !source.ready ? null : source.preselect ? "source" : "staging");
@@ -189,6 +191,12 @@ export function BackupsSelectionBar({
               // request that starts the run and is forgotten here.
               const spec = source.targetSpec;
               void source.beforeSubmit().then((once) => {
+                // A bar that went while the prompt was open starts nothing:
+                // nobody would see the run (#1599).
+                if (!mountedRef.current) {
+                  if (once !== null) source.done();
+                  return;
+                }
                 if (once === null) return;
                 onRecover({ kind: "source", where: sourceFolder, ...(spec?.acknowledgedDestination ? { acknowledgedDestination: spec.acknowledgedDestination } : {}) }, needsAck && accepted, once);
                 source.done();

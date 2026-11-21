@@ -41,6 +41,7 @@
  * empty one, and sends a reference only when a location was given.
  */
 import { useCallback, useMemo, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 
 import { StatusBadge } from "@shared/components/StatusBadge";
 import { describeFailure } from "@shared/api/failure";
@@ -98,6 +99,7 @@ export function WorkflowEnvironmentEditor({
   const [draftValue, setDraftValue] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const mountedRef = useMounted();
 
   const merged = useMemo(() => mergeWorkflowEnvironment(global, set ?? []), [global, set]);
 
@@ -123,28 +125,31 @@ export function WorkflowEnvironmentEditor({
     setFailure(null);
     onSet(name, entry)
       .then(() => {
+        if (!mountedRef.current) return;
         setBusy(null);
         setDraftName("");
         setDraftValue("");
       })
       .catch((e: unknown) => {
+        if (!mountedRef.current) return;
         setBusy(null);
         setFailure(describeFailure(e, "that variable was not saved").message);
       });
-  }, [draftName, draftValue, kind, onSet]);
+  }, [draftName, draftValue, kind, onSet, mountedRef]);
 
   const remove = useCallback(
     (name: string) => {
       setBusy(name);
       setFailure(null);
       onUnset(name)
-        .then(() => setBusy(null))
+        .then(() => { if (mountedRef.current) setBusy(null); })
         .catch((e: unknown) => {
+          if (!mountedRef.current) return;
           setBusy(null);
           setFailure(describeFailure(e, "that variable was not removed").message);
         });
     },
-    [onUnset]
+    [onUnset, mountedRef]
   );
 
   const editable = scope === "global" ? global : (set ?? []);

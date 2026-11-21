@@ -27,10 +27,13 @@
 package compose_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/retnd/retnd/distribution/compose"
 )
@@ -627,6 +630,22 @@ func TestEveryComposeArtifactInTheTreeIsRegistered(t *testing.T) {
 		registered[d] = true
 	}
 
+	// Compose files that are deliberately not a deployment of retnd, so none
+	// of the runtime contract's rules (roles, mounts, ports, prohibitions)
+	// describe them. An entry needs its reason, and the file has to still
+	// exist, so a stale exemption fails instead of hiding a later file.
+	// container/observability/README.md says it: "an example, not a supported
+	// deployment". The bundle runs Prometheus, Loki and Grafana beside the
+	// canonical project and declares no retnd service of its own (#1557, #1618).
+	exempt := map[string]string{
+		"container/observability/compose.observability.yaml": "the example observability bundle: a separate project run beside the canonical one, with no retnd service",
+	}
+	for rel := range exempt {
+		if _, err := os.Stat(compose.Path(rel)); err != nil {
+			t.Errorf("exempt %s: %v. Remove the exemption if the file is gone", rel, err)
+		}
+	}
+
 	var found []string
 	roots := []string{"apps", "container", "distribution"}
 	for _, root := range roots {
@@ -661,8 +680,60 @@ func TestEveryComposeArtifactInTheTreeIsRegistered(t *testing.T) {
 		t.Fatal("the walk found no compose artifact at all, so this completeness check is checking nothing")
 	}
 	for _, rel := range found {
+		if exempt[rel] != "" {
+			continue
+		}
 		if !registered[rel] {
 			t.Errorf("%s declares compose services but is not registered in runtime-contract.json, so no prohibition rule ever runs against it", rel)
+		}
+	}
+}
+
+// TestTheExemptObservabilityBundleDeclaresNoRetndService is the other half of
+// the exemption above (#1622). The exemption is only honest while the bundle
+// stays a Prometheus, Loki and Grafana example. If someone adds a retnd
+// service to it, it becomes a real deployment file that the runtime contract
+// never looks at, so this fails and says to register it instead. "A retnd
+// service" is read two ways: a service the canonical file also declares, and
+// a service whose name, image or container name spells the product. It is a
+// tripwire, not a proof: it does not follow a top-level include: or a service
+// extends:, and a retnd service given a neutral name and image would pass.
+// The registration test above is what catches a new file; this one catches
+// the obvious edit to the exempt one.
+func TestTheExemptObservabilityBundleDeclaresNoRetndService(t *testing.T) {
+	t.Parallel()
+
+	services := func(rel string) map[string]any {
+		body, err := os.ReadFile(compose.Path(rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		var doc struct {
+			Services map[string]any `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(body, &doc); err != nil {
+			t.Fatalf("parse %s: %v", rel, err)
+		}
+		return doc.Services
+	}
+
+	canonical := services(compose.MustLoadContract().Canonical)
+	if len(canonical) == 0 {
+		t.Fatal("the canonical file declares no services, so the comparison below would pass on nothing")
+	}
+	bundle := services("container/observability/compose.observability.yaml")
+	if len(bundle) == 0 {
+		t.Fatal("the observability bundle declares no services, so this check is checking nothing")
+	}
+	for name, def := range bundle {
+		if _, dup := canonical[name]; dup {
+			t.Errorf("the exempt bundle declares %q, a service of the canonical deployment. Register the file in runtime-contract.json instead of exempting it", name)
+		}
+		spec, _ := def.(map[string]any)
+		for _, field := range []any{name, spec["image"], spec["container_name"]} {
+			if strings.Contains(strings.ToLower(fmt.Sprint(field)), "retnd") {
+				t.Errorf("the exempt bundle's service %q mentions retnd (%v). That is a deployment of the product, so register the file instead of exempting it", name, field)
+			}
 		}
 	}
 }

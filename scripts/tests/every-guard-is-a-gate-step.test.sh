@@ -153,6 +153,82 @@ mk "$work/c16" '  gate_selftest_with_ledger scripts/foo/selftest.sh
   bash scripts/tests/bar.test.sh'
 if [ -z "$(problems "$work/c16")" ]; then pass "control: a run through gate_selftest_with_ledger counts"; else fail "control: a run through gate_selftest_with_ledger counts" "$(problems "$work/c16")"; fi
 
+mk "$work/c17" '  gate_ui_browser "the foo self-test" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c17")" ]; then pass "control: a run through the Chromium lane counts (#1532, #1537)"; else fail "control: a run through the Chromium lane counts (#1532, #1537)" "$(problems "$work/c17")"; fi
+
+mk "$work/c17b" '  gate_pw_locked bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c17b")" ]; then pass "control: a run through gate_pw_locked counts"; else fail "control: a run through gate_pw_locked counts" "$(problems "$work/c17b")"; fi
+
+mk "$work/c18" '  gate_ui_browser "the foo self-test" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh --check-anchors
+  bash scripts/tests/bar.test.sh'
+expect_unwired "an anchors-only run through the Chromium lane is not a run" "$work/c18"
+
+mk "$work/c19" '  echo gate_ui_browser "x" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a lane call inside an echo is not a run" "$work/c19"
+
+# Shapes that look like a run and are not (#1588). Each one is a line that
+# names the script and still does not make a full run of it, so a guard wired
+# only like that is unwired.
+mk "$work/c20" '  bash scripts/foo/selftest.sh || true
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a run that ends in || true cannot fail, so it is not a run" "$work/c20"
+
+mk "$work/c21" '  gate_ui_browser "the foo self-test" bash scripts/e2e/ui-browser.sh run bash scripts/foo/selftest.sh || true
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a lane run that ends in || true is not a run" "$work/c21"
+
+mk "$work/c22" '  gate_ui_browser "the specs" bash scripts/e2e/ui-browser.sh specs scripts/foo/selftest.sh --list
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a --list through the lane lists the specs and runs none" "$work/c22"
+
+mk "$work/c22b" '  npx playwright test -c scripts/foo/selftest.sh --list
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a bare playwright --list is not a run" "$work/c22b"
+
+mk "$work/c23" '  bash scripts/foo/selftest.sh --only one-control
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a --only run is one control, not the self-test" "$work/c23"
+
+mk "$work/c24" '  gate_ui_browser "the specs" bash scripts/e2e/ui-browser.sh specs scripts/foo/selftest.sh 1351-agents-card.spec.ts
+  bash scripts/tests/bar.test.sh'
+expect_unwired "an extra spec filter after specs <config> narrows the run, so it is not a full one" "$work/c24"
+
+mk "$work/c25" '  gate_ui_browser "x" bash scripts/e2e/ui-browser.sh run gate_pw_locked bash scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a gate function name inside a lane run (it does not exist in the container) is not a run" "$work/c25"
+
+mk "$work/c26" '  gate_ui_browser "x" bash scripts/e2e/ui-browser.sh run gate_selftest_with_ledger scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+expect_unwired "gate_selftest_with_ledger inside a lane run is not a run either" "$work/c26"
+
+mk "$work/c28" '  bash scripts/foo/selftest.sh --only=one-control
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a --only=x run is one control, not the self-test" "$work/c28"
+
+mk "$work/c29" '  npx playwright test -c scripts/foo/selftest.sh --list=x
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a --list=x run is a listing" "$work/c29"
+
+mk "$work/c30" '  bash scripts/foo/selftest.sh; true
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a run that ends in ; true cannot fail" "$work/c30"
+
+mk "$work/c31" '  bash scripts/foo/selftest.sh ;true
+  bash scripts/tests/bar.test.sh'
+expect_unwired "a run that ends in ;true cannot fail either" "$work/c31"
+
+
+mk "$work/c32" '  bash scripts/foo/selftest.sh --verbose --label "a;b" --only-failed-report
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c32")" ]; then pass "control: a flag that only starts like --only, or a ; inside a word, is still a full run"; else fail "control: a flag that only starts like --only, or a ; inside a word, is still a full run" "$(problems "$work/c32")"; fi
+
+mk "$work/c27" '  gate_ui_browser "the specs" bash scripts/e2e/ui-browser.sh specs scripts/foo/selftest.sh
+  bash scripts/tests/bar.test.sh'
+if [ -z "$(problems "$work/c27")" ]; then pass "control: specs <config> with nothing after it counts"; else fail "control: specs <config> with nothing after it counts" "$(problems "$work/c27")"; fi
+
 mk "$work/h" '  bash scripts/tests/bar.test.sh' '# scripts/foo/selftest.sh\tneeds a browser, #1532'
 expect_unwired "a commented-out exemption does not exempt" "$work/h"
 

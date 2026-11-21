@@ -1,0 +1,164 @@
+# Alerting rules for the retnd example observability bundle (EPIC O, FR-102).
+#
+# This is an example, not a supported deployment. See ../../README.md.
+#
+# Every series named here is one the engine really emits: the dashboards and
+# rules name guard (scripts/observability/check-dashboard-metrics.sh, run by
+# scripts/ci-local.sh) fails on any retnd_* name or label the renderers do
+# not produce, because a rule over a name nobody emits never fires and reads
+# exactly like nothing being wrong.
+#
+# These rules into Alertmanager are the recommended topology (FR-101). The
+# engine's own webhook push (observability.alerts.delivery: webhook) is for a
+# deployment that scrapes nothing; running both gives two sources of truth
+# about the same stale backup.
+groups:
+  - name: retnd-scrape
+    rules:
+      - alert: RetndScrapeDown
+        expr: up{job="retnd"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Prometheus cannot scrape retnd
+          description: >-
+            The scrape of {{ $labels.instance }} has failed for 5 minutes. Either the
+            engine is down, the scrape token was rotated and the token file not
+            updated, or metrics are disabled. Every other retnd alert is blind
+            until this clears.
+
+      - alert: RetndHealthReportNotRefreshing
+        expr: time() - retnd_report_generated_timestamp_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: retnd's health report has not been rebuilt for 5 minutes
+          description: >-
+            The scrape answers but the report behind it is more than 5 minutes
+            old, so the readings below it are stale. The 5 minutes assumes
+            observability.metrics.min_rebuild_interval is at its 2m ceiling or
+            below, which the engine enforces.
+
+      # Prometheus's own refusals count too: after a token rotation it keeps
+      # presenting the old token until the file is updated, and every refused
+      # scrape (up is 0 for it) is counted as unauthenticated, then shows up as
+      # one jump on the first good scrape. So a refusal only counts when
+      # Prometheus's own scrape was healthy for the whole window, which is the
+      # only case where the refused requests cannot have been its own.
+      - alert: RetndScrapeRefused
+        expr: >-
+          increase(retnd_scrape_rejected_total{reason="unauthenticated"}[15m]) > 0
+          and on (job, instance) min_over_time(up{job="retnd"}[15m]) == 1
+        labels:
+          severity: warning
+        annotations:
+          summary: Something other than Prometheus is presenting a wrong scrape token to retnd
+          description: >-
+            The engine refused {{ $value }} scrapes without a valid token in the last 15
+            minutes, while Prometheus's own scrape kept succeeding, so it is not
+            Prometheus: a second scraper holding a token from before a rotation,
+            or something probing the endpoint. Prometheus's own refusals after a
+            rotation are not counted here, RetndScrapeDown covers those.
+
+  - name: retnd-backup-health
+    rules:
+      - alert: RetndBackupSetFailing
+        expr: retnd_backup_set_state{state="failing"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Backup set {{ $labels.backup_set }} is failing
+          description: >-
+            A FAILED artifact in {{ $labels.backup_set }} has no retry scheduled and
+            needs intervention. `retnd status` names it.
+
+      - alert: RetndBackupSetStale
+        expr: retnd_backup_set_state{state="stale"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Backup set {{ $labels.backup_set }} is stale
+          description: >-
+            The newest known-good backup of {{ $labels.backup_set }} is older than
+            its stale_after threshold.
+
+      - alert: RetndBackupSetDegraded
+        expr: retnd_backup_set_state{state="degraded"} == 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Backup set {{ $labels.backup_set }} has been degraded for an hour
+          description: >-
+            {{ $labels.backup_set }} is still producing backups but something needs
+            attention (a failing relocation, a failing scrub). `retnd status` says
+            what.
+
+      - alert: RetndArtifactsIrrecoverablyQuarantined
+        expr: retnd_backup_set_quarantined_lost > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Backup set {{ $labels.backup_set }} holds irrecoverable artifacts
+          description: >-
+            {{ $labels.backup_set }} has {{ $value }} artifacts at QUARANTINED_LOST:
+            backups this manager knows it cannot restore.
+
+      - alert: RetndRelocationWedged
+        expr: retnd_backup_set_failed_move_oldest_age_seconds > 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: A relocation in {{ $labels.backup_set }} has been failing for a day
+          description: >-
+            The oldest failing move in {{ $labels.backup_set }} was written down more
+            than 24 hours ago. That is a wedge, not a blip.
+
+  - name: retnd-workflow
+    rules:
+      - alert: RetndWorkflowRecoveryRequired
+        expr: retnd_workflow_recovery_required > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: An interrupted workflow run in {{ $labels.backup_set }} is waiting for a person
+          description: >-
+            {{ $labels.backup_set }}'s runs are refused until the interrupted run is
+            resumed or acknowledged. The run id is on the status surface.
+
+      - alert: RetndWorkflowRunnerUnreachable
+        expr: retnd_workflow_runner_reachable == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: The Host Workflow Runner is not answering
+          description: >-
+            Local hooks cannot run. Runner version {{ $labels.version }} (empty when
+            nothing answered at all).
+
+      - alert: RetndWorkflowExecConnectionNotCapable
+        expr: retnd_workflow_exec_connection_capable == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Remote hook connection {{ $labels.connection }} is not capable
+          description: >-
+            {{ $labels.connection }} could not be proven able to run remote hooks. Why
+            is on the status surface.
+
+      - alert: RetndWorkflowRemoteExecFailing
+        expr: increase(retnd_workflow_remote_exec_failures_total[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Remote hooks for {{ $labels.backup_set }} could not run
+          description: >-
+            In the last hour remote hooks for {{ $labels.backup_set }} failed to run
+            at all ({{ $labels.disposition }}). A hook that ran and exited non-zero
+            is not counted here.

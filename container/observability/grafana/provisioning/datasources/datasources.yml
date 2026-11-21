@@ -1,0 +1,36 @@
+# Grafana datasources for the retnd example observability bundle (EPIC O,
+# FR-102). This is an example, not a supported deployment. See ../../../README.md.
+#
+# Every URL is a compose service name on the bundle's own network. The uids
+# are fixed because the dashboards name them; the dashboards and rules name
+# guard fails a panel whose uid is not defined here, since a panel on a
+# missing datasource renders nothing on a fresh install.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: false
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false

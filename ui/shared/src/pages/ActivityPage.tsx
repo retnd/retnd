@@ -11,6 +11,7 @@
  * why the control offers a threshold rather than a set of checkboxes.
  */
 import { useCallback, useMemo, useState } from "react";
+import { useMounted } from "@shared/hooks/useMounted";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
 import { useCausl } from "@shared/state/graph";
@@ -69,6 +70,7 @@ export function ActivityPage() {
   // the first page's cursor and offer the control again forever.
   const [older, setOlder] = useState<{ events: ActivityEvent[]; cursor: string | null } | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const mountedRef = useMounted();
   const [olderFailure, setOlderFailure] = useState<string | null>(null);
 
   const cursor = older ? older.cursor : page.data?.nextCursor ?? null;
@@ -80,6 +82,7 @@ export function ActivityPage() {
     api
       .listActivity({ limit: ACTIVITY_PAGE_SIZE, before: cursor })
       .then((next) => {
+        if (!mountedRef.current) return;
         setOlder((held) => ({
           events: [...(held?.events ?? []), ...next.events],
           cursor: next.nextCursor ?? null
@@ -90,10 +93,10 @@ export function ActivityPage() {
         // events already on screen are still true, and replacing a
         // rendered timeline with an error panel because the page BEHIND
         // it could not be read would lose the thing the reader came for.
-        setOlderFailure(describeFailure(e, "retnd could not read older events.").message);
+        if (mountedRef.current) setOlderFailure(describeFailure(e, "retnd could not read older events.").message);
       })
-      .finally(() => setLoadingOlder(false));
-  }, [api, cursor, loadingOlder]);
+      .finally(() => { if (mountedRef.current) setLoadingOlder(false); });
+  }, [api, cursor, loadingOlder, mountedRef]);
 
   const filtered = useMemo(() => {
     const rank: Record<Severity, number> = { info: 0, ok: 0, warn: 1, error: 2 };

@@ -24,6 +24,7 @@ core-docker
 apps
 js
 e2e
+ui-browser
 two-machine
 selftest-gate
 selftest-compat
