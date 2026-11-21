@@ -178,10 +178,10 @@ BSD-3-Clause (30)
   go golang.org/x/text@v0.44.0
   go golang.org/x/time@v0.16.0
   go google.golang.org/protobuf@v1.36.12
-  go modernc.org/libc@v1.79.0
+  go modernc.org/libc@v1.80.1
   go modernc.org/mathutil@v1.7.1
   go modernc.org/memory@v1.12.1
-  go modernc.org/sqlite@v1.61.0
+  go modernc.org/sqlite@v1.62.0
   go mvdan.cc/sh/v3@v3.14.1
 
 CC0-1.0 (1)
