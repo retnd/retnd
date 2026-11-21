@@ -658,9 +658,13 @@ func NewDispatcher(sink Sink, logger *obs.Logger) *Dispatcher {
 // attempt per alert, so a slow or hung Sink can never stall the cycle
 // that called this. For a sink whose receiver expires alerts the attempts
 // run in parallel (sendEach), so no alert's expiry runs down while it waits
-// behind another's send; any other sink gets them one at a time. A condition that resolves while its own notification
-// is still in flight is simply forgotten; the late delivery marks an
-// entry that is no longer in the map, which changes nothing.
+// behind another's send; any other sink gets them one at a time.
+//
+// A condition that resolves while its own notification is still in flight
+// is handled by the kind of sink. A plain sink simply forgets it: the late
+// delivery marks an entry that is no longer in the map, which changes
+// nothing. For a sink whose receiver a resolve closes, the pass waits for
+// that delivery and sends the resolve after it, if it succeeded (#1628).
 func (d *Dispatcher) Observe(ctx context.Context, conditions []Condition, unevaluated []Subject, now time.Time) []Alert {
 	if d == nil {
 		return nil
