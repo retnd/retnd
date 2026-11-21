@@ -445,6 +445,12 @@ stops at startup with:
 service: open state: state: database schema is newer than this binary's migrations: version 23 is recorded in the database but not compiled into this binary
 ```
 
+Builds from 0.8.1 on print the same line with the time the newer build applied that version
+added, for example `version 23 (applied 2026-11-21T04:10:00Z) is recorded in the database but
+not compiled into this binary`. It's always UTC, so you can match it against the timestamp of
+the archive you took before upgrading. 0.8.0 shipped before that, so it prints the line
+above as is.
+
 The process exits with status 1, and under compose (`restart: unless-stopped`) that's an
 engine container restarting and printing the same line over and over. `web-ui` waits for a
 healthy engine, so what you notice first is usually the Web UI not answering. The refusal is

@@ -68,8 +68,8 @@ func TestMigrate_FreshDatabase(t *testing.T) {
 		t.Fatalf("applied %d migrations, want %d", len(applied), len(known))
 	}
 	for _, m := range known {
-		if applied[m.version] != m.checksum {
-			t.Fatalf("version %d: recorded checksum %q, want %q", m.version, applied[m.version], m.checksum)
+		if applied[m.version].checksum != m.checksum {
+			t.Fatalf("version %d: recorded checksum %q, want %q", m.version, applied[m.version].checksum, m.checksum)
 		}
 	}
 
