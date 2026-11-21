@@ -460,3 +460,40 @@ func TestIssue1584_AJournalWithAnUncheckpointedWALIsCopiedFaithfully(t *testing.
 		t.Errorf("copied schema = %d (%v), want 22", v, err)
 	}
 }
+
+func TestIssue1584_RoomForTheCopyButNotForTwiceItIsSkippedAndLogged(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := seedJournalBeforeMigration23(t, dir)
+	// A journal well over the 1 MiB floor, so "twice over" and "plus 1 MiB"
+	// give different answers.
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"CREATE TABLE pad (b BLOB)", "INSERT INTO pad VALUES (zeroblob(3000000))", "PRAGMA wal_checkpoint(TRUNCATE)",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	_ = db.Close()
+	fi, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Room for the copy plus the 1 MiB floor, but not for the copy twice.
+	defer func(prev func(string) (uint64, bool)) { premigrationFreeBytes = prev }(premigrationFreeBytes)
+	premigrationFreeBytes = func(string) (uint64, bool) { return uint64(fi.Size())*2 - 1, true }
+	logs := captureLog(t)
+
+	if err := startAndClose(t, dir, dbPath); err != nil {
+		t.Fatalf("a tight disk failed the migration: %v", err)
+	}
+	if c := retainedCopies(t, dir); len(c) != 0 {
+		t.Errorf("kept %v on a disk without room for the copy twice over", c)
+	}
+	if !strings.Contains(logs.String(), "skipped") {
+		t.Errorf("the skip was not logged:\n%s", logs.String())
+	}
+}

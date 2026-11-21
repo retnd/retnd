@@ -542,8 +542,11 @@ worth knowing:
 - It's private: the directory is `0700` and the files `0600`.
 - It's the journal only. It has no `config.yaml`, keys or `local-auth.json`, so it's a way back
   for the schema and not a full archive. An archive you took yourself is still better.
+  It holds no key material and no password (those live in `config/` and `local-auth.json`), and
+  agent tokens appear only as SHA-256 digests, but it is a complete record of what the deployment
+  backs up and from where, so treat it as you treat `state.db`.
 - It's a courtesy, not a promise. If the state directory's filesystem hasn't got room for it
-  (the journal's size plus 1 MiB) or the write fails, the engine logs a warning and the
+  (room for the copy twice over, and at least 1 MiB) or the write fails, the engine logs a warning and the
   migration goes ahead without one. Look for `pre-migration copy of the journal` in the log
   after an upgrade if you're counting on it.
 - It keeps the five newest. The sixth removes the oldest, by the time in the name, and logs

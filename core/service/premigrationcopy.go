@@ -69,12 +69,12 @@ import (
 //     from, so it is never pruned and does not count toward the cap.
 
 const (
-	retainedCopyCap       = 5
-	retainedCopyPrefix    = "pre-migration-"
-	retainedManifestName  = "MANIFEST"
-	retainedTimeLayout    = "20060102T150405Z"
-	retainedHeadroomBytes = 1 << 20
-	retainedMaxSequence   = 99
+	retainedCopyCap          = 5
+	retainedCopyPrefix       = "pre-migration-"
+	retainedManifestName     = "MANIFEST"
+	retainedTimeLayout       = "20060102T150405Z"
+	retainedMinHeadroomBytes = 1 << 20
+	retainedMaxSequence      = 99
 )
 
 var retainedCopyPattern = regexp.MustCompile(`^pre-migration-(\d{8}T\d{6}Z)-schema(\d+)(?:-(\d+))?$`)
@@ -100,9 +100,12 @@ func retainPreMigrationCopy(ctx context.Context, dbPath string, schemaBefore int
 			total += int64(len(snap.content[p]))
 		}
 	}
-	if free, known := premigrationFreeBytes(dir); known && uint64(total)+retainedHeadroomBytes > free {
+	// Room for the copy twice over (at least 1 MiB extra): the journal's own
+	// filesystem must still have space to write after the copy lands.
+	headroom := max(uint64(retainedMinHeadroomBytes), uint64(total))
+	if free, known := premigrationFreeBytes(dir); known && uint64(total)+headroom > free {
 		slog.WarnContext(ctx, "pre-migration copy of the journal skipped: not enough free space beside it",
-			"state_dir", dir, "needed_bytes", total+retainedHeadroomBytes, "free_bytes", free)
+			"state_dir", dir, "needed_bytes", uint64(total)+headroom, "free_bytes", free)
 		return
 	}
 
