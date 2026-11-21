@@ -78,6 +78,14 @@ Worth reading before you upgrade:
 
 ### Fixed
 
+- **Example observability bundle polish** (#1595). `RetndScrapeRefused` no longer fires for 15
+  minutes after every scrape-token rotation (Prometheus's own refused scrapes were counted); it
+  now only fires while Prometheus's own scrape is healthy. `observability.metrics.min_rebuild_interval`
+  has a ceiling of 2m, which the report-age alert and panel rely on, and a longer value is refused
+  at load naming the key. The bundle's secret scan now also catches credentials under JSON-quoted
+  keys, Grafana's password in JSON, an inline `Authorization: Bearer` literal and a literal `rsc_`
+  token under any key. The alerting rules now have promtool unit tests.
+
 - **A heartbeat that lands after leaving edit mode no longer puts the edit hold back** (#1606).
   Taking and renewing an edit hold were the same call, so a renewal still in flight when you left
   edit mode could land after the release, pause the backup set for another 90 seconds and stop a
