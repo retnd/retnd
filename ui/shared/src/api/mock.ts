@@ -152,6 +152,7 @@ export const SCENARIOS = [
   // fails, and where it takes a couple of seconds.
   "own-copy-reask-fails",
   "own-copy-reask-slow",
+  "own-copy-mismatch",
   // The forge set where the retirement itself takes a few seconds, so the
   // in-flight dialog (both buttons off) can be driven by keyboard.
   "retire-slow",
@@ -4439,7 +4440,9 @@ export function createMockApi(
   const bulk = /^backups-(\d+)$/.exec(scenario);
   // Issue #1594's two fixtures: media-week34's own copy at its final name with
   // its source gone, and whether that copy still verifies.
-  const ownCopyScenario = scenario === "own-copy-verified" || scenario === "own-copy-unverified" || scenario === "own-copy-reask-fails" || scenario === "own-copy-reask-slow";
+  const ownCopyScenario = scenario === "own-copy-verified" || scenario === "own-copy-unverified" || scenario === "own-copy-reask-fails" || scenario === "own-copy-reask-slow" || scenario === "own-copy-mismatch";
+  // Issue #1611: the same own copy, but the source is still there and the two differ.
+  const ownCopyMismatch = scenario === "own-copy-mismatch";
   const ownCopyVerifies = scenario === "own-copy-verified";
   const artifacts = bulk
     ? [...ARTIFACTS, ...bulkGenerated(Number(bulk[1]))]
@@ -4499,7 +4502,7 @@ export function createMockApi(
       };
     }
     const failure_reason = "copy_to_local: not_found: object not found";
-    const present = scenario === "retire-source-present";
+    const present = scenario === "retire-source-present" || ownCopyMismatch;
     const candidates = artifacts
       .filter((b) => b.setId === a.setId && b.id !== a.id && !b.quarantine && b.state !== "FAILED" && b.state !== "RETIRED" && b.receivedAt > a.receivedAt)
       .sort((x, y) => (x.receivedAt < y.receivedAt ? 1 : -1))
@@ -4515,7 +4518,9 @@ export function createMockApi(
     const ownCopy = ownCopyScenario && a.id === "media/weekly-archive/media-week34.tar";
     const ownCopyRefusal = !ownCopy
       ? undefined
-      : !ack.accept_unverified_copy
+      : ownCopyMismatch
+        ? { code: "RETIRE_OWN_COPY_AT_FINAL_NAME", overridable_with: "" as const, sentence: "This backup's own copy is already at its final name and its source is still on the host. Retry it: retry checks that copy against the source and keeps it if they match. If they do not match, retry refuses and names the way out; the copy is never overwritten." }
+        : !ack.accept_unverified_copy
         ? { code: "RETIRE_OWN_COPY_AT_FINAL_NAME", overridable_with: "accept_unverified_copy" as const, sentence: "This backup's source is gone from the host, but its own copy is at its final name. Retry it: retry keeps that copy if it still matches the checksum recorded when it was verified. If it does not, it can only be retired with the acknowledgement that the copy could not be verified, and the file is kept where it is." }
         : ownCopyVerifies
           ? { code: "RETIRE_OWN_COPY_AT_FINAL_NAME", overridable_with: "" as const, sentence: "This backup's own copy at its final name still matches the checksum recorded when it was verified, so it is a good backup and is not retired. Retry it: with the source gone, retry keeps that copy." }
@@ -5589,6 +5594,17 @@ export function createMockApi(
       if (ownCopyVerifies) {
         found.state = "REMOTE_RETAINED";
         return delay(undefined);
+      }
+      if (ownCopyMismatch) {
+        return delay(null).then(() => {
+          throw new RetndError({
+            code: "RETRY_OWN_COPY_MISMATCH",
+            message:
+              "This backup's own copy at " + found.localPath + " does not match the checksum recorded when it was verified, and it does not match the object on the source either, so a retry can neither keep it nor fetch a fresh copy past it. " +
+              "Move that file aside (it is kept, nothing here deletes it), then retry: the next attempt fetches a new copy from the source.",
+            correlationId: "cid_mockretry1611"
+          });
+        });
       }
       return delay(null).then(() => {
         throw new RetndError({

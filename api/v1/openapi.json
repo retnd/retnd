@@ -219,6 +219,7 @@
           "RETIRE_SUCCESSOR_INVALID",
           "AGENT_RETIRE_ACK_REFUSED",
           "RETRY_OWN_COPY_UNVERIFIED",
+          "RETRY_OWN_COPY_MISMATCH",
           "EDIT_HOLD_GONE"
         ],
         "x-code-origins": {
@@ -365,6 +366,7 @@
           "RETIRE_SUCCESSOR_INVALID": "wire",
           "AGENT_RETIRE_ACK_REFUSED": "wire",
           "RETRY_OWN_COPY_UNVERIFIED": "wire",
+          "RETRY_OWN_COPY_MISMATCH": "wire",
           "EDIT_HOLD_GONE": "wire"
         },
         "x-error-classes": {
@@ -458,6 +460,7 @@
             "RETIRE_NO_SUCCESSOR",
             "RETIRE_SUCCESSOR_INVALID",
             "RETRY_OWN_COPY_UNVERIFIED",
+            "RETRY_OWN_COPY_MISMATCH",
             "EDIT_HOLD_GONE"
           ],
           "not-found": [
@@ -16584,7 +16587,7 @@
             ]
           },
           "409": {
-            "description": "Refused: ARTIFACT_NOT_FAILED, RETRY_OWN_COPY_UNVERIFIED. The first: the backup is not stuck: it is either making progress, already finished, or quarantined and waiting for a judgement, which is a different action. The second (issue #1594): the backup's own copy sits at its final name, its source is confirmed gone, and the copy does not match the checksum recorded when it was verified (and no validator passes on it), so there is nothing to fetch it from and nothing a retry may keep. The message is the engine's sentence and names the way out: a validator that passes on the copy, or retiring it with accept_unverified_copy. A copy that does verify is kept instead, and the answer is 204.",
+            "description": "Refused: ARTIFACT_NOT_FAILED, RETRY_OWN_COPY_UNVERIFIED, RETRY_OWN_COPY_MISMATCH. The first: the backup is not stuck: it is either making progress, already finished, or quarantined and waiting for a judgement, which is a different action. The second (issue #1594): the backup's own copy sits at its final name, its source is confirmed gone, and the copy does not match the checksum recorded when it was verified (and no validator passes on it), so there is nothing to fetch it from and nothing a retry may keep. The message is the engine's sentence and names the way out: a validator that passes on the copy, or retiring it with accept_unverified_copy. A copy that does verify is kept instead, and the answer is 204. The third (issue #1611): the backup's own copy sits at its final name, its source is still on the host, and the copy does not match the source object, so a retry would only meet the collision guard on the copy again. Nothing is written; the message is the engine's sentence and says to move that file aside (it is kept) and retry, which fetches a fresh copy.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16594,7 +16597,8 @@
             },
             "x-error-codes": [
               "ARTIFACT_NOT_FAILED",
-              "RETRY_OWN_COPY_UNVERIFIED"
+              "RETRY_OWN_COPY_UNVERIFIED",
+              "RETRY_OWN_COPY_MISMATCH"
             ]
           },
           "500": {

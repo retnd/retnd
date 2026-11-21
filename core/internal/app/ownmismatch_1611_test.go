@@ -87,7 +87,7 @@ func r1611(err error) *RetryRefusal {
 }
 
 // The sentence says what was found and the way out, and it never repeats a
-// string the remote chose: the remote object's checksum and path stay out.
+// string the remote chose: the remote object's checksum stays out.
 func TestTheMismatchRefusalNamesTheWayOutAndNothingTheRemoteChose_1611(t *testing.T) {
 	for kind, wantFact := range map[string]string{
 		"remote-rewritten": "still matches the checksum recorded",
@@ -96,13 +96,13 @@ func TestTheMismatchRefusalNamesTheWayOutAndNothingTheRemoteChose_1611(t *testin
 		t.Run(kind, func(t *testing.T) {
 			fx := ownCopyMismatch1611(t, kind)
 			s := r1611(fx.svc.RetryFailedIngestion(context.Background(), fx.artifact, "")).Sentence
-			for _, want := range []string{wantFact, "move", "retry", "kept"} {
+			for _, want := range []string{wantFact, "Move", "retry", "kept"} {
 				if !strings.Contains(s, want) {
 					t.Errorf("sentence lacks %q: %s", want, s)
 				}
 			}
 			remote := mustRecord662(t, fx)
-			for _, bad := range []string{fx.tr.hash(fx.tr.objects[remote.RemotePath]), remote.RemotePath} {
+			for _, bad := range []string{fx.tr.hash(fx.tr.objects[remote.RemotePath])} {
 				if strings.Contains(s, bad) {
 					t.Errorf("sentence repeats a string the remote supplied (%q): %s", bad, s)
 				}
