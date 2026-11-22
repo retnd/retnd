@@ -655,6 +655,14 @@ make_full_tree() {
   printf '#!/usr/bin/env bash\necho "%s $*"\nexit 0\n' "$UI_BROWSER_STUB" \
     >"$tree/scripts/e2e/ui-browser.sh"
 
+  # The pinned retnd-tests checkout (#1548), and the same lesson again: both halves of #1548 landed in ci-local.sh without a
+  # stub here, so every nested run exited 127 on the first one and 144 checks
+  # went red. The suite guards the checkout script (fixture repositories, no
+  # network) and the script itself hands the encryption shard its directory;
+  # this fixture measures which steps the gate runs, so both just succeed.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/tests-checkout.test.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/e2e/tests-checkout.sh"
+
   # The Python lint step (EPIC I, I1.6 / #672), and this is the SEVENTH time
   # the lesson above has had to be written down here. The step runs
   # `ruff check --config scripts/bdtools/pyproject.toml scripts` and
@@ -3264,6 +3272,27 @@ assert_contains "Z12 and ends INCOMPLETE" '==> ci-local: INCOMPLETE (shard ui-br
 tree="$(make_full_tree)"
 run_gate "$tree" STUB_UNAME_S=Linux RETND_GATE_HOST_OS=Linux -- --shard ui-browser
 assert_contains "Z12 control: RETND_GATE_HOST_OS=Linux runs the specs" "$UI_BROWSER_STUB specs" "$out"
+
+# Z13: the fixture tree has every script the gate runs. Each time a step
+# lands in ci-local.sh without a stub in make_full_tree, `bash` on the missing
+# path exits 127 under set -e and every nested run dies for a reason that has
+# nothing to do with what it measures (#1548 did it again: 144 checks). The
+# list comes from ci-local.sh itself, and the stubs stay a hand list on
+# purpose: what each stub prints is a decision, not something to generate.
+# Only a command ci-local.sh itself starts counts: bare, after `$(`, `if`, `!`,
+# an env prefix, gate_pw_locked, gate_ui_browser's quoted label, or through
+# gate_selftest_with_ledger. A path inside a message, or handed to
+# ui-browser.sh as an argument (the stub never runs it), does not.
+# check-anchors.sh is the one exception, and it is guarded by `[ -f ... ]`
+# (#458) so the gate skips it by name when the tree lacks it.
+tree="$(make_full_tree)"
+missing=""
+for script_path in $(grep -vE '^[[:space:]]*#' "$SCRIPTS_DIR/ci-local.sh" \
+  | grep -oE '((^[[:space:]]*|\$\(|if |! |gate_pw_locked |" |[A-Z_]+=[^[:space:]]* )(bash|python3)|gate_selftest_with_ledger)[[:space:]]+scripts/[A-Za-z0-9_./-]+\.(sh|py)' \
+  | awk '{print $NF}' | sort -u | grep -vx 'scripts/selftest/check-anchors.sh'); do
+  [ -f "$tree/$script_path" ] || missing="$missing $script_path"
+done
+assert_eq "Z13 every script ci-local.sh runs by path exists in the full fixture tree" "" "$missing"
 
 # ------------------------------------------------------------------ result
 
