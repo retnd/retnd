@@ -42,7 +42,7 @@ test.describe("#1528 retiring a failed backup whose source is gone", () => {
 
     await dialog(page).getByRole("button", { name: "Retire 1 backup" }).click();
     await expect(dialog(page).getByRole("heading", { name: "1 backup retired" })).toBeVisible();
-    await expect(dialog(page).getByRole("status")).toContainText("replaced by media-week36.tar");
+    await expect(dialog(page).getByTestId("retire-result")).toContainText("replaced by media-week36.tar");
     await dialog(page).getByRole("button", { name: "Close" }).click();
 
     // The record stays, said in the design's words, and the Retire control is gone.
@@ -72,7 +72,7 @@ test.describe("#1528 retiring a failed backup whose source is gone", () => {
     await dialog(page).getByRole("checkbox", { name: /I understand there is no replacement/ }).check();
     await expect(dialog(page)).toContainText("retnd retire " + WEEK34_ID + " --no-successor");
     await dialog(page).getByRole("button", { name: "Retire 1 backup" }).click();
-    await expect(dialog(page).getByRole("status")).toContainText("retired with no replacement");
+    await expect(dialog(page).getByTestId("retire-result")).toContainText("retired with no replacement");
   });
 
   test("#1528 the Backups row menu offers Retire on the FAILED backup only, with its terminal twin", async ({ page }) => {

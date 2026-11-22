@@ -79,7 +79,7 @@ test.describe("#1594 a failed backup with its own copy at the final name and its
 
     await dialog(page).getByRole("button", { name: "Retire 1 backup" }).click();
     await expect(dialog(page).getByRole("heading", { name: "1 backup retired" })).toBeVisible();
-    await expect(dialog(page).getByRole("status")).toContainText("replaced by media-week36.tar");
+    await expect(dialog(page).getByTestId("retire-result")).toContainText("replaced by media-week36.tar");
     await hold(page);
   });
 
