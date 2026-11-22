@@ -56,7 +56,7 @@ test.describe("#1663 settings inputs are labelled", () => {
       const control = find(page);
       await show(page, control);
       await expect(control).toHaveAttribute("aria-label", name);
-      await expect(page.getByRole("textbox", { name, exact: true })).toHaveCount(1);
+      await expect(control.and(page.getByRole("textbox", { name, exact: true }))).toHaveCount(1);
     });
   }
 
@@ -66,7 +66,7 @@ test.describe("#1663 settings inputs are labelled", () => {
       const control = page.locator("#workflow-env-value");
       await show(page, control);
       await expect(control).toHaveAttribute("aria-label", label);
-      await expect(page.getByRole("textbox", { name: label, exact: true })).toHaveCount(1);
+      await expect(control.and(page.getByRole("textbox", { name: label, exact: true }))).toHaveCount(1);
     });
   }
 });
