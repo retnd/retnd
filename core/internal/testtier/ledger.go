@@ -27,7 +27,7 @@ type LedgerEntry struct {
 	Issue int
 }
 
-// Ledger is empty, and #448 and #450 are what emptied it.
+// Ledger was emptied by #448 and #450.
 //
 // It held eight entries in two shapes. Six were container-backed tests
 // living in unit packages, which is why `go test ./internal/...` needed a
@@ -43,12 +43,18 @@ type LedgerEntry struct {
 // Medium.HasBucket, to look inside MinIO's drive), so the bypasses-harness
 // rule holds with no exceptions at all.
 //
-// Keeping the mechanism with an empty slice is deliberate. The ledger is
-// how a migration is written down where the guard can hold it, and the next
-// one should find the shape already here rather than reinventing it. An
-// empty ledger also means the guard is now a plain rule: a new violation is
-// unexpected, full stop, with nothing to add itself to.
-var Ledger = []LedgerEntry{}
+// Keeping the mechanism is deliberate. The ledger is how a migration is
+// written down where the guard can hold it, and the next one should find the
+// shape already here rather than reinventing it. Empty, the guard is a plain
+// rule: a new violation is unexpected, full stop, with nothing to add itself
+// to.
+//
+// It holds one entry again for 0.8.1: the log pipeline test (O1.2) execs
+// docker itself, which only the full gate noticed, and #1659 routes it through
+// the harness and takes the entry off.
+var Ledger = []LedgerEntry{
+	{File: "tests/logpipeline/pipeline_test.go", Rule: RuleBypassesHarness, Issue: 1659},
+}
 
 // Key is what a finding and a ledger entry are matched on.
 type Key struct {
