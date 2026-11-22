@@ -53,22 +53,22 @@ test.describe("#1663 settings inputs are labelled", () => {
     expect(found, "unlabelled controls on /settings").toEqual([]);
   });
 
-  const named: Array<[string, (page: Page) => Locator, string]> = [
+  const named: Array<[string, (page: Page) => Locator, string, "textbox" | "spinbutton"?]> = [
     ["the Report cache interval", (p) => p.getByLabel("Report cache (seconds)", { exact: true }), "Report cache (seconds)"],
     ["the global before directory", (p) => p.locator("#workflow-setting-beforeDir"), "Global before directory"],
     ["the global after directory", (p) => p.locator("#workflow-setting-afterDir"), "Global after directory"],
     ["the default script timeout", (p) => p.locator("#workflow-setting-scriptTimeoutSeconds"), "Default script timeout (seconds)"],
     ["the workflow variable name", (p) => p.locator("#workflow-env-name"), "Name"],
-    ["the alert refresh interval", (p) => p.locator("#obs-alert-refresh"), "Refresh every (seconds)"],
-    ["the alert expiry", (p) => p.locator("#obs-alert-ttl"), "Expire after (seconds)"]
+    ["the alert refresh interval", (p) => p.locator("#obs-alert-refresh"), "Refresh every (seconds)", "spinbutton"],
+    ["the alert expiry", (p) => p.locator("#obs-alert-ttl"), "Expire after (seconds)", "spinbutton"]
   ];
-  for (const [what, find, name] of named) {
+  for (const [what, find, name, role = "textbox"] of named) {
     test(`${what} is named "${name}" without a for association`, async ({ page }) => {
       await alertmanagerOn(page);
       const control = find(page);
       await show(page, control);
       await expect(control).toHaveAttribute("aria-label", name);
-      await expect(control.and(page.getByRole("textbox", { name, exact: true }))).toHaveCount(1);
+      await expect(control.and(page.getByRole(role, { name, exact: true }))).toHaveCount(1);
     });
   }
 
