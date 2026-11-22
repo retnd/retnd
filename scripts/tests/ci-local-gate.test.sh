@@ -655,6 +655,14 @@ make_full_tree() {
   printf '#!/usr/bin/env bash\necho "%s $*"\nexit 0\n' "$UI_BROWSER_STUB" \
     >"$tree/scripts/e2e/ui-browser.sh"
 
+  # The pinned retnd-tests checkout (#1548), and the same lesson again: both halves of #1548 landed in ci-local.sh without a
+  # stub here, so every nested run exited 127 on the first one and 144 checks
+  # went red. The suite guards the checkout script (fixture repositories, no
+  # network) and the script itself hands the encryption shard its directory;
+  # this fixture measures which steps the gate runs, so both just succeed.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/tests-checkout.test.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/e2e/tests-checkout.sh"
+
   # The Python lint step (EPIC I, I1.6 / #672), and this is the SEVENTH time
   # the lesson above has had to be written down here. The step runs
   # `ruff check --config scripts/bdtools/pyproject.toml scripts` and
