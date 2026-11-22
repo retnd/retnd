@@ -221,6 +221,12 @@ Worth reading before you upgrade:
   migration, so keep the upgrade archive if you might roll back (the steps are in [Rolling back a
   release that carried a migration](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
 
+### Changed
+
+- **`modernc.org/sqlite` 1.62.0** (#1645), the driver under the journal. SQLite stays 3.54.1 and `modernc.org/libc`
+  moves to 1.80.1, so a `state.db` written by one build opens on the other and rolling back needs nothing extra
+  for the driver. `apps/common` and `apps/generic` follow core's versions.
+
 ## [0.8.0] - 2026-11-14
 
 0.8.0 is a minor release, and nearly all of it is one feature: encrypted retained copies (EPIC N, #967), with
