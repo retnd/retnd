@@ -197,3 +197,39 @@ func TestNoRedactor_DetailIsUnchanged(t *testing.T) {
 		t.Fatalf("with no redactor installed, detail = %q, want it unchanged: %q", activity[0].Detail, detail)
 	}
 }
+
+// Issue #1616: a retirement record's three free-text fields get the same
+// treatment. failure_reason and note were already filtered; superseded_by is a
+// file name the source chose, so it can carry the endpoint too.
+func TestSetRedactor_FiltersEveryFreeTextFieldOfARetirement_1616(t *testing.T) {
+	j, _ := openJournal(t)
+	host, port, _ := realConnectionRefusedError(t)
+	j.SetRedactor(obs.NewRedactor(obs.Endpoint{Host: host, Port: port, User: "backupuser"}))
+
+	ctx := context.Background()
+	artifact := testArtifact(t)
+	at := time.Date(2026, 11, 19, 4, 0, 0, 0, time.UTC)
+	if _, err := j.Discover(ctx, artifact, "d1", "/incoming/backup.dump", RemoteIdentity{}, at); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if _, err := j.RecordTransition(ctx, Transition{Artifact: artifact, Key: "f1", From: "DISCOVERED", To: "FAILED", OccurredAt: at}); err != nil {
+		t.Fatalf("FAILED: %v", err)
+	}
+	leak := "from-" + host + "-" + strconv.Itoa(port) + ".dump"
+	if _, err := j.RecordTransition(ctx, Transition{
+		Artifact: artifact, Key: "r1", From: "FAILED", To: RetiredState, OccurredAt: at.Add(time.Hour),
+		Retirement: &RetirementUpdate{ActorKind: RetiredAutomatically, Actor: "engine", SourceCheck: SourceAbsent,
+			SupersededBy: leak, FailureReason: "dial " + leak, Note: "see " + leak},
+	}); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+	got, found, err := j.LatestRetirement(ctx, artifact)
+	if err != nil || !found {
+		t.Fatalf("LatestRetirement: found=%v err=%v", found, err)
+	}
+	for name, v := range map[string]string{"superseded_by": got.SupersededBy, "failure_reason": got.FailureReason, "note": got.Note} {
+		if strings.Contains(v, host) {
+			t.Errorf("artifact_retirements.%s still holds the endpoint: %q", name, v)
+		}
+	}
+}

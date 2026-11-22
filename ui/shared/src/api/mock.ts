@@ -161,6 +161,9 @@ export const SCENARIOS = [
   // no-replacement acknowledgement fails.
   "retire-reask-fails",
   "retire-reask-fails-alone",
+  // Issue #1616: the first re-ask with a non-empty choice fails and every one
+  // after it is answered, which is what Ask again is for.
+  "retire-reask-fails-once",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -4478,7 +4481,7 @@ export function createMockApi(
     : scenario === "backups-ingest-failed"
     ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
     : scenario === "retire-forge" || scenario === "retire-source-present" || scenario === "retire-auto" ||
-        scenario === "retire-slow" || scenario === "retire-reask-fails" || scenario === "retire-reask-fails-alone" || ownCopyScenario
+        scenario === "retire-slow" || scenario === "retire-reask-fails" || scenario === "retire-reask-fails-alone" || scenario === "retire-reask-fails-once" || ownCopyScenario
     ? retireForgeArtifacts(scenario === "retire-auto", scenario === "retire-reask-fails-alone")
     : ARTIFACTS;
   // Every backup outside quarantine, padded to ?artifacts=N: what the list
@@ -4488,6 +4491,7 @@ export function createMockApi(
   // Issue #1528: what the engine's retirement preview would say about one
   // fixture backup, and the records of the ones retired here.
   const mockRetirements = new Map<string, WireRetirementRecord>();
+  let reaskFailedOnce = false;
   const mockRetirementPreview = (a: BackupArtifact, ack: { superseded_by?: string; no_successor?: boolean; accept_source_present?: boolean; accept_unverified_copy?: boolean } = {}): WireRetirementPreview => {
     let command = retireCommand(a.id);
     const base = { artifact: a.id, state: a.state, effects: [] as string[], successor_candidates: [] as WireRetirementSuccessor[] };
@@ -5623,6 +5627,9 @@ export function createMockApi(
     // backup in the same set received after it is the successor, and the
     // source answers "gone" unless the scenario says it is still there.
     previewRetirement: (id, ack) => {
+      // Counted so a browser spec can tell a second ask really went out (#1616).
+      const w = globalThis as unknown as { __retndPreviewCalls?: number };
+      w.__retndPreviewCalls = (w.__retndPreviewCalls ?? 0) + 1;
       const found = artifacts.find((a) => a.id === id);
       if (!found) {
         return delay(null).then(() => {
@@ -5630,6 +5637,12 @@ export function createMockApi(
         });
       }
       const choice = ack ?? {};
+      if (scenario === "retire-reask-fails-once" && Object.keys(choice).length > 0 && !reaskFailedOnce) {
+        reaskFailedOnce = true;
+        return delay(null).then(() => {
+          throw new RetndError({ code: "INTERNAL_ERROR", message: "the source host did not answer", correlationId: "cid_mockreask" });
+        });
+      }
       if ((scenario === "retire-reask-fails" || scenario === "retire-reask-fails-alone") && Object.keys(choice).length > 0) {
         return delay(null).then(() => {
           throw new RetndError({ code: "INTERNAL_ERROR", message: "the source host did not answer", correlationId: "cid_mockreask" });

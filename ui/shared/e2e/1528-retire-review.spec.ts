@@ -146,7 +146,7 @@ test.describe("#1528 review of the Retire dialog", () => {
     await select.selectOption("media-week35.tar");
     await expect(dialog(page)).toContainText("retnd retire " + WEEK34_ID + " --superseded-by media-week35.tar");
     await dialog(page).getByRole("button", { name: "Retire 1 backup" }).click();
-    await expect(dialog(page).getByRole("status")).toContainText("replaced by media-week35.tar");
+    await expect(dialog(page).getByTestId("retire-result")).toContainText("replaced by media-week35.tar");
   });
 
   test("#1528 Retry is off with the reason when the source is gone, and on when it is still there", async ({ page }) => {

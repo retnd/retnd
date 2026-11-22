@@ -75,6 +75,14 @@ const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), select
  *  person can see (--control-edge, 3:1 and up in both themes). */
 const TARGET = { minHeight: 44 } as const;
 
+/** A failure's reason as a sentence of its own: capital first, full stop last. */
+function sentence(reason: string): string {
+  const t = reason.trim();
+  if (!t) return "";
+  const s = t[0].toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(s) ? s : s + ".";
+}
+
 export function RetireDialog({
   artifactId,
   readOnly = false,
@@ -173,6 +181,8 @@ export function RetireDialog({
   // the dialog says so. Falling back to the first answer would show one
   // replacement and send another.
   const [asked, setAsked] = useState<{ key: string; preview: WireRetirementPreview | null; error: string } | null>(null);
+  // Bumped by Ask again, so the same choice can be put to the host a second time.
+  const [askRound, setAskRound] = useState(0);
   useEffect(() => {
     if (!preview || ackKey === "{}") return;
     let live = true;
@@ -183,10 +193,30 @@ export function RetireDialog({
     return () => {
       live = false;
     };
-  }, [api, artifactId, ackKey, preview]);
+  }, [api, artifactId, ackKey, preview, askRound]);
   const asking = ackKey !== "{}" && asked?.key !== ackKey;
+  const askAgainRef = useRef<HTMLButtonElement>(null);
+  const refocusAsk = useRef(false);
+  const askAgain = () => {
+    // The banner and its button go while the host is asked, which would drop
+    // focus to the page behind and leave Escape deaf; the panel holds it, and
+    // the button takes it back if the answer is another failure.
+    dialogRef.current?.focus();
+    refocusAsk.current = true;
+    setAsked(null);
+    setAskRound((n) => n + 1);
+  };
   const current = ackKey === "{}" ? preview : asked?.key === ackKey ? asked.preview : null;
   const reaskError = ackKey !== "{}" && asked?.key === ackKey ? asked.error : "";
+
+  useEffect(() => {
+    if (reaskError && refocusAsk.current) {
+      refocusAsk.current = false;
+      askAgainRef.current?.focus();
+    } else if (asked?.key === ackKey && !asked.error) {
+      refocusAsk.current = false;
+    }
+  }, [reaskError, asked, ackKey]);
 
   useEffect(() => {
     if (outcome) resultRef.current?.focus();
@@ -416,13 +446,18 @@ export function RetireDialog({
                 </Banner>
               ) : null}
 
+              <div role="status" aria-live="polite">
               {reaskError ? (
-                <Banner tone="danger" dismissible={false}>
+                <Banner tone="danger" dismissible={false} style={{ display: "grid", gap: 8 }}>
                   <span data-testid="retire-reask-error">
-                    {"Asking the host again with this choice failed, so Retire stays off until it answers. " + reaskError}
+                    {"Asking the host again with this choice failed, so Retire is off. " + sentence(reaskError)}
+                  </span>
+                  <span>
+                    <button ref={askAgainRef} className="btn btn--strong-edge" style={TARGET} onClick={askAgain}>Ask again</button>
                   </span>
                 </Banner>
               ) : null}
+              </div>
 
               {ready && current && current.effects.length > 0 ? (
                 <section aria-label="What happens">

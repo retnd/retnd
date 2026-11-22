@@ -544,10 +544,10 @@ func TestUnconfiguredSets_CountsEveryRowIntoExactlyOneColumn(t *testing.T) {
 
 	gone := setNamed(t, "production", "beta", localDir)
 	tr := newFakeTransport()
-	for _, name := range []string{"done.dump", "stuck.dump", "bad.dump", "gaveup.dump"} {
+	for _, name := range []string{"done.dump", "stuck.dump", "bad.dump", "gaveup.dump", "retired.dump"} {
 		tr.put(name, "payload for "+name, epoch.Unix())
 	}
-	rows := discoverAll(t, ctx, journal, tr, transport.Source{ID: "gone"}, gone, 4)
+	rows := discoverAll(t, ctx, journal, tr, transport.Source{ID: "gone"}, gone, 5)
 	byName := map[string]state.Record{}
 	for _, r := range rows {
 		byName[r.Artifact.Name] = r
@@ -558,6 +558,15 @@ func TestUnconfiguredSets_CountsEveryRowIntoExactlyOneColumn(t *testing.T) {
 	advanceTo(t, ctx, journal, byName["bad.dump"], lifecycle.Discovered, lifecycle.Failed)
 	advanceTo(t, ctx, journal, byName["bad.dump"], lifecycle.Failed, lifecycle.Quarantined)
 	advanceTo(t, ctx, journal, byName["gaveup.dump"], lifecycle.Discovered, lifecycle.Failed)
+	// Issue #1616: a RETIRED row has no column of its own in the old report.
+	advanceTo(t, ctx, journal, byName["retired.dump"], lifecycle.Discovered, lifecycle.Failed)
+	if _, err := journal.RecordTransition(ctx, state.Transition{
+		Artifact: byName["retired.dump"].Artifact, Key: "test:retire", From: string(lifecycle.Failed), To: string(lifecycle.Retired),
+		OccurredAt: epoch,
+		Retirement: &state.RetirementUpdate{ActorKind: state.RetiredByOperator, Actor: "tester", SourceCheck: state.SourceAbsent},
+	}); err != nil {
+		t.Fatalf("retiring retired.dump: %v", err)
+	}
 
 	svc := New(testConfig(t, testSource("production")), journal, tr, nil)
 	sets, err := svc.UnconfiguredSets(ctx)
@@ -568,10 +577,13 @@ func TestUnconfiguredSets_CountsEveryRowIntoExactlyOneColumn(t *testing.T) {
 		t.Fatalf("UnconfiguredSets = %+v, want one set", sets)
 	}
 	u := sets[0]
-	if u.Artifacts != 4 {
-		t.Fatalf("Artifacts = %d, want 4", u.Artifacts)
+	if u.Artifacts != 5 {
+		t.Fatalf("Artifacts = %d, want 5", u.Artifacts)
 	}
-	if got := u.Retained + u.Stranded + u.Quarantined + u.Failed; got != u.Artifacts {
+	if u.Retired != 1 {
+		t.Errorf("Retired = %d, want 1", u.Retired)
+	}
+	if got := u.Retained + u.Stranded + u.Quarantined + u.Failed + u.Retired; got != u.Artifacts {
 		t.Errorf("the columns add to %d over %d artifact(s) (%+v); every row has to land in exactly one, or the report has lost some", got, u.Artifacts, u)
 	}
 	if u.Failed != 1 {
