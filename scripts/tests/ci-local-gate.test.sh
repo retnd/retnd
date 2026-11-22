@@ -3279,14 +3279,16 @@ assert_contains "Z12 control: RETND_GATE_HOST_OS=Linux runs the specs" "$UI_BROW
 # nothing to do with what it measures (#1548 did it again: 144 checks). The
 # list comes from ci-local.sh itself, and the stubs stay a hand list on
 # purpose: what each stub prints is a decision, not something to generate.
-# Only a command ci-local.sh itself starts counts: a path inside a message, or
-# handed to ui-browser.sh as an argument (the stub never runs it), does not.
+# Only a command ci-local.sh itself starts counts: bare, after `$(`, `if`, `!`,
+# an env prefix, gate_pw_locked, gate_ui_browser's quoted label, or through
+# gate_selftest_with_ledger. A path inside a message, or handed to
+# ui-browser.sh as an argument (the stub never runs it), does not.
 # check-anchors.sh is the one exception, and it is guarded by `[ -f ... ]`
 # (#458) so the gate skips it by name when the tree lacks it.
 tree="$(make_full_tree)"
 missing=""
 for script_path in $(grep -vE '^[[:space:]]*#' "$SCRIPTS_DIR/ci-local.sh" \
-  | grep -oE '(^[[:space:]]*|\$\(|if |! )(bash|python3)[[:space:]]+scripts/[A-Za-z0-9_./-]+\.(sh|py)' \
+  | grep -oE '((^[[:space:]]*|\$\(|if |! |gate_pw_locked |" |[A-Z_]+=[^[:space:]]* )(bash|python3)|gate_selftest_with_ledger)[[:space:]]+scripts/[A-Za-z0-9_./-]+\.(sh|py)' \
   | awk '{print $NF}' | sort -u | grep -vx 'scripts/selftest/check-anchors.sh'); do
   [ -f "$tree/$script_path" ] || missing="$missing $script_path"
 done
