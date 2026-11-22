@@ -641,11 +641,11 @@ func TestNoPageStillSaysNoCommandDecryptsACopy_1289(t *testing.T) {
 	text := strings.Join(strings.Fields(unreleased), " ")
 	for _, phrase := range stale {
 		if strings.Contains(text, phrase) {
-			t.Errorf("CHANGELOG [Unreleased] or the newest release still says %q", phrase)
+			t.Errorf("CHANGELOG [Unreleased] or [0.8.0] still says %q", phrase)
 		}
 	}
 	if !strings.Contains(text, "encryption decrypt") || !strings.Contains(text, "key import") {
-		t.Errorf("CHANGELOG [Unreleased] and the newest release do not mention the two new verbs")
+		t.Errorf("CHANGELOG [Unreleased] and [0.8.0] do not mention the two new verbs")
 	}
 }
 

@@ -41,7 +41,7 @@ type LedgerEntry struct {
 // than through a harness. The harness has those two capabilities now
 // (Source.Kill, to remove its own container on purpose, and
 // Medium.HasBucket, to look inside MinIO's drive), so the bypasses-harness
-// rule holds with no exceptions at all.
+// rule held with no exceptions at all, until the entry below.
 //
 // Keeping the mechanism is deliberate. The ledger is how a migration is
 // written down where the guard can hold it, and the next one should find the
