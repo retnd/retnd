@@ -66,7 +66,22 @@ def read_pin(path: Path) -> dict[str, str]:
     return values
 
 
-def require_on_main(url: str, sha: str, branch: str = "main") -> None:
+class Unreachable(harness.Failure):
+    """The remote did not answer (a stall, an error status, no route), as opposed to answering "no".
+
+    Still a Failure, so the bump tool and the e2e gate refuse as before; the retnd-tests checkout helper
+    (#1548) catches this one and calls it INCOMPLETE.
+    """
+
+
+def require_on_main(
+    url: str,
+    sha: str,
+    branch: str = "main",
+    *,
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
     """Refuse unless `sha` is an ancestor of the tests repository's `branch` (#1074).
 
     A pin names a reviewed, merged suite state. A branch head is none of
@@ -84,34 +99,48 @@ def require_on_main(url: str, sha: str, branch: str = "main") -> None:
     """
     with tempfile.TemporaryDirectory(prefix="retnd-pin-check.") as tmp:
         git = ["git", "-C", tmp]
-        harness.sh([*git, "init", "-q", "--bare"])
-        fetched_main = harness.sh(
-            [
-                *git,
-                "fetch",
-                "-q",
-                "--no-tags",
-                "--filter=tree:0",
-                url,
-                f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
-            ],
-            check=False,
-        )
+        harness.sh([*git, "init", "-q", "--bare"], timeout=timeout, env=env)
+        try:
+            fetched_main = harness.sh(
+                [
+                    *git,
+                    "fetch",
+                    "-q",
+                    "--no-tags",
+                    "--filter=tree:0",
+                    url,
+                    f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+                ],
+                check=False,
+                timeout=timeout,
+                env=env,
+            )
+        except harness.Failure as stalled:
+            raise Unreachable(stalled.message, *stalled.details) from stalled
         if fetched_main.returncode != 0:
-            harness.die(
+            raise Unreachable(
                 f"could not fetch {branch} from {url} to check that {sha} is on it.",
                 *(fetched_main.stderr or "").strip().splitlines()[-5:],
             )
-        fetched_sha = harness.sh(
-            [*git, "fetch", "-q", "--no-tags", "--filter=tree:0", url, sha], check=False
-        )
+        try:
+            fetched_sha = harness.sh(
+                [*git, "fetch", "-q", "--no-tags", "--filter=tree:0", url, sha],
+                check=False,
+                timeout=timeout,
+                env=env,
+            )
+        except harness.Failure as stalled:
+            raise Unreachable(stalled.message, *stalled.details) from stalled
         if fetched_sha.returncode != 0:
             harness.die(
                 f"{url} has no commit {sha}, so it cannot be on {branch}.",
                 "Pin a commit that has been merged to main and is reachable from it.",
             )
         verdict = harness.sh(
-            [*git, "merge-base", "--is-ancestor", sha, f"refs/remotes/origin/{branch}"], check=False
+            [*git, "merge-base", "--is-ancestor", sha, f"refs/remotes/origin/{branch}"],
+            check=False,
+            timeout=timeout,
+            env=env,
         )
         if verdict.returncode == 0:
             return

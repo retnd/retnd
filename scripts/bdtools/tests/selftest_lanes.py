@@ -71,6 +71,10 @@ def main() -> int:
                 ",".join(sorted(vis(["sh", "-c", "w=$(pwd); docker run --rm img true"]))))
     s.assert_eq("A a retnd-tests case needs the checkout", "retnd-tests",
                 ",".join(sorted(vis(["bash", "scripts/bdtools/encryption/retnd_tests_case.sh", "x"]))))
+    s.assert_eq("A a Suite A case needs the checkout and nothing else (#1548)", "retnd-tests",
+                ",".join(sorted(vis(["bash", "scripts/bdtools/encryption/retnd_tests_case.sh", "a", "x"]))))
+    s.assert_eq("A a Suite C case also needs a browser next to the checkout (#1548)", "retnd-tests,retnd-tests-browser",
+                ",".join(sorted(vis(["bash", "scripts/bdtools/encryption/retnd_tests_case.sh", "c", "x"]))))
     s.assert_eq("A a Go test under ./internal/docker needs nothing", "",
                 ",".join(sorted(vis(["go", "test", "./internal/docker", "-run", "TestX"]))))
     s.assert_eq("A a Go control (no command) needs nothing", "", ",".join(sorted(vis([]))))
@@ -158,6 +162,39 @@ def main() -> int:
             "G node_modules plus node or docker was refused")
     s.check(not lanes.node_lane(root, has_node=False, has_docker=False),
             "G with node_modules and neither node nor docker there is no node lane", "G a lane with no way to run it")
+    # I (#1548): the checkout lane is the checkout plus the commit it is built as,
+    # and the browser one needs Suite C's own install and a Chromium next to it.
+    with tempfile.TemporaryDirectory() as tmp:
+        tests = Path(tmp) / "tests"
+        tests.mkdir()
+        saved = {k: os.environ.get(k) for k in ("RETND_TESTS_DIR", "RETND_COMMIT", "PLAYWRIGHT_BROWSERS_PATH")}
+        try:
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(tmp) / "browsers")
+            os.environ["RETND_TESTS_DIR"] = str(tests)
+            os.environ.pop("RETND_COMMIT", None)
+            have = lanes.host_lanes(Path(tmp))
+            s.check(not have[lanes.LANE_TESTS],
+                    "I a checkout with no RETND_COMMIT is no retnd-tests lane (the case script would refuse it)",
+                    "I a checkout with no RETND_COMMIT was taken for the lane")
+            os.environ["RETND_COMMIT"] = "a" * 40
+            have = lanes.host_lanes(Path(tmp))
+            s.check(have[lanes.LANE_TESTS], "I the checkout plus RETND_COMMIT is the retnd-tests lane",
+                    "I the checkout plus RETND_COMMIT was not taken for the lane")
+            s.check(not have[lanes.LANE_TESTS_BROWSER],
+                    "I with no Suite C install and no Chromium there is no retnd-tests-browser lane",
+                    "I a browser lane was granted with no install and no Chromium")
+            (tests / "suites/equivalence/node_modules").mkdir(parents=True)
+            (Path(tmp) / "browsers/chromium-1234").mkdir(parents=True)
+            have = lanes.host_lanes(Path(tmp))
+            s.check(have[lanes.LANE_TESTS_BROWSER],
+                    "I Suite C's install plus a Chromium is the retnd-tests-browser lane",
+                    "I Suite C's install plus a Chromium was refused")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     # H: both self-tests run by hand, no ledger. A docker that always fails is
     # first on PATH, so the docker and Playwright lanes are missing on any host
     # and the one control picked is skipped; RETND_TESTS_DIR is unset, so the RT

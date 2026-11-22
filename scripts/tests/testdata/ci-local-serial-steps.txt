@@ -7,6 +7,7 @@
 ==> the e2e drivers' --help is still the text it was (#514)
 ==> a skipped first-run spec fails the gate (#1049)
 ==> a tests pin must be on retnd-tests main (#1074)
+==> the pinned retnd-tests checkout for the self-test shards (#1548)
 ==> the web-ui ratchet refuses a new failure, a listed pass, an expired or other-pin entry and a grown skip count (#1260)
 ==> the Chromium lane hands the daemon a read-only tree and a fence, and tells a red run from a machine that cannot run it (#1532, #1537)
 ==> docs/reference/local-gate.md documents every knob the gate reads (#1260)

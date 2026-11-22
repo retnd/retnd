@@ -37,14 +37,15 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from bdtools import selftest_lanes as lanes  # noqa: E402
 
-# What a Linux gate host has.
-LINUX_GATE = {lanes.LANE_DOCKER, lanes.LANE_NODE, lanes.LANE_CHROMIUM}
+# What a Linux gate host has. The selftest-encryption step fetches the pinned
+# retnd-tests checkout itself (scripts/e2e/tests-checkout.sh, #1548).
+LINUX_GATE = {lanes.LANE_DOCKER, lanes.LANE_NODE, lanes.LANE_CHROMIUM, lanes.LANE_TESTS}
 
 # The only lanes a control may lack there. Adding one is a decision a reviewer
 # has to see, which is why the list lives in this test and not beside the controls.
 ALLOWED = {
-    lanes.LANE_TESTS: "builds the planted copy and runs a case of the pinned retnd-tests checkout, "
-    "which no gate shard hands the self-test yet (#1548)",
+    lanes.LANE_TESTS_BROWSER: "Suite C needs its npm install and a Chromium next to the retnd-tests checkout, "
+    "and a shard container has neither (#1548 follow-up: run it in the Playwright image)",
 }
 
 SELFTESTS = ("bdtools.agents.selftest", "bdtools.encryption.selftest")
@@ -125,7 +126,8 @@ def self_check() -> int:
         (Fake("mac lock", [lock, "sh", "-c", "docker run img npx playwright test x"]), "skips", False),
         (Fake("mac path", ["sh", "-c", "w=$(pwd); docker run -v /Users/rom/workspace/x:/x img true"]), "skips", False),
         (Fake("hand-built", lanes.chromium("docker run retnd-capture:1.62.1 node x")), "skips", False),
-        (Fake("rt", ["bash", case_sh, "a", "x"]), "skips", True),
+        (Fake("rt suite a", ["bash", case_sh, "a", "x"]), "here", True),
+        (Fake("rt suite c", ["bash", case_sh, "c", "x"]), "skips", True),
     ]
     failures = 0
     for c, want_where, want_allowed in cases:
