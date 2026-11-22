@@ -887,6 +887,10 @@ var surfaces = []surface{
 	{verb: "retry", name: "one failed backup", mode: "", exit: 1, needsArtifacts: true,
 		note: "nothing here is FAILED, so this refuses for the missing subject",
 		argv: func(f fixture) []string { return []string{"retry", "--config", f.configPath, f.artifactID} }},
+	{verb: "retire", name: "one backup that is not failed", mode: "", exit: 1, needsArtifacts: true,
+		says: "not FAILED. Only a failed backup can be retired.",
+		note: "nothing here is FAILED, so this refuses for the missing subject, the way retry beside it does. Retiring needs a failed backup whose source is gone, which the warm-up cycle does not leave behind; what the row pins is that the refusal is the engine's own sentence about the state and not a route or a flag problem (#1528, #1536)",
+		argv: func(f fixture) []string { return []string{"retire", "--config", f.configPath, f.artifactID} }},
 	{verb: "restore", name: "one archived copy", mode: "", exit: 1, needsArtifacts: true,
 		note: "nothing here is on a storage medium, so this refuses for the missing subject",
 		argv: func(f fixture) []string {
