@@ -622,16 +622,21 @@ func TestNoPageStillSaysNoCommandDecryptsACopy_1289(t *testing.T) {
 	}
 
 	// The changelog keeps its history, so only [Unreleased] and the release
-	// that carries #1289 (0.8.0) are held to it: once the release is cut its
-	// entries sit under the newest dated heading and [Unreleased] is empty.
+	// that carries #1289 (0.8.0) are held to it. The release is named, not
+	// "the newest dated heading": cutting 0.8.1 made 0.8.1 the newest, and
+	// the verbs are in the section below it.
 	raw, err := os.ReadFile("../../../CHANGELOG.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	unreleased, older, _ := strings.Cut(string(raw), "\n## [0.")
 	if !strings.Contains(unreleased, "#1289") {
-		newest, _, _ := strings.Cut(older, "\n## [0.")
-		unreleased += "\n## [0." + newest
+		_, from080, found := strings.Cut(older, "\n## [0.8.0]")
+		if !found {
+			t.Fatal("CHANGELOG.md has no [0.8.0] section")
+		}
+		section, _, _ := strings.Cut(from080, "\n## [0.")
+		unreleased += "\n## [0.8.0]" + section
 	}
 	text := strings.Join(strings.Fields(unreleased), " ")
 	for _, phrase := range stale {
