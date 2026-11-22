@@ -97,6 +97,7 @@ export function WorkflowEnvironmentEditor({
   const [draftName, setDraftName] = useState("");
   const [kind, setKind] = useState<ValueKind>("literal");
   const [draftValue, setDraftValue] = useState("");
+  const valueLabel = kind === "literal" ? "Value" : kind === "command" ? "Command" : "Location";
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const mountedRef = useMounted();
@@ -231,6 +232,7 @@ export function WorkflowEnvironmentEditor({
           <Field label="Name" htmlFor="workflow-env-name">
             <input
               id="workflow-env-name"
+              aria-label="Name"
               className="mono"
               value={draftName}
               onChange={(e) => setDraftName(e.target.value.toUpperCase())}
@@ -252,12 +254,10 @@ export function WorkflowEnvironmentEditor({
               ))}
             </select>
           </Field>
-          <Field
-            label={kind === "literal" ? "Value" : kind === "command" ? "Command" : "Location"}
-            htmlFor="workflow-env-value"
-          >
+          <Field label={valueLabel} htmlFor="workflow-env-value">
             <input
               id="workflow-env-value"
+              aria-label={valueLabel}
               className={kind === "literal" ? undefined : "mono"}
               value={draftValue}
               onChange={(e) => setDraftValue(e.target.value)}

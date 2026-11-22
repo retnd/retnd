@@ -163,6 +163,7 @@ export function ObservabilityCard({ readOnly }: { readOnly: boolean }) {
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input
                         id={intervalId}
+                        aria-label="Report cache (seconds)"
                         className="input input--mono input--strong-edge"
                         inputMode="numeric"
                         value={interval}

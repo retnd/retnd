@@ -425,6 +425,7 @@ function SettingBox({
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <input
           id={id}
+          aria-label={BOX_LABELS[box]}
           className="mono"
           value={value}
           inputMode={box === "scriptTimeoutSeconds" ? "numeric" : undefined}
