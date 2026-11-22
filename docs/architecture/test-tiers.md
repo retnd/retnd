@@ -124,12 +124,14 @@ the harness is named on the gotestwatch line and in the exclusion group of
 the plain `go test` step, so a machine-tier package cannot be run under a
 fixed timeout (the #256 shape) or not at all (the #160 shape).
 
-The ledger is empty. It held eight files when the guard landed: six
+The ledger holds one file. It held eight when the guard landed: six
 container-backed tests in unit packages, moved to `core/tests/machinegate`
 by #448, and two integration tests that exec'd `docker` directly, given
-harness capabilities by #450 (`Source.Kill` and `Medium.HasBucket`). The
-mechanism stays with an empty slice, because the next migration should find
-the shape already here.
+harness capabilities by #450 (`Source.Kill` and `Medium.HasBucket`). That
+emptied it, and for 0.8.1 it holds `tests/logpipeline/pipeline_test.go`, which
+execs `docker` itself; #1659 routes it through the harness and takes the entry
+off. The mechanism stays because the next migration should find the shape
+already here.
 
 The ledger cannot go stale: a listed file that stops violating fails the
 guard until it is removed, and an unlisted file that starts violating fails

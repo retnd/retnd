@@ -50,6 +50,7 @@ user-unit coordinate system.
 | `docs/design/994-retained-copy-encryption.png` | export of its `.html` | dated design note | record only |
 | `docs/design/1350-agents.png` | export of its `.html` | dated design note | record only |
 | `docs/design/906-shell-verification-findings.png` | export of its `.html` | dated design note | record only |
+| `docs/design/899-observability.png` | export of its `.html` | dated design note | record only |
 | `docs/design/activity-error-diagnostic.png` | export of its `.html` | dated design note | record only |
 | `docs/design/activity-terminal.png` | export of its `.html` | dated design note | record only |
 | `docs/design/cancel-edit-mode.png` | export of its `.html` | dated design note | record only |
