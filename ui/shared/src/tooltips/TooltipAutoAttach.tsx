@@ -88,6 +88,7 @@ import { useTooltipsVisible } from "@shared/hooks/useTooltips";
 import { lookupTooltip } from "@shared/tooltips/tooltips";
 import type { TooltipEntry } from "@shared/tooltips/tooltips";
 import { TooltipPopover } from "@shared/tooltips/TooltipPopover";
+import { behindModal, useCloseOnModal } from "@shared/tooltips/closeOnModal";
 
 /** The opt-in attribute. Exported because it is the feature's public
  *  surface — markup is what uses it, and a selector is what finds it. */
@@ -130,7 +131,7 @@ export function TooltipAutoAttach({ children }: { children?: ReactNode }) {
       // pointer opened, the pointer's own departure closes — which is
       // what pointerout is, and it is precise about which element left.
       const next = resolve(event.target);
-      if (next) setActive((prev) => (prev && prev.trigger === next.trigger ? prev : next));
+      if (next && !behindModal(next.trigger)) setActive((prev) => (prev && prev.trigger === next.trigger ? prev : next));
     };
 
     const onPointerOut = (event: Event) => {
@@ -152,7 +153,7 @@ export function TooltipAutoAttach({ children }: { children?: ReactNode }) {
       // Focus landing on something unexplained does not close a pop-up a
       // resting pointer is holding open; focus LEAVING the trigger does,
       // below.
-      if (next) setActive((prev) => (prev && prev.trigger === next.trigger ? prev : next));
+      if (next && !behindModal(next.trigger)) setActive((prev) => (prev && prev.trigger === next.trigger ? prev : next));
     };
 
     const onFocusOut = (event: Event) => {
@@ -195,6 +196,11 @@ export function TooltipAutoAttach({ children }: { children?: ReactNode }) {
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [active]);
+
+  // A modal dialog opening puts the pop-up away, including the one over the
+  // trigger that opened it (#1646). The next pointer movement onto a trigger
+  // is a fresh request and is answered.
+  useCloseOnModal(active !== null, () => setActive(null), () => active?.trigger ?? null);
 
   // A trigger can also leave without any event at all: the row it is in
   // is re-rendered away, the route changes, a list refreshes. Nothing

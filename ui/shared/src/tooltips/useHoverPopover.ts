@@ -51,6 +51,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FocusEvent, MutableRefObject, PointerEvent } from "react";
 import { noteTooltipClosed } from "@shared/state/tooltipNodes";
+import { behindModal, useCloseOnModal } from "@shared/tooltips/closeOnModal";
 
 /** The handlers that belong on the element wrapping the control and its
  *  pop-up. Spread, rather than picked apart: leaving one out is how a
@@ -161,6 +162,16 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
 
   const shown = pinned || ((hovered || focused) && !dismissed);
 
+  // A modal dialog opening puts every pop-up away, the one over its own
+  // trigger included (#1646). Dismissed, so the pointer still resting on the
+  // host does not bring it straight back; the next arrival asks again.
+  useCloseOnModal(shown, () => {
+    setHovered(false);
+    setFocused(false);
+    setPinned(false);
+    setDismissed(true);
+  }, () => ref.current);
+
   // A pinned pop-up closes on a click anywhere outside it. Registered in
   // the CAPTURE phase so this runs before React's own delegated handlers
   // at the root container: the alternative depends on whether a nested
@@ -232,7 +243,7 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
       const onIn = () => {
         // Only focus the keyboard brought. A dialog's autofocus, or focus a
         // refusal sends back to a field, is script and not a request for help.
-        if (!enabled || !keyboardDriven) return;
+        if (!enabled || !keyboardDriven || behindModal(control)) return;
         setFocused(true);
         setDismissed(false);
       };
@@ -278,13 +289,13 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
     },
     hostProps: {
       onMouseEnter: () => {
-        if (!enabled) return;
+        if (!enabled || behindModal(ref.current)) return;
         setHovered(true);
         setDismissed(false);
       },
       onMouseLeave: () => setHovered(false),
       onFocus: (event) => {
-        if (!enabled || staysInside(event)) return;
+        if (!enabled || staysInside(event) || behindModal(ref.current)) return;
         setFocused(true);
         setDismissed(false);
       },
@@ -316,7 +327,7 @@ export function useHoverPopover<T extends HTMLElement = HTMLElement>(options: {
         // to show a pop-up with first. A MOUSE pointerdown deliberately
         // does nothing, so clicking a control puts its help away instead
         // of pinning it over whatever is about to be clicked next.
-        if (!enabled || event.pointerType !== "touch") return;
+        if (!enabled || event.pointerType !== "touch" || behindModal(ref.current)) return;
         setPinned(true);
         setDismissed(false);
       }
