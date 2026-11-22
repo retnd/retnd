@@ -526,6 +526,11 @@ EOF
 # for the same reason: it is the authority the note was reviewed against, and
 # the note says where it deliberately diverges from it.
 #
+# The twelfth is the EPIC V designs, whose note for the keys card says it is
+# drawn against `docs/design/Backup Manager.dc.html` by its real filename. Same
+# reasoning as the eighth, tenth and eleventh: the canvas is deliberately not
+# renamed, so the citation is right as written.
+#
 # Every line is <token> <path>, one occurrence-site per line. Adding one of
 # these names to a file that is not listed is a creation, and this guard
 # treats it as one.
@@ -540,6 +545,7 @@ Backup Manager ui/shared/src/api/client.ts
 Backup Manager docs/adr/0029-the-recovery-boundary.md
 Backup Manager docs/design/984-recovery-assurance.html
 Backup Manager docs/design/994-retained-copy-encryption.html
+Backup Manager docs/design/EPIC-V-detailed-designs.md
 BACKUP_MANAGER_ scripts/ci-local.sh
 BACKUP_MANAGER_API_PASSWORD docs/design/activity-terminal.html
 BACKUP_MANAGER_API_URL docs/design/activity-terminal.html
