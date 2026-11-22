@@ -2,11 +2,13 @@ import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { open } from "./helpers";
 
-// Issue #1663: six inputs on /settings carry no accessible label of their own.
-// Each one sits under a visible <label htmlFor>, but the retnd-tests sweep
-// ("every control is reachable and labelled", accessibility.spec.ts) reads
-// aria-label, title, the control's own text or a wrapping <label>, so it
-// reports them. These specs pin the same sweep and then each of the six.
+// Issue #1663: eight inputs on /settings are not named in the way the retnd-tests
+// sweep accepts. Each already has a name through a visible <label htmlFor>, but the
+// sweep ("every control is reachable and labelled", accessibility.spec.ts, at the
+// pin) only takes an aria-label, a title, the control's own text or a wrapping
+// <label>, so it reports them. Six show on a default deployment; the other two
+// (refresh and expire seconds) only show with Alertmanager webhook alerts on.
+// These specs run the same sweep and then pin each input's own aria-label.
 
 // The sweep from retnd-tests, kept in step with it on purpose: this is the
 // check the release gate runs against the real deployment.
@@ -25,6 +27,13 @@ async function unlabelled(page: Page): Promise<string[]> {
   });
 }
 
+// Alertmanager webhook alerts on, which is what shows the two timer inputs.
+async function alertmanagerOn(page: Page) {
+  await page.locator("#obs-alert-delivery").selectOption("webhook");
+  await page.locator("#obs-alert-dialect").selectOption("alertmanager");
+  await expect(page.locator("#obs-alert-ttl")).toBeVisible();
+}
+
 async function show(page: Page, control: Locator) {
   await control.scrollIntoViewIfNeeded();
   await expect(control).toBeVisible();
@@ -39,8 +48,8 @@ test.describe("#1663 settings inputs are labelled", () => {
   });
 
   test("the retnd-tests sweep finds no unlabelled control on /settings", async ({ page }) => {
+    await alertmanagerOn(page);
     const found = await unlabelled(page);
-    await page.waitForTimeout(600);
     expect(found, "unlabelled controls on /settings").toEqual([]);
   });
 
@@ -49,10 +58,13 @@ test.describe("#1663 settings inputs are labelled", () => {
     ["the global before directory", (p) => p.locator("#workflow-setting-beforeDir"), "Global before directory"],
     ["the global after directory", (p) => p.locator("#workflow-setting-afterDir"), "Global after directory"],
     ["the default script timeout", (p) => p.locator("#workflow-setting-scriptTimeoutSeconds"), "Default script timeout (seconds)"],
-    ["the workflow variable name", (p) => p.locator("#workflow-env-name"), "Name"]
+    ["the workflow variable name", (p) => p.locator("#workflow-env-name"), "Name"],
+    ["the alert refresh interval", (p) => p.locator("#obs-alert-refresh"), "Refresh every (seconds)"],
+    ["the alert expiry", (p) => p.locator("#obs-alert-ttl"), "Expire after (seconds)"]
   ];
   for (const [what, find, name] of named) {
     test(`${what} is named "${name}" without a for association`, async ({ page }) => {
+      await alertmanagerOn(page);
       const control = find(page);
       await show(page, control);
       await expect(control).toHaveAttribute("aria-label", name);
