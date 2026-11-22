@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-22
+
 Worth reading before you upgrade:
 
 - **This release applies migration 0023 on its first start, and 0.8.0 won't open the journal
@@ -15,6 +17,10 @@ Worth reading before you upgrade:
   [Rolling back a release that carried a
   migration](docs/install.md#rolling-back-a-release-that-carried-a-migration) for the steps and
   for what a rollback costs, and decide within hours rather than days.
+- One cosmetic known issue (#1652): on the Backups page the Actions button in the retained backups
+  table sits about 3.5px closer to the right edge of the card than the row checkbox does to the
+  left edge, once the table is scrolled to its far right. Nothing is cut off and nothing stops
+  working. It's fixed in 0.8.2.
 
 ### Added
 
@@ -220,6 +226,28 @@ Worth reading before you upgrade:
   `artifact_retirements`. 0.8.0 refuses a `state.db` this build has opened, like every release with a
   migration, so keep the upgrade archive if you might roll back (the steps are in [Rolling back a
   release that carried a migration](docs/install.md#rolling-back-a-release-that-carried-a-migration)).
+
+- **Follow-ups from the retire reviews** (#1616). The unconfigured-set report now has a Retired
+  column, so its columns add up to the artifact total again, and the CLI prints how many are
+  retired when there are any. `superseded_by` goes through the redactor on insert, like
+  `failure_reason` and `note`. A retirement's journal write and removal, the way back out of
+  RETIRED and the cycle's sweep of a RETIRED row's `.partial` now take turns on one lock, so the
+  sweep can't remove the file of a row that has just come back. The retire dialog no longer says
+  Retire stays off "until it answers": it says Retire is off, gives the host's reason, and has an
+  Ask again button that puts the same question to the host. No migration, and nothing to do on
+  upgrade.
+
+- **The encryption self-test shard now runs the controls that need retnd-tests** (#1548). Three
+  self-test controls build a retnd from a planted copy and run a case of retnd-tests against it,
+  and no shard set the variables they need, so they were skipped by name everywhere. The shard
+  now fetches retnd-tests at the sha `tests-repo.pin` names (anonymous https, one shallow fetch
+  cached per sha) and the controls run. This is the gate, not the product: the shipped binaries
+  are the same.
+
+- **A tooltip no longer stays up over the dialog its button opened** (#1646). Hovering a button
+  and clicking it, or tabbing to it and pressing Enter, could leave its tooltip on screen over
+  the dialog that opened. A tooltip now closes when a modal dialog opens that doesn't contain its
+  host, and the controls a dialog covers don't open one on hover, focus or touch while it's up.
 
 ### Changed
 
