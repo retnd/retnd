@@ -1,18 +1,18 @@
 {
-  "version": "0.8.0",
-  "commit": "44593e010c41214396de6821ef8b1d36fb3f0ea2",
-  "generated_at": "2026-11-17T15:15:02Z",
+  "version": "0.8.1",
+  "commit": "8cd6afcba5dafa491a0962fe784c4e3bb3c6d481",
+  "generated_at": "2026-11-22T05:29:40Z",
   "note": "Regenerate with scripts/release/record-release-hashes.sh, and only at a commit that is ALREADY on main. A commit recorded from a feature branch stops existing the moment that branch is squash merged, and the manifest is then pinned to a SHA nobody can check out: that is issue #174, which is why the script now refuses to record a commit that is not an ancestor of origin/main and why distribution/packaging's release-manifest-integrity check re-asks the same question on every run. binary_sha256 is hashed from the two binaries extracted out of the built image, so it is real evidence of what was compiled. registry_digest is the digest ghcr.io assigns ghcr.io/retnd/retnd on push (docker buildx build --push prints it, docker buildx imagetools inspect reads it back). binary_sha256 keys match the two executable paths in the image: retnd and retnd-web. A manifest that already records a published release is historical evidence and must not be rewritten merely to rename a key; a new semantic version records the names its image actually carries.",
   "architectures": [
     {
       "architecture": "amd64",
       "binary_sha256": {
-        "retnd": "10c57d81551fc6c4d45622748ea8ce2332529300902feae9d477e93afd8a0da4",
-        "retnd-web": "46361a82046e05d1d6baf35b56e6c59f38deaeff96b51fbc3898edcd080013c3"
+        "retnd": "8bd4cac0045d39af8d0e5d31f964f15776081abee239259dff37683168bdfc96",
+        "retnd-web": "cf5e0f0a6a60c5285c52025ed6e8322824cdd5a942718bbb21db85dd0cd73932"
       },
-      "local_image_id_sha256": "17036b997d9193ef3a436767a45393d6ac76a7e28cb16bc68f3ec989ca46b8a1",
-      "registry_digest": "sha256:c4df9b823a0d4cd5e441bf459a1ecc0c36632a3f53b2b6992f5be0dd0e240a49"
+      "local_image_id_sha256": "c950d00ac96982428588db2f79ed0af436be28de4877facfdc6cb3383171500d",
+      "registry_digest": null
     }
   ],
-  "index_digest": "sha256:1e15b5356eaf848c3c1e4167acbba19ff377140207bb56cd703796e27fd72635"
+  "index_digest": null
 }
