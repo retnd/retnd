@@ -72,7 +72,7 @@ def main() -> int:
     # the real helper is part of the tree under test
     out, status = run(root, cache)
     path = out.strip().splitlines()[-1] if out.strip() else ""
-    suite.check(status == 0 and path and fixtures.git(Path(path), "rev-parse", "HEAD") == fx.b,
+    suite.check(status == 0 and bool(path) and fixtures.git(Path(path), "rev-parse", "HEAD") == fx.b,
                 "A the helper prints a checkout at the pinned sha",
                 f"A the helper did not print a checkout at the pin (exit {status})", out)
     out2, status2 = run(root, cache)
@@ -150,7 +150,7 @@ def main() -> int:
     (planted / "stray").write_text("not the tests", encoding="utf-8")
     out, status = run(root, cache_i)
     path = out.strip().splitlines()[-1] if out.strip() else ""
-    ok = status == 0 and path and fixtures.git(Path(path), "rev-parse", "HEAD") == fx.b
+    ok = status == 0 and bool(path) and fixtures.git(Path(path), "rev-parse", "HEAD") == fx.b
     suite.check(ok, "H a planted directory that only holds .complete is not trusted, the pin is fetched instead",
                 f"H a planted .complete directory was trusted or the refetch failed (exit {status})", out)
     suite.check((planted / "stray").exists() is False or Path(path) != planted,
