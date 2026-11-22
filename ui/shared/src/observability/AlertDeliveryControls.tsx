@@ -98,6 +98,7 @@ export function AlertDeliveryControls({
     row(id, tip, label, help, (helpId) =>
       <input
         id={id}
+        aria-label={label}
         type="number"
         min={1}
         step={1}
