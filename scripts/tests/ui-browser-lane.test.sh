@@ -182,6 +182,23 @@ is "S2 a report with no skip passes" 0 "$status" "$out"
 report "$work/r2.json" skipped '[{"type":"skip","description":"recording only, run with E2E_VIDEO=1"}]'
 guard "$work/r2.json"
 is "S3 an E2E_VIDEO-gated skip passes" 0 "$status" "$out"
+# Playwright 1.62 adds a "location" key to every annotation in the JSON report.
+loc='"location":{"file":"/tmp/t/a.spec.ts","line":2,"column":6}'
+report "$work/r2l.json" skipped '[{"type":"skip","description":"recording only, run with E2E_VIDEO=1",'"$loc"'}]'
+guard "$work/r2l.json"
+is "S3b the real report shape (with location) of a gated skip passes" 0 "$status" "$out"
+report "$work/r3l.json" skipped '[{"type":"skip","description":"flaky",'"$loc"'}]'
+guard "$work/r3l.json"
+is "S3c a location with the right type but another reason is refused" 1 "$status" "$out"
+report "$work/r4l.json" skipped '[{"type":"fixme","description":"recording only, run with E2E_VIDEO=1",'"$loc"'}]'
+guard "$work/r4l.json"
+is "S3d the gated reason under another type (fixme) is refused" 1 "$status" "$out"
+report "$work/r5l.json" skipped '[{'"$loc"'}]'
+guard "$work/r5l.json"
+is "S3e an annotation holding only a location is refused" 1 "$status" "$out"
+report "$work/r6l.json" skipped '[{"type":"skip",'"$loc"'}]'
+guard "$work/r6l.json"
+is "S3f a skip with a location but no reason is refused" 1 "$status" "$out"
 report "$work/r3.json" skipped '[{"type":"skip"}]'
 guard "$work/r3.json"
 is "S4 a bare test.skip is refused" 1 "$status" "$out"
