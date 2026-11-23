@@ -46,10 +46,20 @@ test.describe("#1525 the agent audit is a table, and a collapsed one", () => {
     const row = rows(page).first();
     const display = await row.evaluate((el) => getComputedStyle(el).display);
     expect(display).toBe("table-row");
-    const time = (await row.locator("td").nth(0).boundingBox())!;
-    const corr = (await row.locator("td").nth(5).boundingBox())!;
-    expect(Math.abs(time.y - corr.y)).toBeLessThan(4);
-    expect(time.height).toBeLessThan(120);
+    // Both cells are measured in one call, so they come from the same frame, and
+    // the measure is polled: two separate boundingBox reads are relative to the
+    // viewport, and anything that shifts the page between them (another Settings
+    // card finishing its read above this one) reads as a gap between the cells.
+    const measure = () =>
+      row.evaluate((tr) => {
+        const first = tr.querySelectorAll("td")[0].getBoundingClientRect();
+        const last = tr.querySelectorAll("td")[5].getBoundingClientRect();
+        return { apart: Math.abs(first.top - last.top), height: first.height };
+      });
+    await expect
+      .poll(async () => (await measure()).apart, { message: "the first and the last cell of a call sit on one line" })
+      .toBeLessThan(4);
+    expect((await measure()).height).toBeLessThan(120);
   });
 
   test("#1525 the column headers stay visible, so the columns are labelled once", async ({ page }) => {
