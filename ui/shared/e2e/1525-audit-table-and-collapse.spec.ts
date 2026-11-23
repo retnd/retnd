@@ -46,10 +46,17 @@ test.describe("#1525 the agent audit is a table, and a collapsed one", () => {
     const row = rows(page).first();
     const display = await row.evaluate((el) => getComputedStyle(el).display);
     expect(display).toBe("table-row");
-    const time = (await row.locator("td").nth(0).boundingBox())!;
-    const corr = (await row.locator("td").nth(5).boundingBox())!;
-    expect(Math.abs(time.y - corr.y)).toBeLessThan(4);
-    expect(time.height).toBeLessThan(120);
+    // The layout settles a frame or two after the click, and a full run is fast
+    // enough to read it before then, so the geometry is polled, not read once.
+    const cell = (n: number) => row.locator("td").nth(n);
+    await expect
+      .poll(async () => {
+        const time = await cell(0).boundingBox();
+        const corr = await cell(5).boundingBox();
+        return time && corr ? Math.abs(time.y - corr.y) : Number.POSITIVE_INFINITY;
+      }, { message: "the first and the last cell of a call sit on one line" })
+      .toBeLessThan(4);
+    expect((await cell(0).boundingBox())!.height).toBeLessThan(120);
   });
 
   test("#1525 the column headers stay visible, so the columns are labelled once", async ({ page }) => {

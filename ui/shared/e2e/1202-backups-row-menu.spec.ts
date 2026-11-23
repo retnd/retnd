@@ -145,6 +145,12 @@ test.describe("#1202 the Backups row Actions menu", () => {
     await expect(dialog.getByRole("radiogroup", { name: "Where should the artifact go?" })).toBeVisible();
     await expect(dialog, "the terminal twin is the dialog's own").toContainText("retnd recover " + BILLING_ID);
     await expect(page).toHaveURL(/\/backups\?/);
+    // The click left the pointer resting over the dialog, where a hover pop-up
+    // can open. The tooltip layer takes the first Escape for itself, so that
+    // one press closes the pop-up OR the dialog, never both (#1619). Whether a
+    // pop-up is up is not what this case is about, so the pointer goes away
+    // before the key does.
+    await page.mouse.move(0, 0);
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(actions(page, BILLING)).toBeFocused();
