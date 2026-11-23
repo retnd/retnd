@@ -151,6 +151,7 @@ test.describe("#1202 the Backups row Actions menu", () => {
     // pop-up is up is not what this case is about, so the pointer goes away
     // before the key does.
     await page.mouse.move(0, 0);
+    await expect(page.locator(".tooltip__pop:not([hidden])"), "no pop-up is left to take the Escape").toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(actions(page, BILLING)).toBeFocused();
