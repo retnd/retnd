@@ -5,7 +5,8 @@ A spec run that quietly runs less must not read as green. The lane has
 Playwright write a JSON report beside the list reporter, and this reads it:
 the only skip the in-tree specs may carry is the recording one, a walkthrough's
 `test.skip(!process.env.E2E_VIDEO, "recording only, run with E2E_VIDEO=1")`,
-which reports as a `skip` annotation with exactly that reason. Any other skip (a
+which reports as a `skip` annotation with exactly that reason (Playwright also adds a
+`location` key to every annotation, which is ignored). Any other skip (a
 bare `test.skip`, a `test.fixme`, another reason, no reason) is refused, and so is a report that is
 missing or does not parse, which would otherwise read as "no skips".
 
@@ -21,8 +22,14 @@ from typing import Any
 
 GATE = "E2E_VIDEO"
 # The one form the walkthroughs write: test.skip(!process.env.E2E_VIDEO, "recording only, run with E2E_VIDEO=1")
-# reports as a "skip" annotation with exactly this reason (1252 and 1253).
-GATED = {"type": "skip", "description": "recording only, run with E2E_VIDEO=1"}
+# reports as a "skip" annotation with exactly this reason (1252 and 1253). Playwright 1.62
+# also adds a "location" key to every annotation, so match on type and description only.
+GATED_TYPE = "skip"
+GATED_REASON = "recording only, run with E2E_VIDEO=1"
+
+
+def gated(a: Any) -> bool:
+    return isinstance(a, dict) and a.get("type") == GATED_TYPE and a.get("description") == GATED_REASON
 
 
 def skipped(node: dict[str, Any], path: str = "") -> Iterator[tuple[str, str, list[Any]]]:
@@ -47,7 +54,7 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         found = [hit for suite in report.get("suites") or [] for hit in skipped(suite)]
-        bad = [h for h in found if not any(isinstance(a, dict) and a == GATED for a in h[2])]
+        bad = [h for h in found if not any(gated(a) for a in h[2])]
     except (AttributeError, TypeError) as err:
         print(f"==> ui browser lane: skip guard cannot read the shape of {argv[1]}: {err}", file=sys.stderr)
         return 1
