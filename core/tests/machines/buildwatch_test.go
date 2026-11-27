@@ -405,11 +405,18 @@ func TestRunDockerBuildWatched_ARealHangIsCaught(t *testing.T) {
 	// Prints once, then goes quiet forever: real progress, then a real
 	// stall, the exact shape a fixed-budget timeout cannot tell apart
 	// from "still building" and this mechanism exists to tell apart.
-	dockerfile := "FROM alpine:3.20\nRUN echo about-to-hang && sleep 300\n"
+	//
+	// The nonce keeps the RUN layer out of the build cache. Killing the
+	// client does not stop the server-side step (see the end of this
+	// test), so without it the sleep finishes on the daemon after the
+	// test is gone, the layer is cached, and every later run on that
+	// daemon replays it and "succeeds" in about 2s (#1672, MARS).
+	nonce := strconv.FormatInt(time.Now().UnixNano(), 10)
+	dockerfile := fmt.Sprintf("FROM alpine:3.20\nRUN echo %s >/dev/null && echo about-to-hang && sleep 300\n", nonce)
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
 		t.Fatalf("writing Dockerfile: %v", err)
 	}
-	tag := "retnd-test-dockerbuild-watched-hang:" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	tag := "retnd-test-dockerbuild-watched-hang:" + nonce
 	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "-f", tag).Run() })
 
 	// Deliberately small bounds, so a genuine hang is caught in single-digit

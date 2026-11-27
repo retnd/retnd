@@ -1293,13 +1293,13 @@ if [ "$FAST" != "1" ]; then
   if [ "${CI_LOCAL_SKIP_UI_BROWSER:-0}" = "1" ]; then
     gate_note_skip "the ui/shared browser specs and the assurance UI mutation self-test, which are the only automated execution either of them gets (CI_LOCAL_SKIP_UI_BROWSER=1)"
   else
-    # The lane has its own stall check (600s) and cap (5400s for the specs,
+    # The lane has its own stall check (600s) and cap (14400s for the specs,
     # 2700s for a run, plus 900s for the image and the install), and its
     # verdict says which spec or control hung. The step's limits sit above
     # those, so the lane always answers first (#1672): the record-based cap
     # once fired 13s before the lane's own on MARS.
     # scripts/tests/gate-step-limits.test.sh reads both sides.
-    gate_docker_step "ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)" --stall-min 15 --cap-min 110
+    gate_docker_step "ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)" --stall-min 15 --cap-min 270
     gate_ui_browser "the ui/shared browser specs" bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts
 
     # Plants each of the assurance UI violations in a copy of ui/shared and

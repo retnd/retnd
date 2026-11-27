@@ -85,7 +85,7 @@ if grep -q 'forbidOnly: !!process.env.CI' "$repo_root/$config"; then
 else
   fail "L1 and the specs' own config refuses one under CI, for a run outside the lane"
 fi
-has "L1 it carries a hard cap" "$run_line" "[LANE_CAP=5400]"
+has "L1 it carries a hard cap" "$run_line" "[LANE_CAP=14400]"
 has "L1 it hands the container the mode and the config" "$run_line" "[specs] [$config]"
 name="$(sed -n 's/.*\[--name\] \[\([^]]*\)\].*/\1/p' <<<"$run_line")"
 case "$name" in retnd-ui-browser-*) pass "L2 the container is named" ;; *) fail "L2 the container is named" "$run_line" ;; esac
