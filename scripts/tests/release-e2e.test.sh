@@ -53,6 +53,10 @@ make_repo() {
   cp "$repo_root/scripts/release/gate-tree.sh" "$repo_root/scripts/release/bump-version.sh" scripts/release/
   printf '#!/bin/sh\necho "fast=${CI_LOCAL_FAST:-} skipjs=${CI_LOCAL_SKIP_JS:-}" >> "${PRE_COMMIT_LOG:-/dev/null}"\n' > .husky/pre-commit; chmod +x .husky/pre-commit
   cp "$repo_root/scripts/ci-docker.sh" scripts/; mkdir -p scripts/ci; echo "FROM scratch" > scripts/ci/Dockerfile
+  # Stand-ins for the two checks release.sh runs before the e2e (precut.sh and
+  # the local gate record). Each logs its call and exits FAKE_PRECUT_EXIT or FAKE_VLG_EXIT.
+  printf '#!/usr/bin/env bash\necho "precut $*" >> "${FAKE_FAST_LOG:-/dev/null}"\nexit "${FAKE_PRECUT_EXIT:-0}"\n' > scripts/release/precut.sh
+  printf '#!/usr/bin/env bash\necho "verify-local-gate PUBLISH=${PUBLISH:-} $*" >> "${FAKE_FAST_LOG:-/dev/null}"\nexit "${FAKE_VLG_EXIT:-0}"\n' > scripts/release/verify-local-gate.sh
   mkdir -p provenance
   printf '# test signers\nretnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$work/keyA.pub")" > provenance/allowed_signers
   printf '{\n  "image": {\n    "tag": "1.0.0",\n    "reference": "ghcr.io/x/x:1.0.0",\n    "published": true\n  }\n}\n' > distribution/packaging/canonical.json
@@ -509,6 +513,131 @@ expect "the prepared attestation verifies against the version" bash scripts/rele
 # a published version cannot be cut again
 make_repo; out="$(r 1.0.0 --issue 7 --dry-run)"; st=$?
 [ "$st" != 0 ] && echo "$out" | grep -q 'not greater' && pass "a published version is not prepared on main, it is refused" || fail "published refused" "$out"
+
+echo "== release.sh fails fast: precut.sh and the local gate record before the e2e (#1672) =="
+export FAKE_FAST_LOG="$work/fast.log"
+e2e_ran="$work/e2e-ran"
+# The e2e command leaves a marker, so a case can tell whether the e2e ran at all.
+re() { RELEASE_E2E_TEST_CMD="echo ran >> '$e2e_ran'; ${FAKE_E2E_CMD:-true}" RELEASE_ATTEST_KEY="$work/keyA" PATH="$bin:$PATH" bash scripts/release.sh "$@" 2>&1; }
+rm -f "$ghlog" "$e2e_ran"; : > "$FAKE_FAST_LOG"; prepared_repo; main_sha="$(git rev-parse HEAD)"
+out="$(FAKE_PRECUT_EXIT=1 re 1.0.0 --issue 7 --yes)"; st=$?
+if [ "$st" != 0 ] && [ ! -e "$e2e_ran" ] && [ ! -f "$ghlog" ] && [ -z "$(git branch --list 'release-prep/*')" ] && grep -q '^precut --version 1.0.0' "$FAKE_FAST_LOG" && echo "$out" | grep -q 'precut'; then
+  pass "a red precut.sh stops release.sh before the branch, the e2e and the PR"
+else fail "red precut" "$out | $(cat "$FAKE_FAST_LOG")"; fi
+rm -f "$ghlog" "$e2e_ran"; : > "$FAKE_FAST_LOG"; prepared_repo; main_sha="$(git rev-parse HEAD)"
+out="$(FAKE_VLG_EXIT=1 re 1.0.0 --issue 7 --yes)"; st=$?
+if [ "$st" != 0 ] && [ ! -e "$e2e_ran" ] && [ ! -f "$ghlog" ] && [ -z "$(git branch --list 'release-prep/*')" ] && grep -qx "verify-local-gate PUBLISH=true $main_sha" "$FAKE_FAST_LOG" && echo "$out" | grep -q 'local gate'; then
+  pass "prepared on main: a local gate record that does not cover HEAD (PUBLISH=true) stops release.sh before the branch and the e2e"
+else fail "red local gate, prepared" "$out | $(cat "$FAKE_FAST_LOG")"; fi
+rm -f "$ghlog" "$e2e_ran"; : > "$FAKE_FAST_LOG"; prepared_repo
+out="$(FAKE_VLG_EXIT=1 re 1.0.0 --issue 7 --dry-run)"; st=$?
+[ "$st" != 0 ] && grep -q '^verify-local-gate PUBLISH=true' "$FAKE_FAST_LOG" && grep -q '^precut' "$FAKE_FAST_LOG" && pass "--dry-run runs both fail-fast checks too" || fail "dry run fail-fast" "$out"
+rm -f "$ghlog" "$e2e_ran"; : > "$FAKE_FAST_LOG"; make_repo
+out="$(FAKE_VLG_EXIT=1 re 1.1.0 --issue 7 --yes)"; st=$?
+bump="$(git rev-parse HEAD)"
+if [ "$st" != 0 ] && [ ! -e "$e2e_ran" ] && [ ! -f "$ghlog" ] && git log -1 --format=%s | grep -qx 'Release v1.1.0' && grep -qx "verify-local-gate PUBLISH=true $bump" "$FAKE_FAST_LOG"; then
+  pass "with a bump commit the local gate record is checked on the bump commit, still before the e2e"
+else fail "red local gate, bump" "$out | $(cat "$FAKE_FAST_LOG")"; fi
+rm -f "$ghlog" "$e2e_ran"; : > "$FAKE_FAST_LOG"; prepared_repo
+out="$(re 1.0.0 --issue 7 --yes)"; st=$?
+[ "$st" = 0 ] && [ -e "$e2e_ran" ] && [ "$(grep -c '^precut' "$FAKE_FAST_LOG")" = 1 ] && [ "$(grep -c '^verify-local-gate' "$FAKE_FAST_LOG")" = 1 ] && pass "(control) both checks green: each runs once and the release goes on to the e2e" || fail "fail-fast control" "$out"
+
+echo "== release.sh reuses a green e2e stamp for exactly this tree (#1672 P2.5) =="
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+old="$(date -u -d '-25 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-25H +%Y-%m-%dT%H:%M:%SZ)"
+reuse_case() { # <desc> <expect reuse|run> <where real|test> <mkstamp args...>
+  local d="$1" want="$2" where="$3"; shift 3
+  rm -f "$ghlog" "$e2e_ran"; prepared_repo
+  local t; t="$(bash scripts/release/gate-tree.sh HEAD)"
+  local dir; dir="$(git rev-parse --git-common-dir)/release-e2e"; [ "$where" = real ] || dir="$dir-TEST-ONLY"
+  mkdir -p "$dir"; mkstamp "$dir/$t.stamp" "$t" "time=$now" "$@"
+  out="$(FAKE_E2E_CMD=false re 1.0.0 --issue 7 --yes)"; st=$?
+  if [ "$want" = reuse ]; then
+    if [ "$st" = 0 ] && [ ! -e "$e2e_ran" ] && echo "$out" | grep -q 'reusing' && grep -q '"host": "mars"' release-attest/e2e.json && [ "$(grep -c '^gh pr create' "$ghlog")" = 1 ]; then pass "$d"; else fail "$d" "$out"; fi
+  else
+    if [ "$st" != 0 ] && [ -e "$e2e_ran" ] && echo "$out" | grep -q 'no reusable e2e stamp'; then pass "$d"; else fail "$d" "$out"; fi
+  fi
+}
+reuse_case "a green stamp for this tree, the default command, a real host and under 24 h old is reused: no second e2e" reuse real
+reuse_case "a stamp for another tree is not reused, the e2e runs" run real tree=0000000000000000000000000000000000000001
+reuse_case "a stamp with another command is not reused" run real command=true
+reuse_case "a stamp in the test-only directory is not reused, even with the test flag" run test
+reuse_case "a stamp 25 hours old is not reused" run real "time=$old"
+reuse_case "a stamp with a time that cannot be read is not reused" run real time=yesterday
+
+echo "== precut.sh: the hosted run's refusals, locally (#1672) =="
+# precut_repo: a fixture with the inputs precut.sh reads, the real precut.sh,
+# and stand-ins for the checks it runs, each logging to FAKE_PRECUT_LOG and
+# exiting FAKE_<NAME>_EXIT. A stand-in go writes provenance drift on request.
+cat > "$bin/go" <<'SH'
+#!/usr/bin/env bash
+echo "go $*" >> "$FAKE_PRECUT_LOG"
+case "$1" in
+  run) [ -z "${FAKE_PROV_DRIFT:-}" ] || echo drift >> ../provenance/sbom.spdx.json ;;
+  test) exit "${FAKE_GOTEST_EXIT:-0}" ;;
+esac
+SH
+chmod +x "$bin/go"
+export FAKE_PRECUT_LOG="$work/precut.log"
+precut_repo() {
+  local s v
+  prepared_repo
+  cp "$repo_root/scripts/release/precut.sh" scripts/release/precut.sh
+  for s in check-epic-n-closed check-epic-t-closed check-epic-u-closed check-published-provenance verify-manifest-parity; do
+    v="FAKE_$(printf '%s' "$s" | tr 'a-z-' 'A-Z_')_EXIT"
+    printf '#!/usr/bin/env bash\necho "%s" >> "$FAKE_PRECUT_LOG"\nexit "${%s:-0}"\n' "$s" "$v" > "scripts/release/$s.sh"
+  done
+  mkdir -p container core distribution
+  echo 'FROM scratch' > container/Dockerfile; echo 'package main' > core/main.go; echo notice > NOTICE
+  echo '{}' > provenance/sbom.spdx.json
+  { sha256sum NOTICE provenance/sbom.spdx.json 2>/dev/null || shasum -a 256 NOTICE provenance/sbom.spdx.json; } > provenance/checksums.txt
+  git add -A; git commit -q -m "image inputs"; git push -q origin main
+  local c; c="$(git rev-parse HEAD)"
+  printf '{\n  "version": "%s",\n  "commit": "%s",\n  "architectures": []\n}\n' "${1:-1.0.0}" "${2:-$c}" > container/release-manifest.json
+  git add -A; git commit -q -m "record hashes"; git push -q origin main
+  : > "$FAKE_PRECUT_LOG"
+}
+pc() { PATH="$bin:$PATH" bash scripts/release/precut.sh "$@" 2>&1; }
+precut_repo
+out="$(pc)"; st=$?
+if [ "$st" = 0 ] && ( for s in verify-manifest-parity check-epic-n-closed check-epic-t-closed check-epic-u-closed check-published-provenance 'go run ./cmd/provenance -write' 'go test ./packaging/ -count=1'; do grep -qF "$s" "$FAKE_PRECUT_LOG" || exit 1; done ) && [ -z "$(git status --porcelain)" ]; then
+  pass "(control) a clean tree passes, every check ran, the tree is still clean"
+else fail "precut control" "$out | $(cat "$FAKE_PRECUT_LOG")"; fi
+precut_repo; echo x > stray.txt
+out="$(pc)"; st=$?
+[ "$st" = 2 ] && echo "$out" | grep -q dirty && [ ! -s "$FAKE_PRECUT_LOG" ] && pass "a dirty tree is refused before any check runs" || fail "precut dirty" "$out"
+rm -f stray.txt
+precut_repo; printf '## [0.9.0] - old\n' > CHANGELOG.md; git commit -q -am "drop the section"; git push -q origin main
+out="$(pc)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q "CHANGELOG.md has no '## \[1.0.0\]'" && pass "a missing CHANGELOG section is refused" || fail "precut changelog" "$out"
+precut_repo
+git checkout -q -b side; echo s > s.txt; git add s.txt; git commit -q -m side; side="$(git rev-parse HEAD)"; git checkout -q main
+printf '{\n  "version": "1.0.0",\n  "commit": "%s",\n  "architectures": []\n}\n' "$side" > container/release-manifest.json; git commit -q -am "stale manifest"; git push -q origin main
+out="$(pc)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'not an ancestor' && pass "a manifest commit that is not on main is refused" || fail "precut stale manifest" "$out"
+precut_repo 0.9.9
+out="$(pc)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'records version 0.9.9' && pass "a manifest recorded for another version is refused" || fail "precut manifest version" "$out"
+precut_repo
+out="$(FAKE_PROV_DRIFT=1 pc)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'provenance/sbom.spdx.json' && [ -z "$(git status --porcelain)" ] && pass "provenance drift is refused by file name, and the regenerated files are put back" || fail "precut drift" "$out | $(git status --porcelain)"
+precut_repo; echo '{"x":1}' > provenance/sbom.spdx.json; git commit -q -am "edit without checksums"; git push -q origin main
+out="$(pc)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'checksums' && pass "provenance/checksums.txt that does not match the files is refused" || fail "precut checksums" "$out"
+for s in verify-manifest-parity check-epic-n-closed check-epic-t-closed check-epic-u-closed check-published-provenance; do
+  precut_repo; v="FAKE_$(printf '%s' "$s" | tr 'a-z-' 'A-Z_')_EXIT"
+  out="$(env "$v=1" PATH="$bin:$PATH" bash scripts/release/precut.sh 2>&1)"; st=$?
+  [ "$st" = 1 ] && echo "$out" | grep -q "FAIL.*$s" && grep -q check-published-provenance "$FAKE_PRECUT_LOG" && pass "a red $s is refused by name, and the other checks still run" || fail "precut red $s" "$out"
+done
+precut_repo
+out="$(FAKE_GOTEST_EXIT=1 pc)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'FAIL.*packaging' && pass "a red distribution/packaging suite is refused" || fail "precut packaging" "$out"
+precut_repo
+out="$(pc --no-parity)"; st=$?
+[ "$st" = 0 ] && ! grep -q verify-manifest-parity "$FAKE_PRECUT_LOG" && echo "$out" | grep -q 'parity skipped' && pass "--no-parity skips the image build when no image input moved since the manifest commit" || fail "precut no-parity" "$out"
+precut_repo; echo 'package main // moved' > core/main.go; git commit -q -am "move an image input"; git push -q origin main
+out="$(pc --no-parity)"; st=$?
+[ "$st" = 1 ] && echo "$out" | grep -q 'core/main.go' && pass "--no-parity is refused when an image input moved since the manifest commit, naming the file" || fail "precut no-parity moved" "$out"
 
 echo "== the lane can run on a bare Linux remote (#1421) =="
 # The pin has to be fetchable with no credentials: retnd-tests is public and
