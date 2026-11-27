@@ -36,7 +36,8 @@ TABLE = REPO / "scripts/release/gate-hosts.txt"
 STUB_RUNNER = r"""#!/usr/bin/env bash
 # Stand-in for run-gate-shard.sh: <shard> [--host <h>]. Writes "<shard> <host>
 # start|end" to $STUB_DIR/calls and plays the mode in $STUB_DIR/mode-<shard>
-# (or mode-<shard>@<host>, which wins): ok, fail, incomplete, or log:<file>:<rc>.
+# (or mode-<shard>@<host>, which wins): ok, fail, incomplete, or log:<file>:<rc>;
+# a|b plays a on the first call and b from then on.
 shard="$1"; shift
 host=auto
 [ "${1:-}" = "--host" ] && host="$2"
@@ -44,6 +45,12 @@ d="$STUB_DIR"
 echo "$shard $host start" >>"$d/calls"
 mode="$(cat "$d/mode-$shard" 2>/dev/null || echo ok)"
 [ -f "$d/mode-$shard@$host" ] && mode="$(cat "$d/mode-$shard@$host")"
+# a|b|c: the first call plays a, the second b, and the last one repeats
+n="$(cat "$d/count-$shard" 2>/dev/null || echo 0)"; echo $((n + 1)) >"$d/count-$shard"
+IFS='|' read -r -a seq <<<"$mode"
+if [ "${#seq[@]}" -gt 1 ]; then
+  i=$n; [ "$i" -lt "${#seq[@]}" ] || i=$((${#seq[@]} - 1)); mode="${seq[$i]}"
+fi
 case "$mode" in
   *-once)
     if [ -e "$d/seen-$shard" ]; then mode=ok; else : >"$d/seen-$shard"; mode="${mode%-once}"; fi ;;
@@ -465,6 +472,129 @@ def probe_cases(s: testkit.Suite, root: Path) -> None:
     s.check(rc == 0 and "nas" not in out, "P3 a drained host is not probed", "P3 drain", f"rc={rc}\n{out}")
 
 
+PLAYWRIGHT_RED = """Running 1144 tests using 1 worker
+  ✓   396 e2e/1202-backups-row-menu.spec.ts:120:3 \u203a #1202 the Backups row Actions menu \u203a opens (1.1s)
+  ✘   397 e2e/1202-backups-row-menu.spec.ts:138:3 \u203a #1202 the Backups row Actions menu \u203a \
+#1202 Recover artifact (7.5s)
+  ✘   870 e2e/1525-audit-table-and-collapse.spec.ts:43:3 \u203a #1525 the agent audit \u203a \
+#1525 at a narrow width (779ms)
+
+  1) e2e/1202-backups-row-menu.spec.ts:138:3 \u203a #1202 the Backups row Actions menu \u203a #1202 Recover artifact
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+  2 failed
+    e2e/1202-backups-row-menu.spec.ts:138:3 \u203a #1202 the Backups row Actions menu \u203a #1202 Recover artifact
+    e2e/1525-audit-table-and-collapse.spec.ts:43:3 \u203a #1525 the agent audit \u203a #1525 at a narrow width
+  3 skipped
+  1139 passed (56.5m)
+
+==> ui browser lane: FAILED. ui/shared/e2e/playwright.config.ts failed in the lane \
+(exit 1, see above).
+==> ci-local: FAILED (ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image \
+(#1537), shard s)
+"""
+
+# A mutation self-test: two mutants caught (their suites' "--- FAIL:" lines are
+# the proof it caught them), and one control that fired for the wrong reason,
+# with the Go output of the mutant quoted under it.
+SELFTEST_RED = """==> the encryption and suite guards can actually fail (mutation self-test, #1531)
+SELFTEST FAIL: NV canary identity in the key created log line. it failed, but never named \
+TestNoKeyMaterialOnAnySurface_996/NV.28.
+    --- FAIL: TestNoKeyMaterialOnAnySurface_996 (0.27s)
+        canary_test.go:510: Discover: state: insert artifact: database is locked (517)
+    FAIL
+==> the age/v1 status changed and the golden list left as it was (T1.1, TV.1)
+  ok:   (caught): the age/v1 status changed and the golden list left as it was
+      -> --- FAIL: TestSuiteIDsAreStableAgainstTheGoldenList (0.00s) | suite_test.go:37: the suite table reads
+  ok:   (caught): N1.2 the engine route loses the reason
+      -> --- FAIL: TestARefusalIsTheSameOnBothRoutes (0.80s); \
+--- FAIL: TestARefusalIsTheSameOnBothRoutes/x (0.03s)
+==> ci-local: FAILED (the encryption and suite guards can actually fail (mutation self-test, #1531), shard s)
+"""
+
+STALL_RED = """==> the recovery guards can actually fail (mutation self-test, #976)
+  ok:   (caught): a mutant
+      -> --- FAIL: TestRecover1193_ANonSFTPSetHasNoDefaultAndSaysWhy (0.04s)
+==> stall watchdog: STALLED: the recovery guards can actually fail (mutation self-test, #976) \
+(no output for 600s, past the 600s no-progress limit). Its processes were stopped. What it looked like:
+        step: the recovery guards can actually fail (mutation self-test, #976)
+        --- the last 40 lines it printed ---
+        --- FAIL: TestQuotedInTheDump (0.10s)
+==> ci-local: FAILED (STALLED: the recovery guards can actually fail (mutation self-test, #976), \
+no output for 600s, shard s)
+"""
+
+GO_RED_A = "--- FAIL: TestAlertRefresh_1567 (50.16s)\n==> ci-local: FAILED (core suite, shard s)\n"
+GO_RED_B = "--- FAIL: TestSFTPConnectionsAreReleasedAndBounded (25.85s)\n" \
+           "    --- FAIL: TestSFTPConnectionsAreReleasedAndBounded/TheProbesCanSeeAConnection (6.11s)\n" \
+           "==> ci-local: FAILED (core suite, shard s)\n"
+LINT_RED = "core/x.go:1:1: undefined: y (typecheck)\n==> ci-local: FAILED (core golangci-lint, shard s)\n"
+
+
+def retry_cases(s: testkit.Suite, root: Path) -> None:
+    def case(name: str, logs: dict[str, str], mode: str, *extra: str) -> tuple[Fixture, str, int]:
+        f = Fixture(root, name)
+        m = f.manifest(["s"])
+        f.table(HOSTS_4 + "shard s light mars est_min=1\n", m)
+        for fname, text in logs.items():
+            (f.stub / fname).write_text(text)
+        f.mode("s", mode)
+        out, rc = f.run(m, *extra)
+        return f, out, rc
+
+    def tests_of(f: Fixture) -> list[object]:
+        return [a["failed_tests"] for a in f.attempts("s")]
+
+    f, out, rc = case("go-flake", {"a.log": GO_RED_A}, "log:a.log:1|ok", "--retry-once")
+    s.check(rc == 0 and tests_of(f) == [["TestAlertRefresh_1567"], []],
+            "C1 control: a Go test that fails once and then passes is retried and recorded, the failure kept",
+            "C1 go flake", f"rc={rc} {tests_of(f)}\n{out}")
+
+    f, out, rc = case("pw-flake", {"pw.log": PLAYWRIGHT_RED}, "log:pw.log:1|ok", "--retry-once")
+    want = ["spec: e2e/1202-backups-row-menu.spec.ts:138:3", "spec: e2e/1525-audit-table-and-collapse.spec.ts:43:3"]
+    s.check(rc == 0 and tests_of(f) == [want, []],
+            "C2 a Playwright spec that fails once is retried, and the attempt names each spec from the list "
+            "reporter's summary", "C2 playwright flake", f"rc={rc} {tests_of(f)}\n{out}")
+
+    f, out, rc = case("st-flake", {"st.log": SELFTEST_RED}, "log:st.log:1|ok", "--retry-once")
+    got = tests_of(f)
+    s.check(rc == 0 and got == [["selftest: NV canary identity in the key created log line"], []],
+            "C3 a self-test control that fails once is retried, named by its control", "C3 self-test control",
+            f"rc={rc} {got}\n{out}")
+    first = got[0] if got and isinstance(got[0], list) else []
+    s.check(not any("TestNoKeyMaterialOnAnySurface_996" in str(t) or "TestSuiteIDs" in str(t)
+                    or "TestARefusal" in str(t) for t in first),
+            "C4 the --- FAIL: lines of a caught mutant, or quoted under a failed control, are not failed tests",
+            "C4 mutant lines counted as failed tests", str(first))
+
+    f, out, rc = case("stall", {"stall.log": STALL_RED}, "log:stall.log:1|ok", "--retry-once")
+    got = tests_of(f)
+    s.check(rc == 0 and got == [["stalled: the recovery guards can actually fail (mutation self-test, #976)"], []],
+            "C5 a stalled step is retried once, named by its step, and nothing quoted in the stall dump counts",
+            "C5 stall", f"rc={rc} {got}\n{out}")
+
+    f, out, rc = case("pw-twice", {"pw.log": PLAYWRIGHT_RED}, "log:pw.log:1", "--retry-once")
+    s.check(rc == 1 and len(f.attempts("s")) == 2 and not (f.shards / "s.json").exists(),
+            "C6 the same spec failing on the retry is FAILED for good: two attempts, nothing signed",
+            "C6 same failure twice", f"rc={rc} attempts={len(f.attempts('s'))}\n{out}")
+
+    f, out, rc = case("go-other", {"a.log": GO_RED_A, "b.log": GO_RED_B}, "log:a.log:1|log:b.log:1", "--retry-once")
+    got = tests_of(f)
+    s.check(rc == 1 and len(got) == 2 and got[1] == ["TestSFTPConnectionsAreReleasedAndBounded",
+                                                      "TestSFTPConnectionsAreReleasedAndBounded/TheProbesCanSeeAConnection"],
+            "C7 a different test failing on the retry is FAILED too, and both attempts name theirs",
+            "C7 different failure", f"rc={rc} {got}\n{out}")
+
+    f, out, rc = case("lint", {"l.log": LINT_RED}, "log:l.log:1|ok", "--retry-once")
+    s.check(rc == 1 and len(f.attempts("s")) == 1, "C8 a lint or build failure (nothing named) is not retried",
+            "C8 lint", f"rc={rc} attempts={len(f.attempts('s'))}\n{out}")
+
+    f, out, rc = case("no-flag", {"pw.log": PLAYWRIGHT_RED}, "log:pw.log:1|ok")
+    s.check(rc == 1 and len(f.attempts("s")) == 1, "C9 without --retry-once nothing is retried",
+            "C9 no flag", f"rc={rc}\n{out}")
+
+
 def main() -> int:
     s = testkit.Suite("gate-shards scheduler")
     if shutil.which("ssh-keygen") is None:
@@ -479,6 +609,7 @@ def main() -> int:
         failover_cases(s, root)
         wait_cases(s, root)
         probe_cases(s, root)
+        retry_cases(s, root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
     return s.finish()

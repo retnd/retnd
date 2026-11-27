@@ -396,8 +396,48 @@ def lane(log: bytes) -> object:
         return None
 
 
+PW_SUMMARY = re.compile(r"^\s+\d+ failed$")
+PW_SPEC = re.compile(r"^\s{4}(\S+\.spec\.[cm]?[jt]sx?:\d+:\d+) \u203a ")
+STALLED = re.compile(r"^==> stall watchdog: STALLED: (.*?)(?: \((?:no output|past|over) .*)?$")
+
+
 def failed_tests(log: bytes) -> list[str]:
-    return sorted(set(m.decode() for m in re.findall(rb"^\s*--- FAIL: (\S+)", log, re.MULTILINE)))
+    """What a red shard names as its failures, so a retry can be told from a
+    repeat (#1497, #1672 P1.7):
+      Go tests        `--- FAIL: <name>` lines of a go test run
+      self-tests      `SELFTEST FAIL: <control>. ...`, as `selftest: <control>`
+      Playwright      the list reporter's summary under `N failed`, as `spec: <file:line:col>`
+      a stalled step  the stall watchdog's STALLED line, as `stalled: <step>`
+    A mutation self-test prints the `--- FAIL:` lines of each mutant it caught
+    (after `->`), and quotes a mutant's Go output, indented, under a control
+    that failed; the watchdog quotes the step's last lines, indented, under its
+    STALLED line. None of those is a test of the tree that failed, so none is
+    named. A failure with no name (a build, a lint, a guard) gets an empty
+    list, and run_attempt does not retry it."""
+    names: set[str] = set()
+    quoting = summary = False
+    for line in log.decode("utf-8", errors="replace").splitlines():
+        indented = line[:1] in (" ", "\t")
+        if quoting and indented:
+            continue
+        quoting = False
+        if summary:
+            m = PW_SPEC.match(line)
+            if m:
+                names.add(f"spec: {m.group(1)}")
+                continue
+            summary = False
+        if line.startswith("SELFTEST FAIL: "):
+            names.add("selftest: " + line[len("SELFTEST FAIL: "):].split(". ", 1)[0].rstrip("."))
+            quoting = True
+        elif m := STALLED.match(line):
+            names.add(f"stalled: {m.group(1)}")
+            quoting = True
+        elif m := re.match(r"\s*--- FAIL: (\S+)", line):
+            names.add(m.group(1))
+        elif PW_SUMMARY.match(line):
+            summary = True
+    return sorted(names)
 
 
 def verdict_of(log: bytes) -> str:

@@ -76,6 +76,25 @@ its line, at most twice. If the probe answers, the INCOMPLETE stands. A FAILED
 shard never moves: a red test is the tree's, not the host's. Every attempt,
 on every host, stays in the shard's signed record.
 
+## Retry
+
+With `--retry-once` a red shard runs once more when its log names what failed,
+whatever kind of failure it was (#1672 P1.7). `failed_tests()` reads:
+
+| Kind | Read from | Named as |
+|---|---|---|
+| Go test | `--- FAIL: <name>` | `<name>` |
+| self-test control | `SELFTEST FAIL: <control>. ...` | `selftest: <control>` |
+| Playwright spec | the list reporter's summary under `N failed` | `spec: <file:line:col>` |
+| stalled step | the watchdog's `STALLED: <step>` line | `stalled: <step>` |
+
+A mutation self-test prints the `--- FAIL:` lines of each mutant it caught
+(after `->`), and quotes a mutant's Go output, indented, under a control that
+failed; the watchdog quotes a step's last lines, indented, under its STALLED
+line. None of those is a failing test of the tree, so none is named. A failure
+with no name (a build, a lint, a guard) is not retried. A second red, the same
+failure or another, is FAILED for good, and both attempts stay in the record.
+
 ## Probe
 
 ```
