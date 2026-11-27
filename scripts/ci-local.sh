@@ -247,6 +247,14 @@ FAST="${CI_LOCAL_FAST:-0}"
 # gate_install_traps.
 gate_install_traps
 
+# The watchdog reads output as progress, and the self-test drivers are Python,
+# which writes stdout in 8 KiB blocks when it is not a terminal. The gate's
+# output is always a pipe or a file, so a driver's per-control lines reached the
+# log in bursts, or only when it was killed: a selftest-recovery rehearsal on
+# MARS sat 901s on thirteen finished controls and was ledgered STALLED (#1672).
+# Every Python this gate starts writes line by line.
+export PYTHONUNBUFFERED=1
+
 # Every step is watched for a stall from the first one on (#1540): no output
 # for RETND_GATE_STALL_MIN minutes, or past its hard cap, and the step is
 # stopped with its containers and the run ends FAILED (STALLED: ...). This
