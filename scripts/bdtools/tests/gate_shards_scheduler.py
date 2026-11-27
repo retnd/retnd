@@ -103,17 +103,72 @@ class Fixture:
         p = self.stub / "calls"
         return p.read_text().splitlines() if p.is_file() else []
 
+    def stand_ins(self) -> Path:
+        """ssh, docker, uptime and df stand-ins for the host probe. Per host
+        (the ssh target, or mac): $STUB_DIR/down-<h> makes ssh or docker fail,
+        load-<h> holds one load per line (one per probe, the last repeats),
+        free-<h> the free KiB."""
+        b = self.root / "bin"
+        if b.is_dir():
+            return b
+        b.mkdir()
+        scripts = {
+            "ssh": 'echo "ssh $*" >>"$STUB_DIR/probes"\nt="${@: -2:1}"\n'
+                   '[ -e "$STUB_DIR/down-$t" ] && { echo "ssh: connect to host $t: No route to host" >&2; exit 255; }\n'
+                   'GATE_PROBE_HOST="$t" exec bash -c "${@: -1}"\n',
+            "docker": 'h="${GATE_PROBE_HOST:-mac}"\n'
+                      '[ -e "$STUB_DIR/down-$h-docker" ] && '
+                      '{ echo "Cannot connect to the Docker daemon" >&2; exit 1; }\n'
+                      'echo 29.0.0\n',
+            "uptime": 'h="${GATE_PROBE_HOST:-mac}"; f="$STUB_DIR/load-$h"; n=0\n'
+                      '[ -f "$STUB_DIR/n-$h" ] && n="$(cat "$STUB_DIR/n-$h")"; echo $((n + 1)) >"$STUB_DIR/n-$h"\n'
+                      'load=0.50; if [ -f "$f" ]; then load="$(sed -n "$((n + 1))p" "$f")"; '
+                      '[ -n "$load" ] || load="$(tail -n 1 "$f")"; fi\n'
+                      'echo " 10:00:00 up 3 days,  2 users,  load average: $load, 1.00, 1.00"\n',
+            "df": 'h="${GATE_PROBE_HOST:-mac}"; free=99999999\n'
+                  '[ -f "$STUB_DIR/free-$h" ] && free="$(cat "$STUB_DIR/free-$h")"\n'
+                  'echo "Filesystem 1024-blocks Used Available Capacity Mounted on"\n'
+                  'echo "/dev/x 999999999 1 $free 1% $2"\n',
+        }
+        for name, body in scripts.items():
+            p = b / name
+            p.write_text("#!/usr/bin/env bash\n" + body)
+            p.chmod(0o755)
+        return b
+
+    def touch(self, name: str, text: str = "") -> None:
+        (self.stub / name).write_text(text)
+
     def run(self, manifest: Path, *extra: str, env: dict[str, str] | None = None) -> tuple[str, int]:
         argv = [sys.executable, str(GATE_SHARDS), "run", "--manifest", str(manifest), "--manifest-sha", "m1",
                 "--dir", str(self.shards), "--gate-tree", "tree1", "--head", "h1", "--worktree", str(self.worktree),
                 "--signers", str(self.signers), "--runner", str(self.runner), "--key", str(self.key), *extra]
         full = dict(os.environ, STUB_DIR=str(self.stub), **(env or {}))
+        full["PATH"] = f"{self.stand_ins()}:{full.get('PATH', '')}"
         return testkit.run(argv, env=full, timeout=300)
+
+    def attempts(self, shard: str) -> list[dict[str, object]]:
+        p = self.shards / f"{shard}.attempts.json"
+        data = json.loads(p.read_text()) if p.is_file() else []
+        assert isinstance(data, list)
+        return data
 
     def record(self, shard: str) -> dict[str, object]:
         data = json.loads((self.shards / f"{shard}.json").read_text())
         assert isinstance(data, dict)
         return data
+
+
+def overlap(calls: list[str], host: str | None = None, only: set[str] | None = None) -> int:
+    """The most shards that were between their start and end at once."""
+    now = most = 0
+    for c in calls:
+        shard, h, what = c.split()
+        if (host and h != host) or (only is not None and shard not in only):
+            continue
+        now += 1 if what == "start" else -1
+        most = max(most, now)
+    return most
 
 
 def place(manifest: Path, *extra: str, table: Path | None = None) -> tuple[str, int]:
@@ -245,7 +300,8 @@ def run_cases(s: testkit.Suite, root: Path) -> None:
                                   "ui-browser-selftest": "nas"},
             "X1 with a table beside the manifest, each shard is sent to the first host on its line",
             "X1 run places from the table", f"rc={rc} calls={f.calls()}\n{out}")
-    s.check(rc == 0 and f.record("ui-browser-selftest").get("host") == "nas",
+    s.check(rc == 0 and (f.shards / "ui-browser-selftest.json").is_file()
+            and f.record("ui-browser-selftest").get("host") == "nas",
             "X2 the signed record names the host the shard ran on", "X2 record host", out)
 
     g = Fixture(root, "legacy")
@@ -262,6 +318,153 @@ def run_cases(s: testkit.Suite, root: Path) -> None:
             "X4 legacy --host", f"rc={rc} calls={h.calls()}\n{out}")
 
 
+HOSTS_4 = """host mars t-mars slots=2 poll_s=0
+host nas t-nas slots=1 poll_s=0
+host mac - slots=1 poll_s=0
+host jupiter t-jup slots=1 poll_s=0
+"""
+
+
+def mars_with(keys: str) -> str:
+    return HOSTS_4.replace("host mars t-mars slots=2 poll_s=0", "host mars t-mars slots=2 poll_s=0 " + keys)
+
+
+def schedule_cases(s: testkit.Suite, root: Path) -> None:
+    f = Fixture(root, "slots")
+    names = [f"l{i}" for i in range(6)]
+    m = f.manifest(names)
+    f.table(HOSTS_4 + "".join(f"shard {n} light mars est_min=1\n" for n in names), m)
+    out, rc = f.run(m, env={"STUB_SLEEP": "0.4"})
+    s.check(rc == 0 and overlap(f.calls(), "mars") == 2,
+            "S1 a host never runs more shards than its slots, and does fill them (mars slots=2: 2 at once)",
+            "S1 slots", f"rc={rc} most={overlap(f.calls(), 'mars')} calls={f.calls()}\n{out}")
+
+    f = Fixture(root, "exclusive")
+    m = f.manifest(["x1", "x2", "x3", "l1", "l2"])
+    f.table(HOSTS_4.replace("slots=2", "slots=3")
+            + "shard x* exclusive mars est_min=5\nshard l* light mars est_min=1\n", m)
+    out, rc = f.run(m, env={"STUB_SLEEP": "0.4"})
+    s.check(rc == 0 and overlap(f.calls(), "mars", {"x1", "x2", "x3"}) == 1,
+            "S2 two exclusive shards never overlap on one host", "S2 exclusive", f"rc={rc} calls={f.calls()}\n{out}")
+    s.check(overlap(f.calls(), "mars") >= 2, "S3 light shards still run beside an exclusive one",
+            "S3 light beside exclusive", f"calls={f.calls()}")
+
+    f = Fixture(root, "longest")
+    m = f.manifest(["short", "long", "middle"])
+    f.table(HOSTS_4.replace("slots=2", "slots=1")
+            + "shard short light mars est_min=1\nshard long light mars est_min=9\n"
+            + "shard middle light mars est_min=5\n", m)
+    out, rc = f.run(m)
+    order = [c.split()[0] for c in f.calls() if c.endswith(" start")]
+    s.check(rc == 0 and order == ["long", "middle", "short"], "S4 the longest shard starts first",
+            "S4 longest first", f"order={order}\n{out}")
+
+    f = Fixture(root, "jobs")
+    m = f.manifest(["a", "b", "c"])
+    f.table(HOSTS_4 + "shard a light mars est_min=1\nshard b light nas est_min=1\nshard c light mac est_min=1\n", m)
+    out, rc = f.run(m, "--jobs", "1", env={"STUB_SLEEP": "0.3"})
+    s.check(rc == 0 and overlap(f.calls()) == 1, "S5 --jobs caps the whole run across hosts",
+            "S5 --jobs", f"calls={f.calls()}\n{out}")
+
+
+def failover_cases(s: testkit.Suite, root: Path) -> None:
+    f = Fixture(root, "failover")
+    m = f.manifest(["core-a", "static"])
+    f.table(HOSTS_4 + "shard core-a exclusive mars,nas est_min=9\nshard static light mars,nas est_min=1\n", m)
+    f.mode("core-a", "incomplete", "mars")
+    f.touch("down-t-mars")
+    out, rc = f.run(m, "--jobs", "1")
+    hosts = [a["host"] for a in f.attempts("core-a")]
+    s.check(rc == 0 and hosts == ["mars", "nas"] and f.record("core-a").get("host") == "nas",
+            "F1 an INCOMPLETE on a host whose probe fails drains it, and the shard is signed on the next host "
+            "with the first attempt kept", "F1 failover", f"rc={rc} hosts={hosts}\n{out}")
+    s.check("static mars start" not in f.calls() and "static nas start" in f.calls(),
+            "F2 a drained host takes no more shards in that run", "F2 drained", f"calls={f.calls()}")
+    s.check(any("drained" in ln and "mars" in ln for ln in out.splitlines()), "F3 the drain is said out loud",
+            "F3 drain message", out)
+
+    f = Fixture(root, "no-move")
+    m = f.manifest(["core-a"])
+    f.table(HOSTS_4 + "shard core-a exclusive mars,nas est_min=9\n", m)
+    f.mode("core-a", "incomplete", "mars")
+    out, rc = f.run(m)
+    s.check(rc == 3 and [c for c in f.calls() if c.endswith("start")] == ["core-a mars start"],
+            "F4 an INCOMPLETE on a host that still answers its probe does not move", "F4 no move",
+            f"rc={rc} calls={f.calls()}\n{out}")
+
+    f = Fixture(root, "failed-stays")
+    m = f.manifest(["core-a"])
+    f.table(HOSTS_4 + "shard core-a exclusive mars,nas est_min=9\n", m)
+    f.mode("core-a", "fail", "mars")
+    f.touch("down-t-mars")
+    out, rc = f.run(m)
+    s.check(rc == 1 and not any(c.startswith("core-a nas") for c in f.calls()),
+            "F5 a FAILED shard never moves, even when its host is down afterwards", "F5 failed stays",
+            f"rc={rc} calls={f.calls()}\n{out}")
+
+    f = Fixture(root, "two-moves")
+    m = f.manifest(["core-a"])
+    f.table(HOSTS_4 + "shard core-a light mars,nas,jupiter,mac est_min=9\n", m)
+    for h, t in (("mars", "t-mars"), ("nas", "t-nas"), ("jupiter", "t-jup")):
+        f.mode("core-a", "incomplete", h)
+        f.touch(f"down-{t}")
+    out, rc = f.run(m)
+    tried = [c.split()[1] for c in f.calls() if c.endswith("start")]
+    s.check(rc == 3 and tried == ["mars", "nas", "jupiter"], "F6 a shard moves at most twice",
+            "F6 two moves", f"rc={rc} tried={tried}\n{out}")
+
+
+def wait_cases(s: testkit.Suite, root: Path) -> None:
+    f = Fixture(root, "busy")
+    m = f.manifest(["core-a"])
+    f.table(mars_with("max_load=4 wait_min=0")
+            + "shard core-a light mars est_min=9\n", m)
+    f.touch("load-t-mars", "9.00\n")
+    out, rc = f.run(m)
+    s.check(rc == 3 and not f.calls() and "load" in out and [a["exit"] for a in f.attempts("core-a")] == [3],
+            "W1 a host that stays over its max_load: INCOMPLETE with the reason, the shard never starts, the wait "
+            "is an attempt", "W1 load timeout", f"rc={rc} calls={f.calls()}\n{out}")
+
+    f = Fixture(root, "quiets")
+    m = f.manifest(["core-a"])
+    f.table(mars_with("max_load=4 wait_min=1")
+            + "shard core-a light mars est_min=9\n", m)
+    f.touch("load-t-mars", "9.00\n8.00\n1.00\n")
+    out, rc = f.run(m)
+    s.check(rc == 0 and f.calls()[:1] == ["core-a mars start"],
+            "W2 the shard starts once the load drops under max_load", "W2 load drops",
+            f"rc={rc} calls={f.calls()}\n{out}")
+
+    f = Fixture(root, "full")
+    m = f.manifest(["core-a"])
+    f.table(mars_with("min_free_gib=6 wait_min=0 scratch=/work")
+            + "shard core-a light mars est_min=9\n", m)
+    f.touch("free-t-mars", str(2 * 1024 * 1024))
+    out, rc = f.run(m)
+    s.check(rc == 3 and not f.calls() and "free" in out, "W3 less free space than min_free_gib: INCOMPLETE, never run",
+            "W3 free space", f"rc={rc} calls={f.calls()}\n{out}")
+
+
+def probe_cases(s: testkit.Suite, root: Path) -> None:
+    f = Fixture(root, "probe")
+    m = f.manifest(["a", "b"])
+    t = f.table(HOSTS_4 + "shard a light mars est_min=1\nshard b light nas,mac est_min=1\n", m)
+    env = dict(os.environ, STUB_DIR=str(f.stub), PATH=f"{f.stand_ins()}:{os.environ.get('PATH', '')}")
+    argv = [sys.executable, str(GATE_SHARDS), "probe", "--manifest", str(m), "--hosts-table", str(t)]
+    out, rc = testkit.run(argv, env=env, timeout=60)
+    lines = sorted(ln.split()[0] + " " + ln.split()[1] for ln in out.splitlines() if ln.strip())
+    s.check(rc == 0 and lines == ["mac ok", "mars ok", "nas ok"],
+            "P1 probe prints one ok line per host the placement uses (jupiter is unused)", "P1 probe",
+            f"rc={rc}\n{out}")
+    f.touch("down-t-nas")
+    out, rc = testkit.run(argv, env=env, timeout=60)
+    s.check(rc == 1 and any(ln.startswith("nas refuse") and "ssh" in ln for ln in out.splitlines()),
+            "P2 a host whose ssh fails is a refuse line naming ssh, and the exit is non-zero", "P2 probe refuse",
+            f"rc={rc}\n{out}")
+    out, rc = testkit.run([*argv, "--drain", "nas"], env=env, timeout=60)
+    s.check(rc == 0 and "nas" not in out, "P3 a drained host is not probed", "P3 drain", f"rc={rc}\n{out}")
+
+
 def main() -> int:
     s = testkit.Suite("gate-shards scheduler")
     if shutil.which("ssh-keygen") is None:
@@ -272,6 +475,10 @@ def main() -> int:
         table_cases(s, root)
         placement_cases(s, root)
         run_cases(s, root)
+        schedule_cases(s, root)
+        failover_cases(s, root)
+        wait_cases(s, root)
+        probe_cases(s, root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
     return s.finish()

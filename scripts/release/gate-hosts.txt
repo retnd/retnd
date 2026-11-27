@@ -5,8 +5,17 @@
 #
 # Two kinds of line, whitespace-separated. `#` starts a comment.
 #
-#   host  <name> <ssh target, or - for this machine>
+#   host  <name> <ssh target, or - for this machine> [key=value ...]
 #   shard <name, or a prefix ending in *> <light|exclusive> <host,host,...> est_min=<n>
+#
+# A host line's keys (#1672 P1.4, P1.6), each optional:
+#   slots=<n>         shards it runs at once (default 1); at most one of them exclusive
+#   max_load=<x>      wait before starting a shard while its 1-minute load is over this
+#   min_free_gib=<n>  ... or while less than this is free under scratch
+#   wait_min=<n>      how long to wait (default 30); past it the shard is INCOMPLETE
+#   poll_s=<n>        seconds between looks while waiting (default 30)
+#   scratch=<path>    where ci-docker.sh unpacks the tree (default ~, or $TMPDIR here)
+# With neither max_load nor min_free_gib the shard starts without a look.
 #
 # A shard line's hosts are the hosts it may run on, in the order it prefers
 # them. A host that is not on its line is never used for it, so a shard that
@@ -30,11 +39,19 @@
 #   --place <shard>=<h>[,<h>]   one shard's hosts
 #   --hosts <h>[,<h>]           only these hosts, for every shard not --place'd
 #   --drain <h>                 never this host (repeatable), --place included
-# `gate_shards.py place --manifest <file>` prints the placement it would use.
+# `gate_shards.py place --manifest <file>` prints the placement it would use,
+# and `gate_shards.py probe --manifest <file>` asks each host it uses whether
+# it answers (ssh, docker), its load and its free space.
+#
+# A shard that ends INCOMPLETE moves to its next host only when its host then
+# fails that probe, which drains the host for the rest of the run, and at most
+# twice. A FAILED shard never moves.
 
-host mars devshell@192.168.0.100
-host nas  rom@192.168.0.10
-host mac  -
+# MARS has 28 cpus and the NAS 6. The Mac is shared with everything else I
+# run, so it gets one slot and a load ceiling it often sits above.
+host mars devshell@192.168.0.100 slots=3 max_load=20 min_free_gib=20 scratch=/work
+host nas  rom@192.168.0.10       slots=1 max_load=5  min_free_gib=6  scratch=~/workspace
+host mac  -                      slots=1 max_load=20 min_free_gib=20 wait_min=45
 
 # The Docker-heavy shards stay off the Mac: the SFTP connection-count flake
 # and the buildx "layer does not exist" fault only show under Docker Desktop.

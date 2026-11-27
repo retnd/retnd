@@ -53,6 +53,40 @@ python3 scripts/bdtools/release/gate_shards.py place --manifest scripts/release/
 
 It prints `<shard> <class> <hosts in order> est_min=<n>` per shard.
 
+## Slots, order and the wait
+
+Each host line has `slots=<n>` (default 1): MARS 3, the NAS 1, the Mac 1.
+`gate_shards.py run` starts the shards longest first (by `est_min`), each on
+the first host of its line with a free slot, and never runs two `exclusive`
+shards on one host at once. `--jobs N` caps the whole run on top of that; it
+defaults to the sum of the slots (or 3 for a tree without the table).
+
+Before a shard starts, a host with `max_load` or `min_free_gib` is probed
+(ssh, `docker info`, `uptime`, `df -Pk` under `scratch`), and the shard
+waits, looking every `poll_s` seconds, until the host is under both. Past
+`wait_min` minutes the shard is INCOMPLETE with the reason, and that wait is
+an attempt in its record. The runner is never called.
+
+## Failover
+
+Only INCOMPLETE moves a shard. When one ends INCOMPLETE, its host is probed.
+If the probe fails, the host is drained for the rest of the run (no shard
+starts there again) and the shard goes back in the queue for the next host on
+its line, at most twice. If the probe answers, the INCOMPLETE stands. A FAILED
+shard never moves: a red test is the tree's, not the host's. Every attempt,
+on every host, stays in the shard's signed record.
+
+## Probe
+
+```
+python3 scripts/bdtools/release/gate_shards.py probe --manifest scripts/release/gate-shards.txt
+```
+
+prints `<host> ok load=<x> free_gib=<n>` (with `(busy: ...)` when the load is
+over `max_load`) or `<host> refuse <why>` for every host the placement uses,
+and exits 1 when any host refuses (no ssh, no docker, less free space than
+`min_free_gib`). The recorder's preflight calls it when it is there.
+
 ## Tests
 
 `scripts/bdtools/tests/gate_shards_scheduler.py`, run by
