@@ -95,6 +95,18 @@ line. None of those is a failing test of the tree, so none is named. A failure
 with no name (a build, a lint, a guard) is not retried. A second red, the same
 failure or another, is FAILED for good, and both attempts stay in the record.
 
+## Rehearsal
+
+`gate_shards.py run --rehearse` (the recorder passes it through) is the same
+run with the same placement, scheduler and runner, without the key (#1672
+P2.1). It runs every shard, signed ones included, and writes each shard's
+result as schema `retnd.local-gate.rehearsal/1` (ok, failed, broken or
+incomplete, with its attempts) under `<git dir>/local-gate/rehearsal/<tree>/`,
+beside the shards dir and never in it. It signs nothing and its last line says
+it is not a record. A rehearsal result is never reused as a shard record, even
+copied into the shards dir and signed, and `aggregate` refuses one by name.
+Exit status as for `run`: 0 all ok, 1 a shard failed, 3 one was INCOMPLETE.
+
 ## Probe
 
 ```
