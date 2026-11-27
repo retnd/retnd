@@ -44,6 +44,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Everything in local storage, read through the Storage API. Spreading
+ *  window.localStorage only sees jsdom's named properties: on Node 26 the
+ *  runtime's own Storage is what the page writes to, a spread of it is empty,
+ *  and the N2.4 control's planted write went unseen (0.8.1 cut). key() and
+ *  getItem() answer the same on every Storage, and the probe write proves this
+ *  reader can see what the page wrote before any "not there" is believed. */
+function storedText(): string {
+  const storage = window.localStorage;
+  storage.setItem("retnd.995-probe", "probe-995");
+  const entries: Record<string, string | null> = {};
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (key !== null) entries[key] = storage.getItem(key);
+  }
+  storage.removeItem("retnd.995-probe");
+  const text = JSON.stringify(entries);
+  expect(text, "the storage reader cannot see a value written a line earlier").toContain("probe-995");
+  return text;
+}
+
 /** Text on the page that is NOT inside a registry pop-up, so a claim about what
  *  the screen says cannot be met by the copy explaining it. */
 const onPage = (text: string | RegExp) => screen.queryAllByText(text).filter((n) => n.closest(".tooltip__pop") === null);
@@ -323,7 +343,7 @@ describe("no key material after the one-time export", () => {
     expect(create).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(saved.join("")).toContain(CANARY));
     expect(document.body.innerHTML).not.toContain(CANARY);
-    expect(JSON.stringify({ ...window.localStorage })).not.toContain(CANARY);
+    expect(storedText()).not.toContain(CANARY);
     vi.unstubAllGlobals();
   });
 
