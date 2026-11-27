@@ -91,6 +91,15 @@ CLASSES = ("light", "exclusive")
 class Host(NamedTuple):
     name: str
     target: str
+    slots: int = 1
+    max_load: float | None = None
+    min_free_gib: float | None = None
+    wait_min: int = 30
+    poll_s: int = 30
+    scratch: str = ""
+
+
+HOST_KEYS = ("slots", "max_load", "min_free_gib", "wait_min", "poll_s", "scratch")
 
 
 class Row(NamedTuple):
@@ -116,8 +125,8 @@ def parse_hosts(text: str, names: list[str]) -> Table:
             continue
         where = f"gate-hosts.txt line {lineno}"
         if fields[0] == "host":
-            if len(fields) != 3:
-                raise Refused(f"{where}: a host line is `host <name> <ssh target or ->`")
+            if len(fields) < 3:
+                raise Refused(f"{where}: a host line is `host <name> <ssh target or -> [key=value ...]`")
             name = fields[1]
             if name in REFUSED_HOSTS:
                 raise Refused(f"{where}: {name} is refused: {REFUSED_HOSTS[name]}")
@@ -125,7 +134,7 @@ def parse_hosts(text: str, names: list[str]) -> Table:
                 raise Refused(f"{where}: `{name}` is not a host name")
             if name in hosts:
                 raise Refused(f"{where}: host {name} is declared twice")
-            hosts[name] = Host(name, fields[2])
+            hosts[name] = parse_host(where, name, fields[2], fields[3:])
         elif fields[0] == "shard":
             shard_lines.append((lineno, fields))
         else:
@@ -162,6 +171,97 @@ def parse_hosts(text: str, names: list[str]) -> Table:
     if missing:
         raise Refused("gate-hosts.txt has no line for " + ", ".join(missing) + " (every shard needs one)")
     return table
+
+
+def parse_host(where: str, name: str, target: str, pairs: list[str]) -> Host:
+    values: dict[str, str] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or key not in HOST_KEYS or key in values:
+            raise Refused(f"{where}: `{pair}` is not one of {', '.join(k + '=' for k in HOST_KEYS)} (each once)")
+        values[key] = value
+
+    def number(key: str, floor: float) -> float | None:
+        if key not in values:
+            return None
+        try:
+            n = float(values[key])
+        except ValueError:
+            n = floor - 1
+        if n < floor:
+            raise Refused(f"{where}: {key}={values[key]} is not a number of at least {floor:g}")
+        return n
+
+    def whole(key: str, floor: int, default: int) -> int:
+        n = number(key, floor)
+        if n is not None and n != int(n):
+            raise Refused(f"{where}: {key}={values[key]} is not a whole number")
+        return default if n is None else int(n)
+
+    return Host(name, target, slots=whole("slots", 1, 1), max_load=number("max_load", 0),
+                min_free_gib=number("min_free_gib", 0), wait_min=whole("wait_min", 0, 30),
+                poll_s=whole("poll_s", 0, 30), scratch=values.get("scratch", ""))
+
+
+def probe(host: Host) -> tuple[str, float | None, float | None]:
+    """Ask a host whether it can take a shard now: ssh (for a remote), docker,
+    its load and the free space under its scratch parent. Returns why not ('' when
+    it answered), the 1-minute load and the free GiB. The same commands run
+    locally for the Mac (target -), so stand-ins on PATH can play every host."""
+    scratch = host.scratch or ('"${TMPDIR:-/tmp}"' if host.target == "-" else "~")
+    cmd = f"docker info --format '{{{{.ServerVersion}}}}' >/dev/null && uptime && df -Pk {scratch}"
+    if host.target == "-":
+        argv, env = ["bash", "-c", cmd], dict(os.environ, GATE_PROBE_HOST=host.name)
+    else:
+        argv, env = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host.target, cmd], None
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=90, env=env)
+    except subprocess.TimeoutExpired:
+        return "the probe got no answer in 90s", None, None
+    last = (proc.stderr.strip().splitlines() or [""])[-1]
+    if proc.returncode == 255 and host.target != "-":
+        return f"ssh {host.target} failed: {last}", None, None
+    if proc.returncode != 0:
+        return f"docker info or the probe failed (exit {proc.returncode}): {last}", None, None
+    m = re.search(r"load averages?:\s*([0-9]+(?:[.,][0-9]+)?)", proc.stdout)
+    load = float(m.group(1).replace(",", ".")) if m else None
+    free = None
+    df_lines = [ln.split() for ln in proc.stdout.splitlines() if ln.strip()]
+    if df_lines and len(df_lines[-1]) >= 4 and df_lines[-1][3].isdigit():
+        free = int(df_lines[-1][3]) / (1024 * 1024)
+    return "", load, free
+
+
+def busy_reasons(host: Host, load: float | None, free: float | None) -> list[str]:
+    out = []
+    if host.max_load is not None and load is not None and load > host.max_load:
+        out.append(f"load {load:.2f} is over max_load {host.max_load:g}")
+    if host.min_free_gib is not None and free is not None and free < host.min_free_gib:
+        out.append(f"{free:.1f} GiB free under {host.scratch or 'its scratch parent'} is under min_free_gib "
+                   f"{host.min_free_gib:g}")
+    return out
+
+
+def wait_for_host(host: Host, shard: str) -> str:
+    """'' once the host is under its limits, else why it was not within wait_min."""
+    if host.max_load is None and host.min_free_gib is None:
+        return ""
+    deadline = time.time() + host.wait_min * 60
+    said = False
+    while True:
+        why, load, free = probe(host)
+        if why:
+            return f"{host.name} did not answer its probe: {why}"
+        busy = busy_reasons(host, load, free)
+        if not busy:
+            return ""
+        if time.time() >= deadline:
+            return f"waited {host.wait_min} min for {host.name}, and still " + "; ".join(busy)
+        if not said:
+            print(f"local-gate: shard {shard} waits for {host.name} (up to {host.wait_min} min): " + "; ".join(busy),
+                  flush=True)
+            said = True
+        time.sleep(host.poll_s)
 
 
 def matches(pattern: str, name: str) -> bool:
@@ -422,7 +522,20 @@ def run_attempt(
     return ("failed" if attempt["failed_tests"] else "broken"), attempt
 
 
-def work(shard: str, host: str, args: argparse.Namespace, signers: Path) -> tuple[str, str]:
+def waited_out(
+    d: Path, shard: str, host: str, args: argparse.Namespace, attempts: list[dict[str, Any]], d_logs: int, why: str
+) -> tuple[str, dict[str, Any]]:
+    """The attempt for a shard whose host never got under its limits: INCOMPLETE,
+    with the reason as its log, and the runner never called."""
+    number = max([a["attempt"] for a in attempts] + [d_logs]) + 1
+    data = f"==> ci-local: INCOMPLETE (shard {shard}). gate_shards: {why}\n".encode()
+    (d / f"{shard}.attempt-{number}.log").write_bytes(data)
+    print(f"local-gate: shard {shard}: {why}", file=sys.stderr)
+    return "incomplete", {"attempt": number, "started_at": now(), "host": host, "gate_tree": args.gate_tree,
+                          "exit": 3, "duration_s": 0, "log_sha256": sha256(data), "failed_tests": []}
+
+
+def work(shard: str, host: str, info: Host | None, args: argparse.Namespace, signers: Path) -> tuple[str, str]:
     d = Path(args.dir)
     attempts_path = d / f"{shard}.attempts.json"
     attempts: list[dict[str, Any]] = json.loads(attempts_path.read_text()) if attempts_path.is_file() else []
@@ -438,7 +551,11 @@ def work(shard: str, host: str, args: argparse.Namespace, signers: Path) -> tupl
             (d / stale).unlink()
     outcome = "failed"
     for _ in range(2 if args.retry_once else 1):
-        outcome, attempt = run_attempt(d, shard, host, args, attempts, max(on_disk, default=0))
+        why = wait_for_host(info, shard) if info else ""
+        if why:
+            outcome, attempt = waited_out(d, shard, host, args, attempts, max(on_disk, default=0), why)
+        else:
+            outcome, attempt = run_attempt(d, shard, host, args, attempts, max(on_disk, default=0))
         attempts.append(attempt)
         attempts_path.write_text(json.dumps(attempts, indent=2) + "\n")
         print(f"local-gate: shard {shard} attempt {attempt['attempt']}: {outcome} "
@@ -464,6 +581,88 @@ def work(shard: str, host: str, args: argparse.Namespace, signers: Path) -> tupl
     return shard, "ok"
 
 
+def schedule(
+    todo: list[str], plan: dict[str, list[str]], table: Table | None, args: argparse.Namespace, signers: Path
+) -> dict[str, str]:
+    """Run `todo`, longest first, each on the first host of its plan with a
+    free slot. A host runs at most its slots at once and at most one exclusive
+    shard. A shard that ends INCOMPLETE is moved (at most twice) only when its
+    host then fails its probe, which drains that host for the rest of the run;
+    a FAILED shard never moves. Without a table every shard goes to --host (or
+    the runner's default) and --jobs (default 3) is the only limit."""
+    rows = {n: row_for(table, n) for n in todo} if table else {}
+
+    def est(n: str) -> int:
+        r = rows.get(n)
+        return r.est_min if r else 0
+
+    def exclusive(n: str) -> bool:
+        r = rows.get(n)
+        return bool(r and r.klass == "exclusive")
+
+    if table:
+        slots = {h: table.hosts[h].slots for h in table.hosts}
+        cap = args.jobs if args.jobs > 0 else sum(slots.values())
+    else:
+        cap = args.jobs if args.jobs > 0 else 3
+        slots = {(args.host or ""): cap}
+        plan = {n: [args.host or ""] for n in todo}
+    pending = sorted(todo, key=lambda n: -est(n))
+    count = dict.fromkeys(slots, 0)
+    holds_exclusive: set[str] = set()
+    drained: set[str] = set()
+    moves: dict[str, int] = {}
+    results: dict[str, str] = {}
+    running: dict[concurrent.futures.Future[tuple[str, str]], tuple[str, str]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, cap)) as pool:
+        while pending or running:
+            for shard in list(pending):
+                if len(running) >= cap:
+                    break
+                options = [h for h in plan[shard] if h not in drained]
+                if not options:
+                    pending.remove(shard)
+                    results[shard] = "incomplete"
+                    print(f"local-gate: shard {shard}: every host it may run on is drained "
+                          f"({', '.join(plan[shard])}); give it one with --place {shard}=<host>", file=sys.stderr)
+                    continue
+                for h in options:
+                    if count[h] < slots[h] and not (exclusive(shard) and h in holds_exclusive):
+                        info = table.hosts[h] if table else None
+                        running[pool.submit(work, shard, h, info, args, signers)] = (shard, h)
+                        count[h] += 1
+                        if exclusive(shard):
+                            holds_exclusive.add(h)
+                        pending.remove(shard)
+                        break
+            if not running:
+                continue
+            done, _ = concurrent.futures.wait(running, return_when=concurrent.futures.FIRST_COMPLETED)
+            for fut in done:
+                shard, h = running.pop(fut)
+                count[h] -= 1
+                if exclusive(shard):
+                    holds_exclusive.discard(h)
+                outcome = fut.result()[1]
+                results[shard] = outcome
+                if outcome != "incomplete" or table is None or moves.get(shard, 0) >= 2:
+                    continue
+                why, _, _ = probe(table.hosts[h])
+                if not why:
+                    continue
+                drained.add(h)
+                print(f"local-gate: host {h} drained for the rest of this run: {why}", file=sys.stderr)
+                rest = [x for x in plan[shard] if x not in drained]
+                if rest:
+                    moves[shard] = moves.get(shard, 0) + 1
+                    del results[shard]
+                    pending.append(shard)
+                    pending.sort(key=lambda n: -est(n))
+                    print(f"local-gate: shard {shard} moves off {h} (move {moves[shard]} of at most 2); "
+                          f"its attempt there stays in the record", file=sys.stderr)
+    return results
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     names = parse_manifest(Path(args.manifest).read_text(encoding="utf-8"))
     if args.only and args.only not in names:
@@ -484,10 +683,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"local-gate: shard {name}: signed and ok for this tree, reused")
         else:
             todo.append(name)
-    results: dict[str, str] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        for shard, outcome in pool.map(lambda s: work(s, (plan[s] or [""])[0], args, signers), todo):
-            results[shard] = outcome
+    results = schedule(todo, plan, table, args, signers)
     bad = {s: o for s, o in results.items() if o != "ok"}
     if bad:
         for shard, outcome in bad.items():
@@ -585,6 +781,37 @@ def cmd_place(argv: list[str]) -> int:
     return 0
 
 
+def cmd_probe(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="gate_shards.py probe")
+    ap.add_argument("--manifest", required=True)
+    add_placement_options(ap)
+    args = ap.parse_args(argv)
+    names = parse_manifest(Path(args.manifest).read_text(encoding="utf-8"))
+    table = load_table(args, names)
+    if table is None:
+        print("no gate-hosts.txt beside the manifest: nothing to probe")
+        return 0
+    used = {h for hosts in placement(table, names, args).values() for h in hosts}
+    refused = 0
+    for name in (h for h in table.hosts if h in used):
+        host = table.hosts[name]
+        why, load, free = probe(host)
+        if why:
+            refused += 1
+            print(f"{name} refuse {why}")
+            continue
+        low = host.min_free_gib is not None and free is not None and free < host.min_free_gib
+        busy = busy_reasons(host, load, None)
+        facts = f"load={load if load is not None else '?'} free_gib={f'{free:.1f}' if free is not None else '?'}"
+        if low:
+            refused += 1
+            print(f"{name} refuse {free:.1f} GiB free under {host.scratch or 'its scratch parent'}, min_free_gib "
+                  f"{host.min_free_gib:g} ({facts})")
+        else:
+            print(f"{name} ok {facts}" + (" (busy: " + "; ".join(busy) + ")" if busy else ""))
+    return 1 if refused else 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "manifest":
         try:
@@ -593,9 +820,9 @@ def main(argv: list[str]) -> int:
             print(f"local-gate: REFUSED. {exc}", file=sys.stderr)
             return 2
         return 0
-    if argv[:1] == ["place"]:
+    if argv[:1] in (["place"], ["probe"]):
         try:
-            return cmd_place(argv[1:])
+            return (cmd_place if argv[0] == "place" else cmd_probe)(argv[1:])
         except (GateError, OSError) as exc:
             print(f"local-gate: REFUSED. {exc}", file=sys.stderr)
             return 2
@@ -609,7 +836,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--retry-once", action="store_true")
-    ap.add_argument("--jobs", type=int, default=3)
+    ap.add_argument("--jobs", type=int, default=0)
     ap.add_argument("--out", default="provenance")
     ap.add_argument("--env-json", default="{}")
     args = ap.parse_args(argv)
