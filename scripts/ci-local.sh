@@ -247,6 +247,14 @@ FAST="${CI_LOCAL_FAST:-0}"
 # gate_install_traps.
 gate_install_traps
 
+# The watchdog reads output as progress, and the self-test drivers are Python,
+# which writes stdout in 8 KiB blocks when it is not a terminal. The gate's
+# output is always a pipe or a file, so a driver's per-control lines reached the
+# log in bursts, or only when it was killed: a selftest-recovery rehearsal on
+# MARS sat 901s on thirteen finished controls and was ledgered STALLED (#1672).
+# Every Python this gate starts writes line by line.
+export PYTHONUNBUFFERED=1
+
 # Every step is watched for a stall from the first one on (#1540): no output
 # for RETND_GATE_STALL_MIN minutes, or past its hard cap, and the step is
 # stopped with its containers and the run ends FAILED (STALLED: ...). This
@@ -795,6 +803,13 @@ bash scripts/tests/every-guard-is-a-gate-step.test.sh
 gate_step "the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)"
 bash scripts/tests/selftest-lanes.test.sh
 
+# The long, quiet steps (the mutation self-tests that print once per control,
+# the browser lane) carry their own stall and cap limits, above the bounds
+# their commands set for themselves, so they run on a host no caller
+# environment reaches (#1672). Static, a second or two.
+gate_step "the long, quiet steps carry stall and cap limits above their own bounds (#1672)"
+bash scripts/tests/gate-step-limits.test.sh
+
 # The agents and encryption self-tests' controls used to hard-code paths on
 # the maintainer's Mac and a hand-built capture image, so the gate left about
 # twenty of them out wholesale (#1543). This lists every control that would
@@ -1278,13 +1293,19 @@ if [ "$FAST" != "1" ]; then
   if [ "${CI_LOCAL_SKIP_UI_BROWSER:-0}" = "1" ]; then
     gate_note_skip "the ui/shared browser specs and the assurance UI mutation self-test, which are the only automated execution either of them gets (CI_LOCAL_SKIP_UI_BROWSER=1)"
   else
-    gate_docker_step "ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)"
+    # The lane has its own stall check (600s) and cap (5400s for the specs,
+    # 2700s for a run, plus 900s for the image and the install), and its
+    # verdict says which spec or control hung. The step's limits sit above
+    # those, so the lane always answers first (#1672): the record-based cap
+    # once fired 13s before the lane's own on MARS.
+    # scripts/tests/gate-step-limits.test.sh reads both sides.
+    gate_docker_step "ui/shared browser specs (ui/shared/e2e), every file, in the pinned Playwright image (#1537)" --stall-min 15 --cap-min 110
     gate_ui_browser "the ui/shared browser specs" bash scripts/e2e/ui-browser.sh specs ui/shared/e2e/playwright.config.ts
 
     # Plants each of the assurance UI violations in a copy of ui/shared and
     # needs the narrowed unit tests and specs to go red naming the promise.
     # Its anchors are also checked statically by scripts/selftest/check-anchors.sh.
-    gate_docker_step "the assurance UI guards can actually fail (browser mutation self-test, #1532)"
+    gate_docker_step "the assurance UI guards can actually fail (browser mutation self-test, #1532)" --stall-min 15 --cap-min 65
     gate_ui_browser "the assurance UI mutation self-test" bash scripts/e2e/ui-browser.sh run bash scripts/assurance/ui-selftest.sh
   fi
 fi
@@ -1436,7 +1457,10 @@ bash scripts/tests/api-generator-is-deterministic.test.sh
 gate_step "every /api/v1 path the shared client builds is a declared operation (#211)"
 bash scripts/api/check-client-paths.sh
 
-gate_step "the /api/v1 contract gates can actually fail (mutation self-test)"
+# --stall-min 15: its Go controls run go test with no -timeout, so go's own
+# 10 minutes plus the build can pass in silence (#1672; the rule and its
+# reasons are in scripts/tests/gate-step-limits.test.sh).
+gate_step "the /api/v1 contract gates can actually fail (mutation self-test)" --stall-min 15
 bash scripts/api/selftest.sh
 
 # No already-published provenance record is rewritten (#895, R2.8, FR-43).
@@ -1655,7 +1679,10 @@ if [ "$FAST" != "1" ]; then
   # the kind that pass on the tree they ship with and could not fail. Each
   # is planted as a real violation in a real product file and the narrowed
   # suite has to go red naming the promise. No Docker, a few minutes.
-  gate_step "the recovery guards can actually fail (mutation self-test, #976)"
+  # --stall-min 15: each control prints when it ends and runs go test
+  # -timeout 10m, so 10 minutes plus the build can pass in silence (#1672,
+  # scripts/tests/gate-step-limits.test.sh).
+  gate_step "the recovery guards can actually fail (mutation self-test, #976)" --stall-min 15
   bash scripts/recovery/selftest.sh
 
   # Issue #1528: retiring a FAILED backup. Each row of
@@ -1741,7 +1768,12 @@ if [ "$FAST" != "1" ]; then
   # 8 GiB, so the shard needs 9 GiB: scripts/release/run-gate-shard.sh asks for
   # a 9g fence and refuses a smaller one, and this step refuses to start the
   # self-test in less than that, out loud, which also ends INCOMPLETE.
-  gate_step "the encryption and suite guards can actually fail (mutation self-test, #1531)"
+  #
+  # --stall-min 65: a control prints when it ends, and the longest go test
+  # -timeout a control sets is 60 minutes. The step's window sits above that,
+  # so a hung control is named by its own timeout first (#1672,
+  # scripts/tests/gate-step-limits.test.sh). The cap stays the default one.
+  gate_step "the encryption and suite guards can actually fail (mutation self-test, #1531)" --stall-min 65
   have_gib="$(gate_memory_gib)"
   if [ "$have_gib" -lt 9 ]; then
     gate_note_skip "the encryption self-test (#1531): this run has ${have_gib} GiB and its two copycrypt controls need 9 GiB, so none of it ran. Run the selftest-encryption shard with a 9g fence (scripts/release/run-gate-shard.sh asks for one)"
@@ -1778,7 +1810,9 @@ if [ "$FAST" != "1" ]; then
   # has to go red naming the test. core/tests/agentgate refuses a PASS row
   # whose control label is not in the file, and this is what runs them. Controls
   # this host has no lane for go to the skip ledger, as for the encryption one.
-  gate_step "the agent (MCP) guards can actually fail (mutation self-test, #1530)"
+  # --stall-min 30: the longest go test -timeout a control sets is 25 minutes
+  # (#1672, scripts/tests/gate-step-limits.test.sh).
+  gate_step "the agent (MCP) guards can actually fail (mutation self-test, #1530)" --stall-min 30
   gate_selftest_with_ledger scripts/agents/selftest.sh
 fi
 }

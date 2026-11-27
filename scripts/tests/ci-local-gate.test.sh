@@ -422,6 +422,8 @@ make_full_tree() {
   # It imports the real agents and encryption self-tests (#1543).
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-linux-skips.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-lanes.test.sh"
+  # Reads the real drivers under scripts/bdtools, which a synthetic tree has not (#1672).
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/gate-step-limits.test.sh"
   # The self-tests of the gate's own machinery (#1533): the shard runner, the
   # --shard i/n split of the self-tests, and the release e2e hooks. Each makes
   # its own throwaway repositories and stand-in commands.
@@ -2704,13 +2706,15 @@ assert_eq "V5 the verdict is still the last line" '==> ci-local: ok' "$(printf '
 
 echo "==> Y. the stall watchdog"
 
-# Every case runs the real gate on the selftest-recovery shard, whose one step
-# is scripts/recovery/selftest.sh, and replaces that stub with the behaviour
-# under test. The limits are fractions of a minute so a case takes seconds:
+# Every case runs the real gate on the selftest-recovery shard and replaces
+# the stub of its second step, scripts/retire/selftest.sh, with the behaviour
+# under test. Not the first step: the recovery self-test carries its own
+# --stall-min (#1672), which wins over the knobs below, and these cases are
+# about the default window. The limits are fractions of a minute so a case takes seconds:
 # 0.1 is a 6s no-progress window. The docker stand-in logs every call and
 # answers the watchdog's label query with one container, so "its containers
 # were stopped" is a call this suite can read back.
-Y_HEADING='the recovery guards can actually fail (mutation self-test, #976)'
+Y_HEADING='the retirement guards can actually fail (mutation self-test, #1528)'
 Y_KNOBS=(RETND_GATE_STALL_MIN=0.1 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host)
 
 y_tree() { # -> a full tree with a logging docker and a private TMPDIR
@@ -2733,7 +2737,7 @@ DOCKER
 }
 
 y_step() { # <tree> <body of the step>
-  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$1/scripts/recovery/selftest.sh"
+  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$1/scripts/retire/selftest.sh"
 }
 
 # The dockerlease owner of a tree, computed the way core/tests/dockerlease does.
@@ -2923,12 +2927,21 @@ assert_contains "Y10 the start line says the check is off" "the no-progress chec
 # Y11: the cap reads the longest of the last three records, not the last one
 # (records 100, 2, 2 and a 3s floor: an 8s step must not be cut at 3s), and
 # the file keeps three per step.
+#
+# Not the retirement step the other Y cases use: that one is the last step of
+# its shard, and a shard's last step only gets its record at gate_summary, so
+# its number carries the end-of-run tail as well. In a --network none
+# container that tail made an 8s step read 22s. The retention step of
+# selftest-assurance has the discovery step after it, so its record is
+# written the moment that one starts and holds the step and nothing else.
+Y11_HEADING='the retention-apply evidence can actually fail (mutation self-test, #602)'
 tree="$(y_tree)"
-printf '100\t%s\n2\t%s\n2\t%s\n' "$Y_HEADING" "$Y_HEADING" "$Y_HEADING" | y_plant "$tree"
-y_step "$tree" 'for i in 1 2 3 4 5 6 7 8; do echo "chatty $i"; sleep 1; done'
-y_run "$tree" RETND_GATE_STALL_MIN=0 RETND_GATE_STEP_CAP_FLOOR_MIN=0.05 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host
+printf '100\t%s\n2\t%s\n2\t%s\n' "$Y11_HEADING" "$Y11_HEADING" "$Y11_HEADING" | y_plant "$tree"
+printf '#!/usr/bin/env bash\n%s\n' 'for i in 1 2 3 4 5 6 7 8; do echo "chatty $i"; sleep 1; done' >"$tree/scripts/retention/selftest.sh"
+y_run_on "$tree" selftest-assurance RETND_GATE_STALL_MIN=0 RETND_GATE_STEP_CAP_FLOOR_MIN=0.05 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host
+assert_contains "Y11 the planted step is not the shard's last (another step starts after it)" "==> the discovery readability probe can actually fail (mutation self-test, #1541)" "$out"
 assert_not_contains "Y11 the cap is 1.5 times the longest recent record" "FAILED (STALLED" "$out"
-assert_eq "Y11 three records kept per step, the oldest dropped" "2 2 8" "$(awk -F '\t' -v h="$Y_HEADING" '$2 == h { printf "%s%s", sep, ($1 >= 7 && $1 <= 12 ? 8 : $1); sep = " " }' "$tree/.git/ci-local-step-durations.fixture-host")"
+assert_eq "Y11 three records kept per step, the oldest dropped" "2 2 8" "$(awk -F '\t' -v h="$Y11_HEADING" '$2 == h { printf "%s%s", sep, ($1 >= 7 && $1 <= 12 ? 8 : $1); sep = " " }' "$tree/.git/ci-local-step-durations.fixture-host")"
 
 # Y12: a step that ended early and let the run carry on (the e2e lane exiting
 # 3 is ledgered) is not recorded: it would cap the next healthy run short.
@@ -2962,6 +2975,22 @@ y_step "$tree" 'for i in 1 2 3 4 5 6 7 8; do echo "chatty $i"; sleep 1; done'
 y_run "$tree" "${Y_KNOBS[@]}" RETND_GATE_STEP_CAP_FLOOR_MIN=0.05
 assert_not_contains "Y14 the floor is two of the step's stall windows when that is more" "FAILED (STALLED" "$out"
 assert_eq "Y14 and the shard ends ok" 0 "$status"
+
+# Y17: a Python driver that prints as it goes is not silent to the watchdog
+# (#1672). Python buffers stdout in blocks when it is not a terminal, and the
+# gate's output is a pipe or a file, so a self-test's per-control lines used to
+# reach the log 8 KiB at a time, or only when the step was killed: a
+# selftest-recovery rehearsal on MARS was ledgered STALLED after 901s with
+# thirteen finished controls still in the buffer. Nothing in this suite's own
+# environment may make that pass by accident.
+unset PYTHONUNBUFFERED
+tree="$(y_tree)"
+y_step "$tree" 'python3 -c "import time
+for i in range(12): print(\"python chatty\", i); time.sleep(1)"'
+y_run "$tree" "${Y_KNOBS[@]}"
+assert_not_contains "Y17 a Python step that keeps printing is not STALLED" "FAILED (STALLED" "$out"
+assert_contains "Y17 its lines reached the log as it went" "python chatty 11" "$out"
+assert_eq "Y17 and the shard ends ok" 0 "$status"
 
 # Y15: every Docker step that ran with no daemon stays off the record, not
 # only the first: the ledger takes the Docker skip once per run, and every
