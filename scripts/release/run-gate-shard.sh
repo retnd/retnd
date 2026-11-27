@@ -15,7 +15,13 @@
 # drives a Chromium through every spec file in ui/shared/e2e, and heavy retnd
 # steps stay off the Mac, so with no --host it goes to mars. `--host mac` for
 # it is refused unless RETND_UI_BROWSER_ALLOW_LOCAL=1 is set, and the gate then
-# runs it through the Playwright lock.
+# runs it through the Playwright lock. Every rule for it matches `ui-browser*`,
+# so the slices it splits into (#1672 P1.1) get the same default host, opt-in
+# and fence without an edit here.
+#
+# The recorder now passes --host for every shard, from
+# scripts/release/gate-hosts.txt (#1497); the defaults above are for a run by
+# hand and for a tree without that table.
 #
 # What comes back, in DIR (default $TMPDIR/retnd-shard-runs, outside the git
 # dir ci-docker.sh ships, and refused inside the tree, which it would dirty):
@@ -75,12 +81,13 @@ case "$shard" in [a-z0-9]*) ;; *) echo "run-gate-shard: bad shard name [$shard]"
 case "$shard" in *[!a-z0-9-]*) echo "run-gate-shard: bad shard name [$shard]" >&2; exit 2 ;; esac
 if [ -z "$host" ]; then
   case "$shard" in
-    ui-browser) host=mars; echo "run-gate-shard: no --host given, so the ui-browser shard runs on mars (heavy steps stay off the Mac)" >&2 ;;
+    ui-browser*) host=mars; echo "run-gate-shard: no --host given, so the $shard shard runs on mars (heavy steps stay off the Mac)" >&2 ;;
     *) host=mac ;;
   esac
 fi
-if [ "$shard" = ui-browser ] && [ "$host" = mac ] && [ "${RETND_UI_BROWSER_ALLOW_LOCAL:-0}" != 1 ]; then
-  echo "run-gate-shard: the ui-browser shard does not run on the Mac, where heavy steps do not run. Use --host mars, or set RETND_UI_BROWSER_ALLOW_LOCAL=1 to run it here through the Playwright lock" >&2
+case "$shard" in ui-browser*) browser=1 ;; *) browser=0 ;; esac
+if [ "$browser" = 1 ] && [ "$host" = mac ] && [ "${RETND_UI_BROWSER_ALLOW_LOCAL:-0}" != 1 ]; then
+  echo "run-gate-shard: the $shard shard does not run on the Mac, where heavy steps do not run. Use --host mars, or set RETND_UI_BROWSER_ALLOW_LOCAL=1 to run it here through the Playwright lock" >&2
   exit 2
 fi
 case "$host" in
@@ -176,7 +183,7 @@ fi
 # The ui-browser shard holds a gate container that mostly waits and the lane's
 # own 4g sibling, so the gate's fence defaults small (#1588), not ci-docker's
 # 12g / 6 cpus. A fence the caller names wins.
-if [ "$shard" = ui-browser ] && [ "$host" != mac ]; then
+if [ "$browser" = 1 ] && [ "$host" != mac ]; then
   export CI_DOCKER_MEMORY="${CI_DOCKER_MEMORY:-3g}" CI_DOCKER_CPUS="${CI_DOCKER_CPUS:-2}"
 fi
 

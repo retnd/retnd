@@ -220,6 +220,19 @@ run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS -u RETND_UI_BROWSER_ALLOW_L
 grep -q 'memory=6g cpus=4' "$work/log/ci-docker-env" && pass "M8 a fence the caller names wins" || fail "M8 ui-browser caller fence" "$(cat "$work/log/ci-docker-env")"
 run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS FAKE_VERDICT="==> ci-local: ok (shard core-docker)" bash "$runner" core-docker --host mars --out "$work/out"
 grep -q 'memory=unset cpus=unset' "$work/log/ci-docker-env" && pass "M8 control: another shard keeps ci-docker's own default" || fail "M8 other shard fence" "$(cat "$work/log/ci-docker-env")"
+# M9-M11: the ui-browser special cases match every slice of the shard
+# (ui-browser-1 and on, #1672 P1.1), so the split needs no edit here.
+run_runner env -u RETND_UI_BROWSER_ALLOW_LOCAL FAKE_VERDICT="==> ci-local: ok (shard ui-browser-2)" bash "$runner" ui-browser-2 --out "$work/out"
+if [ "$(rc)" = 0 ] && grep -q -- '--host devshell@192.168.0.100' "$work/log/ci-docker" && [ ! -s "$work/log/ci-local" ]; then
+  pass "M9 a ui-browser slice with no --host runs on mars, like the whole shard"
+else
+  fail "M9 ui-browser slice default host" "rc=$(rc) $(cat "$work/log/ci-local" "$work/stdout")"
+fi
+run_runner env -u RETND_UI_BROWSER_ALLOW_LOCAL bash "$runner" ui-browser-selftest --host mac --out "$work/out"
+[ "$(rc)" = 2 ] && [ ! -s "$work/log/ci-local" ] && pass "M10 --host mac is refused for a ui-browser slice without the opt-in" || fail "M10 ui-browser slice on the mac" "rc=$(rc) $(cat "$work/stdout")"
+run_runner env -u CI_DOCKER_MEMORY -u CI_DOCKER_CPUS -u RETND_UI_BROWSER_ALLOW_LOCAL FAKE_VERDICT="==> ci-local: ok (shard ui-browser-3)" bash "$runner" ui-browser-3 --host mars --out "$work/out"
+grep -q 'memory=3g cpus=2' "$work/log/ci-docker-env" && pass "M11 a ui-browser slice gets the same small gate fence" || fail "M11 ui-browser slice fence" "$(cat "$work/log/ci-docker-env")"
+
 # M3-M6: a shard with a minimum memory (selftest-encryption, 9g: its two copycrypt
 # controls allocate several GiB and were OOM-killed at 4g, the #1538 review B3).
 run_runner env FAKE_VERDICT="==> ci-local: ok (shard selftest-encryption)" CI_DOCKER_MEMORY=6g bash "$runner" selftest-encryption --host mars --out "$work/out"
@@ -364,6 +377,16 @@ if [ "$(rc)" = 0 ] && grep -q 'devshell@192.168.0.100' "$l2/log/ssh" && grep -q 
   pass "L5 mars uses the devshell account and its /work/nas-work scratch parent"
 else
   fail "L5 mars scratch" "rc=$(rc) $(head -3 "$l2/log/ssh")"
+fi
+
+# --- S placement and scheduling (#1497) ----------------------------------------
+# gate_shards.py places each shard from scripts/release/gate-hosts.txt and
+# hands it to this runner with --host. Its own suite drives it with a stand-in
+# for this runner; it lives in Python because the scheduler does.
+if python3 "$repo_root/scripts/bdtools/tests/gate_shards_scheduler.py"; then
+  pass "S1 the shard placement and scheduler suite (scripts/bdtools/tests/gate_shards_scheduler.py) is green"
+else
+  fail "S1 the shard placement and scheduler suite is red (its FAIL lines are above)"
 fi
 
 echo
