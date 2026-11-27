@@ -211,6 +211,10 @@ check starts failing, loudly, on the next run rather than months later.
 
 ## Cutting a release
 
+The full sequence with a time budget per step and a table of what to do when
+each step goes red is "The cut, start to finish" in `docs/release-workflow.md`.
+The list below is what each step is for.
+
 1. Get the commit you want to publish onto `main`, green under the pre-commit hook
    (`bash scripts/install-hooks.sh` once per clone if it is not installed).
 2. Regenerate the manifest from a clean checkout of that commit:
@@ -226,9 +230,12 @@ check starts failing, loudly, on the next run rather than months later.
    `provenance/local-gate.json.sig` only on a complete green run (it signs with
    `~/.ssh/retnd-release-attest`; if the key has a passphrase, have ssh-agent hold it). Merge those three files to
    `main` through a pull request; that review is what stands behind the record.
-6. Prove it before you publish it: dispatch the Release workflow with `publish: false`.
-   That path runs every guard and the parity rebuild against the real tree and stops
-   before the registry.
+6. Prove it before you publish it. Before the gate, `bash scripts/release/precut.sh`
+   asks locally what the hosted run has refused on before. At the freeze, beside the
+   recorder, dispatch the Release workflow with `publish: false` and start
+   `scripts/release-e2e.sh`: the dry run runs every guard and the parity rebuild against
+   the real tree and stops before the registry, and the e2e stamp it leaves is reused by
+   `scripts/release.sh` for the same tree.
 7. Open a pull request from `main` into `release` and get it approved. The ruleset
    refuses a direct push, so this is the only way in; merge it with a real merge
    commit (the ruleset refuses squash and rebase, which would break rule 1). There is
