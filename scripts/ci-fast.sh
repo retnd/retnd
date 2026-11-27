@@ -16,6 +16,10 @@
 #   always        the mutation-anchor check and the /api/v1 contract drift
 #                 check (seconds each, and the two that would have caught
 #                 both headline breaks on main)
+#   gate files    a change to scripts/ci-local.sh, its serial golden or the
+#                 list of steps the golden leaves out runs the static check
+#                 that every step has its golden line and the reverse
+#                 (scripts/tests/serial-steps-golden.test.sh, a second, #1642)
 #   Go test files the former-name scan (scripts/rename/check-no-former-name.sh)
 #                 on any commit that touches a *_test.go (#1618); it reads the
 #                 staged blobs, not the working tree (#1622)
@@ -583,6 +587,16 @@ if has '_test\.go$'; then
   else
     bash scripts/rename/check-no-former-name.sh
   fi
+fi
+
+# The serial golden (#1642). W4 of the gate self-test compares a full serial
+# run's headings with scripts/tests/testdata/ci-local-serial-steps.txt, and
+# only the full gate runs it, so a step added without its golden line (#1631)
+# passed the hook and turned main red. The same comparison, static and about a
+# second, on any change to the gate or the two files it is checked against.
+if has '^scripts/ci-local\.sh$|^scripts/tests/testdata/ci-local-serial-steps\.txt$|^scripts/tests/testdata/ci-local-steps-not-in-golden\.txt$'; then
+  gate_step "every step of ci-local.sh has its serial golden line, and the reverse (#1642)"
+  bash scripts/tests/serial-steps-golden.test.sh
 fi
 
 # --------------------------------------------------------------- formatting
