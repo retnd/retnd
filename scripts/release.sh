@@ -20,7 +20,19 @@
 #      there is nothing to bump. The branch is created at main's tip with no bump
 #      commit, so the release PR's gate tree is main's and the local-gate record
 #      made on main's tip stays valid. Only release-attest/ is committed on it.
+#      Still in step 1, before anything is written, it FAILS FAST on the two
+#      things that would otherwise surface only after the e2e or in the hosted
+#      run (#1672): scripts/release/precut.sh --version <version> (parity,
+#      compliance drift, the packaging suite, the EPIC closing checks, the
+#      manifest commit), and PUBLISH=true scripts/release/verify-local-gate.sh
+#      on the tree being released. With a bump commit that tree only exists
+#      after step 2, so there the record is checked right after the bump.
 #   3. the FULL e2e: scripts/release-e2e.sh (fenced docker, writes the stamp).
+#      REUSED instead when a green stamp already exists for exactly this tree
+#      (scripts/release-e2e/lib.sh re_stamp_valid: the default command, a real
+#      host, this gate), in the real stamp directory (never the test-only one),
+#      and younger than STAMP_MAX_AGE_H below. That is what lets the runbook
+#      start scripts/release-e2e.sh at the freeze, beside the gate.
 #   4. the signed attestation (scripts/release-e2e/attest.sh sign), then
 #      verify --expect-version, before anything is committed.
 #   5. commit release-attest/, ask once (skip with --yes), push the branch,
@@ -46,6 +58,9 @@ die() { echo "release: $*" >&2; exit 1; }
 say() { echo "==> release: $*"; }
 
 remote="${RELEASE_REMOTE:-origin}"
+# How old a green e2e stamp may be and still stand in for the e2e (step 3).
+STAMP_MAX_AGE_H=24
+e2e_why="$(mktemp "${TMPDIR:-/tmp}/release-why.XXXXXX")"; trap 'rm -f "$e2e_why"' EXIT
 version=""; issue=""; dry=0; yes=0; downgrade=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -131,11 +146,25 @@ grep -Eq '^retnd-release namespaces="[^"]*retnd-e2e-attest[^"]*" ssh-ed25519 AAA
 [ "$dry" = 1 ] || command -v gh >/dev/null || die "gh is not on PATH"
 say "preconditions ok: $current_for_cmp -> $version, branch $branch, expected tag $tag (this script does not create it)"
 
+# Fail fast (#1672): what would otherwise be found after the e2e, or by the hosted run.
+say "precut: bash scripts/release/precut.sh --version $version --base $main_sha"
+bash scripts/release/precut.sh --version "$version" --base "$main_sha" || die "precut.sh is red (above). Fix it on main first: nothing was branched, run or pushed."
+gate_ok=0
+check_gate() {
+  say "local gate record: PUBLISH=true bash scripts/release/verify-local-gate.sh $(git rev-parse HEAD)"
+  PUBLISH=true bash scripts/release/verify-local-gate.sh "$(git rev-parse HEAD)" \
+    || die "the signed local gate record does not cover this tree (above), so the release would be refused at publish. Record the gate for this tree first (docs/release-workflow.md)."
+  gate_ok=1
+}
+# The tree being released is HEAD's when nothing is bumped (prepared on main, or resuming after the bump).
+if [ "$prepared" = 1 ] || { [ "$resuming" = 1 ] && [ "$head_subject" = "Release $tag" ]; }; then check_gate; fi
+
 if [ "$dry" = 1 ]; then
   say "DRY RUN. Nothing below runs."
   if [ "$prepared" = 1 ]; then say "would create $branch at the tip of main with no bump commit (prepared on main)"
   else [ "$resuming" = 1 ] && [ "$head_subject" = "Release $tag" ] || say "would create $branch and commit 'Release $tag' via ${RELEASE_BUMP_CMD:-scripts/release/bump-version.sh $version}"; fi
-  say "would run the full e2e: bash scripts/release-e2e.sh"
+  [ "$gate_ok" = 1 ] || say "would check the local gate record on the bump commit: PUBLISH=true bash scripts/release/verify-local-gate.sh HEAD"
+  say "would reuse a green e2e stamp for the release tree when one is under ${STAMP_MAX_AGE_H}h old, else run the full e2e: bash scripts/release-e2e.sh"
   say "would sign and verify: scripts/release-e2e/attest.sh sign --version $version; verify --expect-version $version"
   say "would commit release-attest/, push $branch to $remote, and run: gh pr create --base $RELEASE_BRANCH --title 'Release $tag' (Closes #$issue)"
   exit 0
@@ -159,9 +188,30 @@ else
   commit -m "Release $tag"
 fi
 
-# --- 3. the full e2e ---
-say "full e2e"
-bash scripts/release-e2e.sh
+[ "$gate_ok" = 1 ] || check_gate
+
+# --- 3. the full e2e, or a green stamp for exactly this tree ---
+reusable_stamp() { # prints the stamp path, or why there is none on stderr
+  local t="$1" f when then_s now_s
+  f="$(re_stamp_dir)/$t.stamp"
+  [ -f "$f" ] || { echo "none for tree $t in $(re_stamp_dir)" >&2; return 1; }
+  re_stamp_valid "$f" "$t" 0 || { echo "$f is not a valid green stamp for this tree, the default command and this gate" >&2; return 1; }
+  when="$(sed -n 's/^time=//p' "$f")"
+  printf '%s' "$when" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || { echo "$f has a time I cannot read ($when)" >&2; return 1; }
+  then_s="$(date -u -d "$when" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$when" +%s 2>/dev/null)" \
+    || { echo "$f has a time I cannot read ($when)" >&2; return 1; }
+  now_s="$(date -u +%s)"
+  [ "$then_s" -le $((now_s + 300)) ] || { echo "$f is dated in the future ($when)" >&2; return 1; }
+  [ $((now_s - then_s)) -le $((STAMP_MAX_AGE_H * 3600)) ] || { echo "$f is older than ${STAMP_MAX_AGE_H}h ($when)" >&2; return 1; }
+  printf '%s' "$f"
+}
+e2e_tree="$(re_tree_id HEAD)"
+if reuse="$(reusable_stamp "$e2e_tree" 2>"$e2e_why")"; then
+  say "reusing the green e2e stamp $reuse (host $(sed -n 's/^host=//p' "$reuse"), $(sed -n 's/^time=//p' "$reuse")): no second e2e for the same tree"
+else
+  say "no reusable e2e stamp ($(cat "$e2e_why")), so running the full e2e"
+  bash scripts/release-e2e.sh
+fi
 
 # --- 4. attestation, verified before it goes anywhere ---
 say "signing the attestation"
@@ -181,7 +231,7 @@ if [ "$yes" != 1 ]; then
   case "$ans" in y|Y|yes) ;; *) die "stopped before the push. The attestation commit is local on $branch." ;; esac
 fi
 git push -u "$remote" "$branch"
-body="$(mktemp "${TMPDIR:-/tmp}/release-pr.XXXXXX")"; trap 'rm -f "$body"' EXIT
+body="$(mktemp "${TMPDIR:-/tmp}/release-pr.XXXXXX")"; trap 'rm -f "$body" "$e2e_why"' EXIT
 {
   if [ "$prepared" = 1 ]; then
     echo "I cut $tag from main on $branch: the version was already set on main, so there is no bump commit, the full e2e ran on main's tree, and the one commit adds the signed attestation (release-attest/e2e.json, checked against the key in provenance/allowed_signers)."
