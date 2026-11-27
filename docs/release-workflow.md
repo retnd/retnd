@@ -52,6 +52,77 @@ names that one-way door as the first item of its "before you upgrade" list and l
 Do not edit generated provenance files independently. Generate them together
 with `distribution/cmd/provenance`.
 
+## The cut, start to finish (#1672)
+
+This is the order a release is cut in from 0.8.2 on. Sections 1 to 5 below
+describe each piece in depth; this is the sequence and the time each step is
+allowed. The one rule behind all of it: **any tracked change other than
+`provenance/local-gate.*` and `release-attest/e2e.json(.sig)` moves the gate tree**
+(`scripts/release/gate-tree.sh`), and a moved tree voids every signed shard and
+every e2e stamp. So nothing merges between the freeze and the release PR, and
+`bash scripts/release/record-local-gate.sh --status` is how you see what is
+still valid for `HEAD` (read-only, it changes nothing).
+
+### The day before
+
+1. Rehearse on `main`: `bash scripts/release/record-local-gate.sh --shards --rehearse`.
+   Same placement and runner as a record, no key, results kept apart and never
+   reusable as a record. Every deterministic red shows up here instead of one per
+   serial run during the cut. Fix each one on `main` with a red test first.
+2. Soak the browser slices: `bash scripts/e2e/ui-soak.sh` (three runs under a
+   throttled fence, a per-spec failure table). A spec that fails once here is fixed
+   before the freeze, not retried during it.
+3. Run `bash scripts/release/precut.sh` on `main`. It asks, in a few minutes,
+   what the hosted run has refused on before (parity, compliance drift, the
+   packaging suite, the EPIC closing checks, the manifest commit, the CHANGELOG
+   section). Red means a fix on `main` today, not during the freeze.
+
+### Freeze to release PR
+
+| Step | Command | Budget |
+|---|---|---|
+| Freeze | Announce it on the release issue. Nothing merges to `main` until the release PR is merged. Note `git rev-parse origin/main` and `bash scripts/release/gate-tree.sh origin/main` on the issue. | |
+| precut | `bash scripts/release/precut.sh` | 10 min |
+| preflight | `bash scripts/release/record-local-gate.sh --preflight` (key, docker, platform, Node, hosts, load, disk, gh, lock; each refusal prints its fix) | 5 min |
+| Key, once | The owner, at the keyboard: `ssh-add -t 12h ~/.ssh/retnd-release-attest` | |
+| Three at once | (a) `bash scripts/release/record-local-gate.sh --shards`, (b) `RELEASE_E2E_HOST=<mars or nas, whichever the gate uses least> bash scripts/release-e2e.sh`, (c) `gh workflow run release.yml --ref main -f publish=false -f confirm=""` | record 60 min, e2e about 30 min, dry run under 30 min |
+| Record PR | `bash scripts/release/record-local-gate.sh --open-pr --issue <N>` (three files on one branch, a body with the shard table; it never merges). Review, then merge with a merge commit. | 15 min |
+| release.sh | `bash scripts/release.sh <version> --issue <N> --dry-run`, then without `--dry-run`. It runs `precut.sh` and `PUBLISH=true verify-local-gate.sh` first, and reuses the green stamp from (b) instead of running the e2e again. | 10 min |
+
+The record PR does not move the gate tree (its three files are left out of it),
+so the stamp from (b) and the dry run from (c) both still describe the tree
+`release.sh` cuts. A stamp older than 24 hours is not reused; `release.sh` then
+runs the e2e itself.
+
+### Release PR to published
+
+1. Verify by hand against `origin/release-prep/v<version>`: `bash scripts/release-e2e/attest.sh verify --commit origin/release-prep/v<version> --expect-version <version>`, `PUBLISH=true bash scripts/release/verify-local-gate.sh origin/release-prep/v<version>`, and `git ls-remote --tags origin v<version>` is empty.
+2. The owner merges the release PR into `release` with a merge commit. That is the point of no return.
+3. Watch `release.yml` to `github-release` (section 4). Budget 45 minutes, most of it the macOS runner queue.
+4. Verify the public release (section 5), then close the release issue with the run URL.
+
+Go to published fits in two hours (#1451) once the rehearsal was green: 10
+minutes of precut and preflight, 60 for the record with the e2e and the dry run
+beside it, 25 for the record PR and `release.sh`, 45 for the publish run. Write
+the measured time of each step on the release issue, so the next cut is checked
+against these numbers.
+
+### When something goes red
+
+| What happened | What it means | The one command that resumes |
+|---|---|---|
+| `precut.sh` is red | the hosted run would refuse this tree | fix on `main` through a PR (red test first), then `bash scripts/release/precut.sh` again |
+| `--preflight` refuses | setup, not the product | do what the refusal prints, then `bash scripts/release/record-local-gate.sh --preflight` |
+| The key dropped mid-run | a passed shard or the aggregate waits for it | `ssh-add -t 12h ~/.ssh/retnd-release-attest`; the recorder signs in the same process |
+| A shard ends INCOMPLETE because a host went away | nothing about the tree | `bash scripts/release/record-local-gate.sh --shards -- --drain <host>`; signed shards are reused |
+| A test fails once, then passes on the automatic retry | a flake, visible in `attempts.json` | nothing; name it in the record PR and fix it on `main` after the release |
+| The same test fails twice, or a guard, lint or golden is red | a real failure | no retry loop: reproduce it alone, red test, fix on `main`, then re-record everything (`--status` shows every shard stale) |
+| Something merged during the freeze | the gate tree moved | `bash scripts/release/record-local-gate.sh --status` names the new tree; re-record, and run `scripts/release-e2e.sh` again (stamps are per tree) |
+| `scripts/release-e2e.sh` is red | a real e2e failure | no rerun loop: reproduce, fix on `main`, which moves the tree |
+| The hosted dry run is red | the same as a precut red, found later | fix on `main`, which moves the tree; add the case to `precut.sh` if it did not catch it |
+| `release.sh` says the local gate record does not cover the tree | something landed after the record | `--status`, then re-record on the new tip |
+| Publish pushed but signing failed | an incident | stop; never rebuild the same tag (section 4) |
+
 ## 1. Prepare the candidate on `main`
 
 Start from a full, clean checkout. The hash recorder and parity checks need
@@ -128,7 +199,9 @@ source tree whose binaries it records. After the preparation pull request
 merges, work from the resulting `main` tip.
 
 Last, on that `main` tip, record the gate run the release will be checked
-against:
+against. The sharded route in "The cut, start to finish" above is the one to use
+(`--preflight`, then `--shards`, then `--open-pr`); the serial run below still
+works and records the same thing, only slower:
 
 ```bash
 git switch main
@@ -165,7 +238,9 @@ tip rather than override.
 
 ## 2. Run the hosted dry run
 
-Dispatch the Release workflow against `main` without publishing:
+Start it at the freeze, beside the recorder and the release e2e, not after them:
+it checks the same tree, and the record PR does not move that tree. Dispatch the
+Release workflow against `main` without publishing:
 
 ```bash
 gh workflow run release.yml --ref main \
