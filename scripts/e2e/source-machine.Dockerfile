@@ -15,5 +15,15 @@
 # --privileged. netcat is what lets that cap be probed from a second machine
 # on the same network, which is how the harness proves the rule bites before
 # a test is allowed to trust it.
+#
+# The keepalives are #455. A host process reaches this machine through a
+# published port, and Docker Desktop's forwarder now and then drops the
+# client's close, so sshd kept an ESTABLISHED row for a client that was long
+# gone: a leak in the connection-count tests and a used slot under the
+# connlimit cap. With a keepalive every second sshd writes to an idle peer,
+# a forwarder that lost the close fails that write and takes the leg down,
+# and a peer that answers nothing at all is dropped after three misses. A
+# live client answers each one, so a real leak still holds its row.
 FROM atmoz/sftp:alpine
-RUN apk add --no-cache iptables netcat-openbsd
+RUN apk add --no-cache iptables netcat-openbsd \
+ && printf '\nClientAliveInterval 1\nClientAliveCountMax 3\n' >> /etc/ssh/sshd_config
