@@ -2927,12 +2927,21 @@ assert_contains "Y10 the start line says the check is off" "the no-progress chec
 # Y11: the cap reads the longest of the last three records, not the last one
 # (records 100, 2, 2 and a 3s floor: an 8s step must not be cut at 3s), and
 # the file keeps three per step.
+#
+# Not the retirement step the other Y cases use: that one is the last step of
+# its shard, and a shard's last step only gets its record at gate_summary, so
+# its number carries the end-of-run tail as well. In a --network none
+# container that tail made an 8s step read 22s. The retention step of
+# selftest-assurance has the discovery step after it, so its record is
+# written the moment that one starts and holds the step and nothing else.
+Y11_HEADING='the retention-apply evidence can actually fail (mutation self-test, #602)'
 tree="$(y_tree)"
-printf '100\t%s\n2\t%s\n2\t%s\n' "$Y_HEADING" "$Y_HEADING" "$Y_HEADING" | y_plant "$tree"
-y_step "$tree" 'for i in 1 2 3 4 5 6 7 8; do echo "chatty $i"; sleep 1; done'
-y_run "$tree" RETND_GATE_STALL_MIN=0 RETND_GATE_STEP_CAP_FLOOR_MIN=0.05 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host
+printf '100\t%s\n2\t%s\n2\t%s\n' "$Y11_HEADING" "$Y11_HEADING" "$Y11_HEADING" | y_plant "$tree"
+printf '#!/usr/bin/env bash\n%s\n' 'for i in 1 2 3 4 5 6 7 8; do echo "chatty $i"; sleep 1; done' >"$tree/scripts/retention/selftest.sh"
+y_run_on "$tree" selftest-assurance RETND_GATE_STALL_MIN=0 RETND_GATE_STEP_CAP_FLOOR_MIN=0.05 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host
+assert_contains "Y11 the planted step is not the shard's last (another step starts after it)" "==> the discovery readability probe can actually fail (mutation self-test, #1541)" "$out"
 assert_not_contains "Y11 the cap is 1.5 times the longest recent record" "FAILED (STALLED" "$out"
-assert_eq "Y11 three records kept per step, the oldest dropped" "2 2 8" "$(awk -F '\t' -v h="$Y_HEADING" '$2 == h { printf "%s%s", sep, ($1 >= 7 && $1 <= 12 ? 8 : $1); sep = " " }' "$tree/.git/ci-local-step-durations.fixture-host")"
+assert_eq "Y11 three records kept per step, the oldest dropped" "2 2 8" "$(awk -F '\t' -v h="$Y11_HEADING" '$2 == h { printf "%s%s", sep, ($1 >= 7 && $1 <= 12 ? 8 : $1); sep = " " }' "$tree/.git/ci-local-step-durations.fixture-host")"
 
 # Y12: a step that ended early and let the run carry on (the e2e lane exiting
 # 3 is ledgered) is not recorded: it would cap the next healthy run short.
