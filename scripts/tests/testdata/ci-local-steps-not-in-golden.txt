@@ -1,0 +1,17 @@
+# Steps of scripts/ci-local.sh that a serial run of the gate self-test's full
+# fixture does not print, so they have no line in ci-local-serial-steps.txt
+# (#1642). One per line: the step title exactly as it is quoted in
+# ci-local.sh, a TAB, and why it is not in the golden. An entry whose step is
+# gone, or that the golden now has, is refused as stale, so this list can only
+# shrink. See scripts/tests/serial-steps-golden.test.sh.
+mutation anchors in the compat, conformance and race selftests still match the tree (#458)	runs only when scripts/selftest/check-anchors.sh exists, and the fixture tree does not carry it
+core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)	CI_LOCAL_FAST=1 only, and the golden is a full run
+apps/generic go build, vet, test -race	runs only when apps/generic/go.mod exists, and the fixture has no such module
+apps/generic golangci-lint	runs only when apps/generic/go.mod exists, and the fixture has no such module
+apps/synology go build, vet, test -race	runs only when apps/synology/go.mod exists, and the fixture has no such module
+apps/synology golangci-lint	runs only when apps/synology/go.mod exists, and the fixture has no such module
+apps/ugos/backend go build, vet, test -race	runs only when apps/ugos/backend/go.mod exists, and the fixture has no such module
+apps/ugos/backend golangci-lint	runs only when apps/ugos/backend/go.mod exists, and the fixture has no such module
+apps/ugos/backend cross-compile linux/amd64	runs only when apps/ugos/backend/go.mod exists, and the fixture has no such module
+apps/ugos/frontend/upk-proof typecheck, build	runs only when that workspace is installed, and the fixture has none
+core/tests/compat: every BLOCKED conformance row cites an issue that is still open (#1331, TestEveryBlockedRowCitesAnIssueThatIsStillOpen)	the gh-rows shard only (#1457); a serial run covers it inside core's go test
