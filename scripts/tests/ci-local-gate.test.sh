@@ -422,6 +422,8 @@ make_full_tree() {
   # It imports the real agents and encryption self-tests (#1543).
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-linux-skips.test.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-lanes.test.sh"
+  # Reads the real drivers under scripts/bdtools, which a synthetic tree has not (#1672).
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/gate-step-limits.test.sh"
   # The self-tests of the gate's own machinery (#1533): the shard runner, the
   # --shard i/n split of the self-tests, and the release e2e hooks. Each makes
   # its own throwaway repositories and stand-in commands.
