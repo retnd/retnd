@@ -381,7 +381,14 @@ Order, stopping at the first failure:
    fetch); `## [<version>]` exists in `CHANGELOG.md`; the signing key
    `~/.ssh/retnd-release-attest` exists (only the path is checked, the key is never
    read or printed) and `provenance/allowed_signers` has the key line for principal
-   `retnd-release` and namespace `retnd-e2e-attest`.
+   `retnd-release` and namespace `retnd-e2e-attest`. Then, still before anything is
+   written, two fail-fast checks (#1672): `scripts/release/precut.sh --version <version>`
+   (what the hosted run has refused on before: parity, compliance drift, the packaging
+   suite, the EPIC closing checks, the manifest commit and the CHANGELOG section) and
+   `PUBLISH=true scripts/release/verify-local-gate.sh HEAD` (the signed gate record
+   covers the tree being released). With a bump commit that tree only exists after
+   step 2, so there the record is checked right after the bump, still before the e2e.
+   `--dry-run` runs both, so it takes a few minutes (precut's parity build).
 2. Branch `release-prep/v<version>` and one commit `Release v<version>` from
    `scripts/release/bump-version.sh`, before the e2e. **Prepared on main:** when
    `canonical.json` already says `<version>` (unpublished) and `CHANGELOG.md` has its
@@ -396,7 +403,13 @@ Order, stopping at the first failure:
    prints the lines still naming the old version. It leaves `CHANGELOG.md`,
    `container/release-manifest.json`, `digests.txt`, `provenance/*` and lockfiles
    alone on purpose.
-3. The full e2e (`scripts/release-e2e.sh`, see `release-branch.md`), writing the stamp. retnd-tests is a public repository, so the e2e clones it with no token; do not export or
+3. The full e2e (`scripts/release-e2e.sh`, see `release-branch.md`), writing the stamp.
+   It is skipped, and the stamp reused, when a green stamp already exists for exactly
+   the release tree: the default command, a real host, the current gate files, the
+   real stamp directory (never `release-e2e-TEST-ONLY/`), and under 24 hours old
+   (`STAMP_MAX_AGE_H` in `scripts/release.sh`). The script says which it did and,
+   when it runs the e2e, why no stamp was reusable. That is what lets the e2e run at
+   the freeze, beside the gate, instead of after it. retnd-tests is a public repository, so the e2e clones it with no token; do not export or
    configure one for it.
 4. `scripts/release-e2e/attest.sh sign` and then `verify --expect-version`. The
    attestation (`release-attest/e2e.json` and `.sig`, an `ssh-keygen -Y` signature in the
