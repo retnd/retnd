@@ -667,8 +667,22 @@ func TestTheSourceDropsAConnectionWhoseCloseAForwarderSwallowed(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if clients, stacks := sshClientGoroutines(); clients != 0 {
-		t.Fatalf("List returned and this process still runs %d SSH client goroutine(s); that is a client-side leak, not the forwarder case this test builds:\n%s", clients, stacks)
+	// List returning does not mean the client's mux.loop has returned yet:
+	// it exits once the transport read fails after the close, and under
+	// -race on a loaded host that can land a little after List does. Two of
+	// 25 runs caught it mid-teardown and blamed the client. So give it up to
+	// 2s to finish closing; a client that is still running after that really
+	// is a leak on this side, and the forwarder case below is not what failed.
+	clientDeadline := time.Now().Add(2 * time.Second)
+	for {
+		clients, stacks := sshClientGoroutines()
+		if clients == 0 {
+			break
+		}
+		if time.Now().After(clientDeadline) {
+			t.Fatalf("List returned and this process still runs %d SSH client goroutine(s) 2s later; that is a client-side leak, not the forwarder case this test builds:\n%s", clients, stacks)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if got := src.EstablishedConnections(t); got < 1 {
 		t.Fatalf("the server lists %d connection(s) while the relay is holding one open for it; the probe cannot see the ghost, so the drain below would prove nothing", got)
