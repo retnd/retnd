@@ -60,6 +60,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 SHARD_SCHEMA = "retnd.local-gate.shard/1"
+REHEARSAL_SCHEMA = "retnd.local-gate.rehearsal/1"
 AGG_SCHEMA = "retnd.local-gate/2"
 NAMESPACE = "retnd-local-gate"
 PRINCIPAL = "retnd-release"
@@ -488,12 +489,14 @@ def valid_shard(d: Path, shard: str, args: argparse.Namespace, signers: Path) ->
     rec_path, log_path = d / f"{shard}.json", d / f"{shard}.log"
     if not rec_path.is_file() or not log_path.is_file():
         return "no record"
-    if not verify_sig(rec_path, signers):
-        return "its signature does not verify"
     try:
         rec = json.loads(rec_path.read_text(encoding="utf-8"))
     except ValueError:
         return "its record is not JSON"
+    if isinstance(rec, dict) and rec.get("schema") == REHEARSAL_SCHEMA:
+        return "it is a rehearsal result, which is never a record"
+    if not verify_sig(rec_path, signers):
+        return "its signature does not verify"
     want = {"schema": SHARD_SCHEMA, "shard": shard, "result": "ok", "gate_tree": args.gate_tree,
             "manifest_sha256": args.manifest_sha}
     for key, value in want.items():
@@ -602,6 +605,17 @@ def work(shard: str, host: str, info: Host | None, args: argparse.Namespace, sig
               f"(exit {attempt['exit']}) in {attempt['duration_s']}s")
         if outcome != "failed":
             break
+    if args.rehearse:
+        log_path = d / f"{shard}.log"
+        rehearsal = {
+            "schema": REHEARSAL_SCHEMA, "shard": shard, "gate_tree": args.gate_tree, "head": args.head,
+            "manifest_sha256": args.manifest_sha, "result": outcome, "host": attempts[-1]["host"],
+            "duration_s": attempts[-1]["duration_s"], "attempts": attempts,
+            "log_sha256": sha256(log_path.read_bytes()) if outcome == "ok" else "",
+            "note": "A rehearsal (gate_shards.py run --rehearse): unsigned, and never reusable as a record.",
+        }
+        (d / f"{shard}.json").write_text(json.dumps(rehearsal, indent=2) + "\n", encoding="utf-8")
+        return shard, outcome
     if outcome != "ok":
         return shard, outcome
     log = (d / f"{shard}.log").read_bytes()
@@ -703,6 +717,19 @@ def schedule(
     return results
 
 
+def rehearsal_summary(d: Path, names: list[str], results: dict[str, str], args: argparse.Namespace) -> int:
+    print(f"local-gate: rehearsal of gate tree {args.gate_tree}, results in {d}")
+    for name in (n for n in names if n in results):
+        rec = json.loads((d / f"{name}.json").read_text(encoding="utf-8")) if (d / f"{name}.json").is_file() else {}
+        print(f"    {name:<22} {results[name]:<11} on {rec.get('host', '?'):<6} {rec.get('duration_s', '?')}s")
+    counts = {o: sum(1 for r in results.values() if r == o) for o in ("ok", "failed", "broken", "incomplete")}
+    print(f"local-gate: REHEARSAL on {args.gate_tree[:12]}, not a record: {counts['ok']} ok, "
+          f"{counts['failed'] + counts['broken']} failed, {counts['incomplete']} incomplete. Nothing was signed.")
+    if counts["failed"] or counts["broken"]:
+        return 1
+    return 3 if counts["incomplete"] else 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     names = parse_manifest(Path(args.manifest).read_text(encoding="utf-8"))
     if args.only and args.only not in names:
@@ -712,18 +739,29 @@ def cmd_run(args: argparse.Namespace) -> int:
     table = load_table(args, names)
     plan = placement(table, names, args) if table else {n: [args.host] if args.host else [] for n in names}
     d = Path(args.dir)
+    if args.rehearse:
+        # Beside the shards, never in them: <git dir>/local-gate/rehearsal/<tree>.
+        if d.parent.name != "shards" or d.name != args.gate_tree:
+            raise Refused(f"--rehearse needs --dir <git dir>/local-gate/shards/<tree> to find the rehearsal dir "
+                          f"beside it, and {d} is not that")
+        d = d.parent.parent / "rehearsal" / args.gate_tree
+        args.dir = str(d)
+    elif not args.key:
+        raise Refused("--key is needed to sign the shards (only --rehearse runs without one)")
     d.mkdir(parents=True, exist_ok=True)
     signers = Path(args.signers)
     todo: list[str] = []
     for name in names:
         if args.only and name != args.only:
             continue
-        why = "forced" if (args.force or args.only) else valid_shard(d, name, args, signers)
+        why = "forced" if (args.force or args.only or args.rehearse) else valid_shard(d, name, args, signers)
         if why is None:
             print(f"local-gate: shard {name}: signed and ok for this tree, reused")
         else:
             todo.append(name)
     results = schedule(todo, plan, table, args, signers)
+    if args.rehearse:
+        return rehearsal_summary(d, names, results, args)
     bad = {s: o for s, o in results.items() if o != "ok"}
     if bad:
         for shard, outcome in bad.items():
@@ -876,6 +914,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--retry-once", action="store_true")
+    ap.add_argument("--rehearse", action="store_true")
     ap.add_argument("--jobs", type=int, default=0)
     ap.add_argument("--out", default="provenance")
     ap.add_argument("--env-json", default="{}")
