@@ -2967,6 +2967,22 @@ y_run "$tree" "${Y_KNOBS[@]}" RETND_GATE_STEP_CAP_FLOOR_MIN=0.05
 assert_not_contains "Y14 the floor is two of the step's stall windows when that is more" "FAILED (STALLED" "$out"
 assert_eq "Y14 and the shard ends ok" 0 "$status"
 
+# Y17: a Python driver that prints as it goes is not silent to the watchdog
+# (#1672). Python buffers stdout in blocks when it is not a terminal, and the
+# gate's output is a pipe or a file, so a self-test's per-control lines used to
+# reach the log 8 KiB at a time, or only when the step was killed: a
+# selftest-recovery rehearsal on MARS was ledgered STALLED after 901s with
+# thirteen finished controls still in the buffer. Nothing in this suite's own
+# environment may make that pass by accident.
+unset PYTHONUNBUFFERED
+tree="$(y_tree)"
+y_step "$tree" 'python3 -c "import time
+for i in range(12): print(\"python chatty\", i); time.sleep(1)"'
+y_run "$tree" "${Y_KNOBS[@]}"
+assert_not_contains "Y17 a Python step that keeps printing is not STALLED" "FAILED (STALLED" "$out"
+assert_contains "Y17 its lines reached the log as it went" "python chatty 11" "$out"
+assert_eq "Y17 and the shard ends ok" 0 "$status"
+
 # Y15: every Docker step that ran with no daemon stays off the record, not
 # only the first: the ledger takes the Docker skip once per run, and every
 # later Docker step's suites t.Skip and end early just the same.
