@@ -2706,13 +2706,15 @@ assert_eq "V5 the verdict is still the last line" '==> ci-local: ok' "$(printf '
 
 echo "==> Y. the stall watchdog"
 
-# Every case runs the real gate on the selftest-recovery shard, whose one step
-# is scripts/recovery/selftest.sh, and replaces that stub with the behaviour
-# under test. The limits are fractions of a minute so a case takes seconds:
+# Every case runs the real gate on the selftest-recovery shard and replaces
+# the stub of its second step, scripts/retire/selftest.sh, with the behaviour
+# under test. Not the first step: the recovery self-test carries its own
+# --stall-min (#1672), which wins over the knobs below, and these cases are
+# about the default window. The limits are fractions of a minute so a case takes seconds:
 # 0.1 is a 6s no-progress window. The docker stand-in logs every call and
 # answers the watchdog's label query with one container, so "its containers
 # were stopped" is a call this suite can read back.
-Y_HEADING='the recovery guards can actually fail (mutation self-test, #976)'
+Y_HEADING='the retirement guards can actually fail (mutation self-test, #1528)'
 Y_KNOBS=(RETND_GATE_STALL_MIN=0.1 GATE_STALL_POLL=0.5 GATE_STALL_GRACE=2 RETND_GATE_HOST_ID=fixture-host)
 
 y_tree() { # -> a full tree with a logging docker and a private TMPDIR
@@ -2735,7 +2737,7 @@ DOCKER
 }
 
 y_step() { # <tree> <body of the step>
-  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$1/scripts/recovery/selftest.sh"
+  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$1/scripts/retire/selftest.sh"
 }
 
 # The dockerlease owner of a tree, computed the way core/tests/dockerlease does.
