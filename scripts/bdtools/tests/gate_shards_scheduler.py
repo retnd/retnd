@@ -146,10 +146,12 @@ class Fixture:
     def touch(self, name: str, text: str = "") -> None:
         (self.stub / name).write_text(text)
 
-    def run(self, manifest: Path, *extra: str, env: dict[str, str] | None = None) -> tuple[str, int]:
-        argv = [sys.executable, str(GATE_SHARDS), "run", "--manifest", str(manifest), "--manifest-sha", "m1",
+    def run(self, manifest: Path, *extra: str, env: dict[str, str] | None = None, command: str = "run",
+            key: bool = True) -> tuple[str, int]:
+        argv = [sys.executable, str(GATE_SHARDS), command, "--manifest", str(manifest), "--manifest-sha", "m1",
                 "--dir", str(self.shards), "--gate-tree", "tree1", "--head", "h1", "--worktree", str(self.worktree),
-                "--signers", str(self.signers), "--runner", str(self.runner), "--key", str(self.key), *extra]
+                "--signers", str(self.signers), "--runner", str(self.runner),
+                *(["--key", str(self.key)] if key else []), *extra]
         full = dict(os.environ, STUB_DIR=str(self.stub), **(env or {}))
         full["PATH"] = f"{self.stand_ins()}:{full.get('PATH', '')}"
         return testkit.run(argv, env=full, timeout=300)
@@ -595,6 +597,76 @@ def retry_cases(s: testkit.Suite, root: Path) -> None:
             "C9 no flag", f"rc={rc}\n{out}")
 
 
+def rehearsal_cases(s: testkit.Suite, root: Path) -> None:
+    f = Fixture(root, "rehearse")
+    m = f.manifest(["static", "core-a"])
+    f.table(HOSTS_4 + "shard static light mars est_min=1\nshard core-a light nas est_min=2\n", m)
+    rdir = f.root / "local-gate" / "rehearsal" / "tree1"
+    out, rc = f.run(m, "--rehearse", key=False)
+    recs = {p.name: json.loads(p.read_text()) for p in rdir.glob("*.json") if not p.name.endswith(".attempts.json")}
+    s.check(rc == 0 and sorted(recs) == ["core-a.json", "static.json"]
+            and all(r.get("schema") == "retnd.local-gate.rehearsal/1" and r.get("result") == "ok"
+                    for r in recs.values()),
+            "H1 run --rehearse runs every shard with no key and writes retnd.local-gate.rehearsal/1 results under "
+            "local-gate/rehearsal/<tree>/", "H1 rehearsal results", f"rc={rc} {sorted(recs)}\n{out}")
+    s.check(not list(f.root.rglob("*.sig")) and not list(f.shards.iterdir()),
+            "H2 a rehearsal signs nothing and leaves the shards dir alone", "H2 nothing signed",
+            f"{list(f.root.rglob('*.sig'))} {list(f.shards.iterdir())}")
+    last = (out.strip().splitlines() or [""])[-1]
+    s.check("REHEARSAL" in last and "not a record" in last, "H3 its last line says it is a rehearsal, not a record",
+            "H3 last line", out)
+
+    f.mode("core-a", "fail")
+    out, rc = f.run(m, "--rehearse", key=False)
+    rec = json.loads((rdir / "core-a.json").read_text()) if (rdir / "core-a.json").is_file() else {}
+    s.check(rc == 1 and rec.get("result") == "failed" and bool(rec.get("attempts")),
+            "H4 a red shard in a rehearsal is written down as failed, with its attempts, and the exit is 1",
+            "H4 failed rehearsal", f"rc={rc} {rec}\n{out}")
+
+    g = Fixture(root, "planted")
+    m2 = g.manifest(["static"])
+    g.table(HOSTS_4 + "shard static light mars est_min=1\n", m2)
+    out, rc = g.run(m2, "--rehearse", key=False)
+    grdir = g.root / "local-gate" / "rehearsal" / "tree1"
+    planted_ok = rc == 0 and (grdir / "static.json").is_file()
+    if planted_ok:
+        for name in ("static.json", "static.log"):
+            shutil.copy(grdir / name, g.shards / name)
+        subprocess.run(["ssh-keygen", "-Y", "sign", "-q", "-n", "retnd-local-gate", "-f", str(g.key),
+                        str(g.shards / "static.json")], check=True, capture_output=True)
+    before = len(g.calls())
+    out, rc = g.run(m2)
+    s.check(planted_ok and rc == 0 and len(g.calls()) > before and "reused" not in out,
+            "H5 a rehearsal result planted in the shards dir, even signed, is never reused as a record",
+            "H5 planted rehearsal reused", f"rc={rc} calls={g.calls()}\n{out}")
+    if planted_ok:
+        for name in ("static.json", "static.log"):
+            shutil.copy(grdir / name, g.shards / name)
+        subprocess.run(["ssh-keygen", "-Y", "sign", "-q", "-n", "retnd-local-gate", "-f", str(g.key),
+                        str(g.shards / "static.json")], check=True, capture_output=True)
+    out, rc = g.run(m2, "--out", str(g.root / "prov"), command="aggregate")
+    s.check(rc != 0 and "rehearsal" in out and not (g.root / "prov" / "local-gate.json").exists(),
+            "H6 aggregate refuses a rehearsal result, naming it", "H6 aggregate", f"rc={rc}\n{out}")
+
+    h = Fixture(root, "signed-then-rehearse")
+    m3 = h.manifest(["static"])
+    h.table(HOSTS_4 + "shard static light mars est_min=1\n", m3)
+    h.run(m3)
+    before = len(h.calls())
+    out, rc = h.run(m3, "--rehearse", key=False)
+    s.check(rc == 0 and len(h.calls()) > before, "H7 a rehearsal runs a shard even when it is signed for the tree",
+            "H7 rehearsal ignores signed shards", f"rc={rc}\n{out}")
+
+    bad = Fixture(root, "odd-dir")
+    m4 = bad.manifest(["static"])
+    bad.table(HOSTS_4 + "shard static light mars est_min=1\n", m4)
+    bad.shards = bad.root / "elsewhere"
+    bad.shards.mkdir()
+    out, rc = bad.run(m4, "--rehearse", key=False)
+    s.check(rc == 2 and not bad.calls(), "H8 --rehearse refuses a --dir that is not <git dir>/local-gate/shards/<tree>",
+            "H8 odd dir", f"rc={rc}\n{out}")
+
+
 def main() -> int:
     s = testkit.Suite("gate-shards scheduler")
     if shutil.which("ssh-keygen") is None:
@@ -610,6 +682,7 @@ def main() -> int:
         wait_cases(s, root)
         probe_cases(s, root)
         retry_cases(s, root)
+        rehearsal_cases(s, root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
     return s.finish()
