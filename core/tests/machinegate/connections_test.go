@@ -36,12 +36,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -523,4 +526,156 @@ func TestSFTPConnectionsAreReleasedAndBounded(t *testing.T) {
 			})
 		}
 	})
+}
+
+// A relay that swallows the client's close, which is what Docker Desktop's
+// port forwarder does on a bad day (#455).
+//
+// Every drain failure the 0.8.1 cut met on the Mac read the same way: no SSH
+// client goroutine left in this process, lsof showing nothing of ours on the
+// published port, and the container still listing one ESTABLISHED row whose
+// peer is the forwarder. In one structure shard the same peer port outlived
+// two subtests, so it was not a slow drain: the close never reached sshd.
+// The adapter had let go; the machine never heard about it.
+//
+// That is rare and timing-dependent through the real forwarder, and it is
+// the whole of the defect, so this relay does it every time. It forwards
+// both ways like startRelay, except that when the client hangs up it tells
+// the server nothing. It only takes the server's leg down when something the
+// server sends can no longer be delivered, which is the one signal a
+// forwarder that lost the close still acts on.
+type swallowingRelay struct {
+	addr string
+
+	mu    sync.Mutex
+	conns map[*relayedConn]struct{}
+}
+
+type relayedConn struct {
+	down, up   net.Conn
+	clientGone bool // the client hung up, and the relay told the server nothing
+	serverGone bool // the server's leg is closed
+}
+
+// orphans is how many server legs the relay is still holding for a client
+// that has already gone: the forwarder ghost, counted from the relay's side.
+func (r *swallowingRelay) orphans() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for c := range r.conns {
+		if c.clientGone && !c.serverGone {
+			n++
+		}
+	}
+	return n
+}
+
+func startCloseSwallowingRelay(t *testing.T, upstream string) *swallowingRelay {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("relay listen: %v", err)
+	}
+	r := &swallowingRelay{addr: ln.Addr().String(), conns: map[*relayedConn]struct{}{}}
+	var wg sync.WaitGroup
+	t.Cleanup(func() {
+		_ = ln.Close()
+		r.mu.Lock()
+		for c := range r.conns {
+			_ = c.down.Close()
+			_ = c.up.Close()
+		}
+		r.mu.Unlock()
+		wg.Wait()
+	})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			down, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			up, dialErr := net.Dial("tcp", upstream)
+			if dialErr != nil {
+				_ = down.Close()
+				continue
+			}
+			c := &relayedConn{down: down, up: up}
+			r.mu.Lock()
+			r.conns[c] = struct{}{}
+			r.mu.Unlock()
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				_, _ = io.Copy(up, down)
+				r.mu.Lock()
+				c.clientGone = true
+				r.mu.Unlock()
+			}()
+			go func() {
+				defer wg.Done()
+				_, _ = io.Copy(down, up)
+				_ = up.Close()
+				_ = down.Close()
+				r.mu.Lock()
+				c.serverGone = true
+				r.mu.Unlock()
+			}()
+		}
+	}()
+	return r
+}
+
+// TestTheSourceDropsAConnectionWhoseCloseAForwarderSwallowed is the fixture
+// half of #455. requireNoConnections reads the server's table through
+// whatever forwards the published port, so a machine that only learns about
+// a closed connection from a FIN that a forwarder may drop will, now and
+// then, report a leak this process does not have. The machine has to find a
+// dead peer by itself, inside the drain budget, the way a VPS with
+// keepalives on does.
+func TestTheSourceDropsAConnectionWhoseCloseAForwarderSwallowed(t *testing.T) {
+	src := machines.Start(t).Source(t)
+	writeUploadFile(t, src, "behind-the-forwarder.txt", []byte("swallowed"))
+
+	relay := startCloseSwallowingRelay(t, src.Addr())
+	host, portText, err := net.SplitHostPort(relay.addr)
+	if err != nil {
+		t.Fatalf("splitting the relay address %q: %v", relay.addr, err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("reading the relay port out of %q: %v", relay.addr, err)
+	}
+	through := src.TransportSource("forwarded", "")
+	through.Host = host
+	through.Port = port
+	through.KnownHosts = src.KnownHostsFor(t, host, port)
+
+	if _, err := rclone.New().List(context.Background(), through); err != nil {
+		t.Fatalf("List through the relay: %v", err)
+	}
+
+	// Positive control: the ghost really exists. The client is gone from
+	// this process and the relay is still holding its server leg open, so a
+	// clean table below is the machine's doing and not the relay giving up.
+	deadline := time.Now().Add(2 * time.Second)
+	for relay.orphans() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the relay holds no server leg for a client that hung up, so this run never built the swallowed close the test is about")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if clients, stacks := sshClientGoroutines(); clients != 0 {
+		t.Fatalf("List returned and this process still runs %d SSH client goroutine(s); that is a client-side leak, not the forwarder case this test builds:\n%s", clients, stacks)
+	}
+	if got := src.EstablishedConnections(t); got < 1 {
+		t.Fatalf("the server lists %d connection(s) while the relay is holding one open for it; the probe cannot see the ghost, so the drain below would prove nothing", got)
+	}
+
+	requireNoConnections(t, src, "a List whose close the forwarder swallowed")
+	if n := relay.orphans(); n != 0 {
+		t.Fatalf("the server's table is empty but the relay still holds %d server leg(s); something other than the machine cleared the row", n)
+	}
 }
