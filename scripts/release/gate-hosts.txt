@@ -1,0 +1,68 @@
+# Where each gate shard runs (#1497, #1672 P1.3), read by
+# scripts/bdtools/release/gate_shards.py. scripts/release/run-gate-shard.sh
+# still does the running, and keeps its own refusals (mercury, the ui-browser
+# opt-in on the Mac, the 9g fence for selftest-encryption).
+#
+# Two kinds of line, whitespace-separated. `#` starts a comment.
+#
+#   host  <name> <ssh target, or - for this machine>
+#   shard <name, or a prefix ending in *> <light|exclusive> <host,host,...> est_min=<n>
+#
+# A shard line's hosts are the hosts it may run on, in the order it prefers
+# them. A host that is not on its line is never used for it, so a shard that
+# should stay off a host leaves it out instead of putting it last. est_min is
+# the shard's usual wall time in minutes, from the recorded runs; it only
+# orders the work (longest first), it is never a limit.
+#
+# `exclusive` marks the shards whose suites publish containers on the daemon's
+# loopback and load it hard: core/tests/machines, dockerlease and machinegate
+# (the core suite, which core-kopia, core-rest, core-docker and structure all
+# run a part of), apps/generic/tests/dockercli and the apps/common container
+# tests (apps), the e2e gate and the two-machine proof. At most one of them
+# runs on a host at a time.
+#
+# Every shard in gate-shards.txt matches exactly one line here (an exact name
+# beats a prefix), every line matches at least one shard, and mercury is
+# refused: gate work stays off it.
+#
+# The command line wins over this file, so losing a host never needs a commit:
+#   --host <h>                  every shard on <h> (what the recorder always did)
+#   --place <shard>=<h>[,<h>]   one shard's hosts
+#   --hosts <h>[,<h>]           only these hosts, for every shard not --place'd
+#   --drain <h>                 never this host (repeatable), --place included
+# `gate_shards.py place --manifest <file>` prints the placement it would use.
+
+host mars devshell@192.168.0.100
+host nas  rom@192.168.0.10
+host mac  -
+
+# The Docker-heavy shards stay off the Mac: the SFTP connection-count flake
+# and the buildx "layer does not exist" fault only show under Docker Desktop.
+# --place <shard>=mac still puts one there when MARS and the NAS are gone.
+shard core-kopia            exclusive  mars,nas      est_min=7
+shard core-rest             exclusive  mars,nas      est_min=18
+shard core-docker           exclusive  mars,nas      est_min=2
+shard apps                  exclusive  mars,nas      est_min=7
+shard e2e                   exclusive  mars,nas      est_min=13
+shard two-machine           exclusive  mars,nas      est_min=9
+shard structure             exclusive  mars,nas      est_min=13
+
+# js signed on MARS twice; its container runs its own npm ci.
+shard js                    light      mars,nas,mac  est_min=30
+# The browser specs, and every slice of them once they are split (#1672 P1.1).
+# The Mac takes them only with RETND_UI_BROWSER_ALLOW_LOCAL=1, so it is not here.
+shard ui-browser*           light      mars,nas      est_min=65
+
+shard static                light      mars,nas,mac  est_min=11
+shard selftest-gate         light      mars,nas,mac  est_min=17
+shard selftest-compat       light      mars,nas,mac  est_min=6
+shard selftest-conformance  light      mars,nas,mac  est_min=3
+shard selftest-assurance    light      mars,nas,mac  est_min=6
+shard selftest-agents       light      mars,nas,mac  est_min=9
+# The two mutation self-tests need the stall limits that only reach the Mac
+# until they are in the tree (#1672 P0.5), so the Mac comes first for them.
+# selftest-encryption also needs a 9g fence, more than the NAS can spare.
+shard selftest-recovery     light      mac,mars      est_min=14
+shard selftest-encryption   light      mac,mars      est_min=25
+# The one shard that needs gh logged in (#1457), which only the Mac is.
+shard gh-rows               light      mac           est_min=1

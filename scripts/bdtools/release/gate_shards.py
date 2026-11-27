@@ -2,6 +2,7 @@
 """The sharded half of scripts/release/record-local-gate.sh (#1455, item D).
 
     gate_shards.py manifest <file>            shard names, one per line
+    gate_shards.py place --manifest <file>    where each shard would run, one per line
     gate_shards.py run ...                    run, sign and resume shards
     gate_shards.py aggregate ...              write the schema-2 record and its log
 
@@ -12,6 +13,14 @@ THE MANIFEST, scripts/release/gate-shards.txt: one shard name per line, in the
 order the log is written. Only the first whitespace-separated column counts,
 `#` starts a comment, blank lines are skipped, a name may not repeat. A name is
 lowercase letters, digits and `-`.
+
+THE HOST TABLE, scripts/release/gate-hosts.txt beside the manifest (#1497):
+which hosts each shard may run on, in the order it prefers them, whether it is
+`exclusive` (one of those per host at a time) and its usual minutes. Its
+header has the format and the refusals; docs/reference/gate-scheduler.md has
+the rest. --host, --place, --hosts and --drain on the command line win over
+it. A tree with no table (older than #1497) runs as before: every shard on
+--host, or wherever the runner sends it when there is none.
 
 THE RUNNER (RETND_GATE_SHARD_RUNNER, default scripts/release/run-gate-shard.sh
 of the recorded tree) is called from the clean worktree as
@@ -48,7 +57,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 SHARD_SCHEMA = "retnd.local-gate.shard/1"
 AGG_SCHEMA = "retnd.local-gate/2"
@@ -69,6 +78,158 @@ SECRET_SHAPES = [
 
 class GateError(Exception):
     pass
+
+
+class Refused(GateError):
+    """A refusal before anything ran: exit 2, like a usage error."""
+
+
+REFUSED_HOSTS = {"mercury": "gate work stays off it (benchmarks own it, through bench-queue.sh)"}
+CLASSES = ("light", "exclusive")
+
+
+class Host(NamedTuple):
+    name: str
+    target: str
+
+
+class Row(NamedTuple):
+    pattern: str
+    klass: str
+    hosts: tuple[str, ...]
+    est_min: int
+
+
+class Table(NamedTuple):
+    hosts: dict[str, Host]
+    rows: dict[str, Row]
+
+
+def parse_hosts(text: str, names: list[str]) -> Table:
+    """scripts/release/gate-hosts.txt, checked against the manifest's names."""
+    hosts: dict[str, Host] = {}
+    rows: dict[str, Row] = {}
+    shard_lines: list[tuple[int, list[str]]] = []
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        fields = raw.split("#", 1)[0].split()
+        if not fields:
+            continue
+        where = f"gate-hosts.txt line {lineno}"
+        if fields[0] == "host":
+            if len(fields) != 3:
+                raise Refused(f"{where}: a host line is `host <name> <ssh target or ->`")
+            name = fields[1]
+            if name in REFUSED_HOSTS:
+                raise Refused(f"{where}: {name} is refused: {REFUSED_HOSTS[name]}")
+            if not NAME_RE.match(name):
+                raise Refused(f"{where}: `{name}` is not a host name")
+            if name in hosts:
+                raise Refused(f"{where}: host {name} is declared twice")
+            hosts[name] = Host(name, fields[2])
+        elif fields[0] == "shard":
+            shard_lines.append((lineno, fields))
+        else:
+            raise Refused(f"{where}: `{fields[0]}` is neither `host` nor `shard`")
+    for lineno, fields in shard_lines:
+        where = f"gate-hosts.txt line {lineno}"
+        if len(fields) != 5 or not fields[4].startswith("est_min="):
+            raise Refused(f"{where}: a shard line is "
+                          "`shard <name or prefix*> <light|exclusive> <host,...> est_min=<n>`")
+        pattern, klass, listed, est = fields[1:]
+        if not NAME_RE.match(pattern.removesuffix("*")):
+            raise Refused(f"{where}: `{pattern}` is not a shard name or a prefix ending in *")
+        if pattern in rows:
+            raise Refused(f"{where}: shard {pattern} has two lines")
+        if klass not in CLASSES:
+            raise Refused(f"{where}: class `{klass}` is not one of {', '.join(CLASSES)}")
+        seen: list[str] = []
+        for h in listed.split(","):
+            if h in REFUSED_HOSTS:
+                raise Refused(f"{where}: {pattern} names {h}, which is refused: {REFUSED_HOSTS[h]}")
+            if h not in hosts:
+                raise Refused(f"{where}: {pattern} names host `{h}`, which no host line declares")
+            if h in seen:
+                raise Refused(f"{where}: {pattern} names {h} twice")
+            seen.append(h)
+        if not est.removeprefix("est_min=").isdigit():
+            raise Refused(f"{where}: est_min must be a whole number of minutes, not `{est}`")
+        rows[pattern] = Row(pattern, klass, tuple(seen), int(est.removeprefix("est_min=")))
+    table = Table(hosts, rows)
+    for pattern in rows:
+        if not any(matches(pattern, n) for n in names):
+            raise Refused(f"gate-hosts.txt has a line for {pattern}, and gate-shards.txt has no such shard")
+    missing = [n for n in names if row_for(table, n) is None]
+    if missing:
+        raise Refused("gate-hosts.txt has no line for " + ", ".join(missing) + " (every shard needs one)")
+    return table
+
+
+def matches(pattern: str, name: str) -> bool:
+    return name.startswith(pattern[:-1]) if pattern.endswith("*") else name == pattern
+
+
+def row_for(table: Table, shard: str) -> Row | None:
+    """The shard's exact line, else the longest prefix line that covers it."""
+    if shard in table.rows:
+        return table.rows[shard]
+    prefixes = [r for p, r in table.rows.items() if p.endswith("*") and matches(p, shard)]
+    return max(prefixes, key=lambda r: len(r.pattern)) if prefixes else None
+
+
+def host_list(value: str, table: Table, what: str) -> list[str]:
+    out = [h for h in value.split(",") if h]
+    for h in out:
+        if h in REFUSED_HOSTS:
+            raise Refused(f"{what} {h}: {h} is refused, {REFUSED_HOSTS[h]}")
+        if h not in table.hosts:
+            raise Refused(f"{what} {h}: gate-hosts.txt has no host {h} ({', '.join(table.hosts)})")
+    return out
+
+
+def placement(table: Table, names: list[str], args: argparse.Namespace) -> dict[str, list[str]]:
+    """Each shard's hosts in the order to try them, after the command line."""
+    drain = [h for d in args.drain for h in host_list(d, table, "--drain")]
+    only = host_list(args.hosts, table, "--hosts") if args.hosts else []
+    forced = host_list(args.host, table, "--host") if args.host else []
+    placed: dict[str, list[str]] = {}
+    for entry in args.place:
+        shard, sep, value = entry.partition("=")
+        if not sep or not value:
+            raise Refused(f"--place {entry}: write it as <shard>=<host>[,<host>...]")
+        if shard not in names:
+            raise Refused(f"--place {entry}: {shard} is not a shard in gate-shards.txt")
+        placed[shard] = host_list(value, table, "--place")
+    plan: dict[str, list[str]] = {}
+    homeless: list[str] = []
+    for name in names:
+        row = row_for(table, name)
+        assert row is not None  # parse_hosts refused a shard with no line
+        if name in placed:
+            hosts = placed[name]
+        elif forced:
+            hosts = forced
+        else:
+            hosts = [h for h in row.hosts if not only or h in only]
+        hosts = [h for h in hosts if h not in drain]
+        if not hosts:
+            homeless.append(name)
+        plan[name] = hosts
+    if homeless:
+        raise Refused("no host is left for " + ", ".join(homeless) + ". Give each one with "
+                      "--place <shard>=<host>, or drain less.")
+    return plan
+
+
+def load_table(args: argparse.Namespace, names: list[str]) -> Table | None:
+    """The table beside the manifest (or --hosts-table), None for a tree without one."""
+    path = Path(args.hosts_table) if args.hosts_table else Path(args.manifest).with_name("gate-hosts.txt")
+    if not path.is_file():
+        if args.hosts_table:
+            raise Refused(f"--hosts-table {path} does not exist")
+        if args.place or args.hosts or args.drain:
+            raise Refused("--place, --hosts and --drain need scripts/release/gate-hosts.txt, and this tree has none")
+        return None
+    return parse_hosts(path.read_text(encoding="utf-8"), names)
 
 
 def sha256(data: bytes) -> str:
@@ -214,19 +375,20 @@ def valid_shard(d: Path, shard: str, args: argparse.Namespace, signers: Path) ->
 
 
 def run_attempt(
-    d: Path, shard: str, args: argparse.Namespace, attempts: list[dict[str, Any]], d_logs: int = 0
+    d: Path, shard: str, host: str, args: argparse.Namespace, attempts: list[dict[str, Any]], d_logs: int = 0
 ) -> tuple[str, dict[str, Any]]:
-    """One run of one shard. Returns (outcome, attempt): ok, failed (a retry may
-    help), incomplete, or broken (a retry cannot help)."""
+    """One run of one shard on `host` (empty: wherever the runner sends it).
+    Returns (outcome, attempt): ok, failed (a retry may help), incomplete, or
+    broken (a retry cannot help)."""
     number = max([a["attempt"] for a in attempts] + [d_logs]) + 1
-    cmd = ["bash", args.runner, shard] + (["--host", args.host] if args.host else [])
+    cmd = ["bash", args.runner, shard] + (["--host", host] if host else [])
     started = now()
     t0 = time.time()
     env = dict(os.environ, CI="1")
     proc = subprocess.run(cmd, cwd=args.worktree, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     duration = int(time.time() - t0)
     raw = proc.stdout
-    attempt: dict[str, Any] = {"attempt": number, "started_at": started, "host": args.host or "auto",
+    attempt: dict[str, Any] = {"attempt": number, "started_at": started, "host": host or "auto",
                "gate_tree": args.gate_tree, "exit": proc.returncode,
                "duration_s": duration, "log_sha256": "", "failed_tests": failed_tests(raw)}
     try:
@@ -260,7 +422,7 @@ def run_attempt(
     return ("failed" if attempt["failed_tests"] else "broken"), attempt
 
 
-def work(shard: str, args: argparse.Namespace, signers: Path) -> tuple[str, str]:
+def work(shard: str, host: str, args: argparse.Namespace, signers: Path) -> tuple[str, str]:
     d = Path(args.dir)
     attempts_path = d / f"{shard}.attempts.json"
     attempts: list[dict[str, Any]] = json.loads(attempts_path.read_text()) if attempts_path.is_file() else []
@@ -276,7 +438,7 @@ def work(shard: str, args: argparse.Namespace, signers: Path) -> tuple[str, str]
             (d / stale).unlink()
     outcome = "failed"
     for _ in range(2 if args.retry_once else 1):
-        outcome, attempt = run_attempt(d, shard, args, attempts, max(on_disk, default=0))
+        outcome, attempt = run_attempt(d, shard, host, args, attempts, max(on_disk, default=0))
         attempts.append(attempt)
         attempts_path.write_text(json.dumps(attempts, indent=2) + "\n")
         print(f"local-gate: shard {shard} attempt {attempt['attempt']}: {outcome} "
@@ -308,6 +470,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"local-gate: REFUSED. --only {args.only} is not a shard in scripts/release/gate-shards.txt "
               f"({', '.join(names)}).", file=sys.stderr)
         return 2
+    table = load_table(args, names)
+    plan = placement(table, names, args) if table else {n: [args.host] if args.host else [] for n in names}
     d = Path(args.dir)
     d.mkdir(parents=True, exist_ok=True)
     signers = Path(args.signers)
@@ -322,7 +486,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             todo.append(name)
     results: dict[str, str] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        for shard, outcome in pool.map(lambda s: work(s, args, signers), todo):
+        for shard, outcome in pool.map(lambda s: work(s, (plan[s] or [""])[0], args, signers), todo):
             results[shard] = outcome
     bad = {s: o for s, o in results.items() if o != "ok"}
     if bad:
@@ -395,6 +559,32 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
     return 0
 
 
+def add_placement_options(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument("--hosts-table", default="")
+    ap.add_argument("--host", default="")
+    ap.add_argument("--place", action="append", default=[])
+    ap.add_argument("--hosts", default="")
+    ap.add_argument("--drain", action="append", default=[])
+
+
+def cmd_place(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="gate_shards.py place")
+    ap.add_argument("--manifest", required=True)
+    add_placement_options(ap)
+    args = ap.parse_args(argv)
+    names = parse_manifest(Path(args.manifest).read_text(encoding="utf-8"))
+    table = load_table(args, names)
+    if table is None:
+        for name in names:
+            print(f"{name} - {args.host or 'auto'}")
+        return 0
+    for name, hosts in placement(table, names, args).items():
+        row = row_for(table, name)
+        assert row is not None
+        print(f"{name} {row.klass} {','.join(hosts)} est_min={row.est_min}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "manifest":
         try:
@@ -403,13 +593,19 @@ def main(argv: list[str]) -> int:
             print(f"local-gate: REFUSED. {exc}", file=sys.stderr)
             return 2
         return 0
+    if argv[:1] == ["place"]:
+        try:
+            return cmd_place(argv[1:])
+        except (GateError, OSError) as exc:
+            print(f"local-gate: REFUSED. {exc}", file=sys.stderr)
+            return 2
     ap = argparse.ArgumentParser()
     ap.add_argument("command", choices=["run", "aggregate"])
     for opt in ("manifest", "manifest-sha", "dir", "gate-tree", "head", "worktree", "signers"):
         ap.add_argument(f"--{opt}", required=True)
     ap.add_argument("--runner")
     ap.add_argument("--key")
-    ap.add_argument("--host", default="")
+    add_placement_options(ap)
     ap.add_argument("--only", default="")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--retry-once", action="store_true")
@@ -419,6 +615,9 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     try:
         return cmd_run(args) if args.command == "run" else cmd_aggregate(args)
+    except Refused as exc:
+        print(f"local-gate: REFUSED. {exc}", file=sys.stderr)
+        return 2
     except GateError as exc:
         print(f"local-gate: NOT RECORDED. {exc}", file=sys.stderr)
         return 1
