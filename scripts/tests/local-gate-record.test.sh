@@ -55,6 +55,13 @@
 #       verdict line, so a gate that printed ok and then died still
 #       writes nothing.
 #
+# The recorder's front door (#1672 P0.1 to P0.4) is driven here too: the
+# preflight and its refusals (each with a stand-in for ssh-add, node, gh or
+# docker on PATH), the recorder lock (a second recorder exits 2 and leaves the
+# first one's worktree alone; a lock left by a kill -9 is reclaimed), --status
+# (read-only, every reason a shard is not reusable, and what changed since the
+# tree that has signed shards), and the JS install in a sharded run's worktree.
+#
 # Run directly (`bash scripts/tests/local-gate-record.test.sh`) or let the
 # gate run it: scripts/ci-local.sh invokes it in a non-FAST run.
 set -uo pipefail
@@ -94,6 +101,50 @@ trap 'rm -rf "$SANDBOX"' EXIT
 ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/owner" >/dev/null
 ssh-keygen -q -t ed25519 -N '' -C test -f "$SANDBOX/impostor" >/dev/null
 export RETND_GATE_KEY="$SANDBOX/owner"
+
+# Stand-ins for the tools the preflight asks (#1672 P0.1), first on PATH for
+# every recorder run below. Each answers the way a ready Mac does unless a case
+# sets its STUB_* variable: the agent holds the owner's key, Node is the pinned
+# major, gh is logged in, docker answers and builds. npm leaves a marker in the
+# directory it ran in, so a case can tell whether a workspace was installed.
+STUB_BIN="$SANDBOX/bin"
+mkdir -p "$STUB_BIN"
+cat >"$STUB_BIN/ssh-add" <<'STUB'
+#!/usr/bin/env bash
+agent="${STUB_AGENT:-owner}"
+if [ "$agent" = none ]; then echo "The agent has no identities." >&2; exit 1; fi
+cat "$STUB_SANDBOX/$agent.pub"
+STUB
+cat >"$STUB_BIN/node" <<'STUB'
+#!/usr/bin/env bash
+echo "${STUB_NODE_VERSION:-v22.11.0}"
+STUB
+cat >"$STUB_BIN/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "${STUB_GH:-ok}" = ok ] && exit 0
+echo "You are not logged into any GitHub hosts. To log in, run: gh auth login" >&2
+exit 1
+STUB
+cat >"$STUB_BIN/docker" <<'STUB'
+#!/usr/bin/env bash
+case "${STUB_DOCKER:-ok}" in
+  down) echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2; exit 1 ;;
+  hang) exec sleep 30 ;;
+esac
+case "${1:-}" in
+  info) echo x86_64 ;;
+  build)
+    if [ "${STUB_DOCKER:-ok}" = build-broken ]; then echo "ERROR: failed to solve: layer does not exist" >&2; exit 1; fi
+    echo sha256:0000 ;;
+esac
+exit 0
+STUB
+cat >"$STUB_BIN/npm" <<'STUB'
+#!/usr/bin/env bash
+echo "npm $* in $PWD" >>"$STUB_SANDBOX/npm-calls"
+mkdir -p node_modules && : >node_modules/.stub-installed
+STUB
+chmod +x "$STUB_BIN"/*
 
 for f in "$RECORDER" "$GATE_TREE"; do
   if [ ! -f "$f" ]; then
@@ -151,6 +202,15 @@ case "$verdict" in
     echo "==> ci-local: ok"
     exit 1
     ;;
+  hold)
+    # Holds the run until the case says go, so a second recorder can be
+    # started while this one is mid-gate (#1672 P0.2).
+    echo $$ >"$LOCAL_GATE_STUB_VERDICT.held"
+    i=0
+    while [ ! -e "$LOCAL_GATE_STUB_VERDICT.release" ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i + 1)); done
+    echo "==> ci-local: ok"
+    exit 0
+    ;;
   ok-with-paths)
     echo "==> building in $HOME/workspace/retnd-lanes/x-wt and /Users/somebody/workspace/retnd"
     echo "==> ci-local: ok"
@@ -200,6 +260,9 @@ new_repo() {
   # The trust reference the verifier compares allowed_signers with (origin/main
   # in the real repository).
   git_in "$repo" update-ref refs/remotes/origin/main HEAD
+  # What run-gate-shard.sh and the preflight want from a release clone.
+  git_in "$repo" update-ref refs/remotes/origin/release HEAD
+  git_in "$repo" tag v0.0.0
   git_in "$repo" config core.hooksPath .husky
   printf 'ok\n' >"$SANDBOX/$1.verdict"
   printf '%s\n' "$repo"
@@ -212,16 +275,22 @@ STATUS=0
 # the throwaway repository, with every CI_LOCAL_* variable scrubbed first
 # so the developer's own shell cannot decide what a case measures, then
 # with the case's own variables applied on top.
-run_recorder() {
+# SSH_AUTH_SOCK is dropped so a real agent in the developer's shell cannot
+# answer for the stand-in, and the stand-ins go first on PATH.
+recorder_cmd() { # <repo> [VAR=VALUE ...]; execs, so call it in a subshell
   local repo="$1"; shift
-  OUT="$(
-    cd "$repo" && env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
+  cd "$repo" && exec env -u CI_LOCAL_FAST -u CI_LOCAL_SKIP_JS -u CI_LOCAL_SKIP_DOCKER \
       -u CI_LOCAL_SKIP_E2E -u CI_LOCAL_SKIP_TWO_MACHINE -u CI_LOCAL_SELFTEST -u CI_LOCAL_TIER -u CI \
       -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY \
-      -u GIT_COMMON_DIR -u GIT_PREFIX -u DOCKER_DEFAULT_PLATFORM \
+      -u GIT_COMMON_DIR -u GIT_PREFIX -u DOCKER_DEFAULT_PLATFORM -u SSH_AUTH_SOCK \
+      -u RETND_TRUST_REF -u RETND_UI_BROWSER_ALLOW_LOCAL -u RETND_PW_LOCK \
+      PATH="$STUB_BIN:$PATH" STUB_SANDBOX="$SANDBOX" \
       LOCAL_GATE_STUB_VERDICT="$repo.verdict" \
-      "$@" bash "$RECORDER" ${RECORDER_ARGS:-} 2>&1
-  )"
+      "$@" bash "$RECORDER" ${RECORDER_ARGS:-}
+}
+run_recorder() {
+  local repo="$1"; shift
+  OUT="$( (recorder_cmd "$repo" "$@") 2>&1 )"
   STATUS=$?
 }
 
@@ -358,14 +427,14 @@ repo="$(new_repo no-signers)"
 printf '# no key yet\n' >"$repo/provenance/allowed_signers"
 git_in "$repo" commit -qam "empty signers"
 run_recorder "$repo"
-expect "an allowed_signers with no key is refused with a clear message" 1 "has no key in it"
+expect "an allowed_signers with no key is refused before the gate runs, as it differs from the trusted one" 2 "differs from"
 no_record "and no record is left behind for it" "$repo"
 
 repo="$(new_repo swapped-signers)"
 printf 'retnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$repo/provenance/allowed_signers"
 git_in "$repo" commit -qam "swap the signers"
 run_recorder "$repo" RETND_GATE_KEY="$SANDBOX/impostor"
-expect "a record signed by a key that only the same commit's allowed_signers trusts is refused" 1 "differs from"
+expect "a record signed by a key that only the same commit's allowed_signers trusts is refused before the gate runs" 2 "differs from"
 no_record "and no record is left behind for it" "$repo"
 
 repo="$(new_repo default-key-path)"
@@ -616,6 +685,9 @@ echo "==> toolchain: node v26.12.0"
 echo "==> toolchain: docker 29.0.0"
 echo "==> stub shard $shard running in $(pwd) with CI=[${CI:-unset}]"
 [ "$shard" = "e2e" ] && echo '==> web-ui-lane: {"pin": "9699ec5", "passed": 213, "failed": 33, "skipped": 95, "listed_failures": 33, "judged": "ok"}'
+if [ -e "$STUB_DIR/needs-js" ] && [ ! -e ui/shared/node_modules/.stub-installed ]; then
+  echo "==> ci-local: FAILED (shard $shard): ui/shared has no node_modules in $(pwd)" >&2; exit 1
+fi
 mode="$(cat "$STUB_DIR/mode-$shard" 2>/dev/null || echo ok)"
 if [ "$mode" = fail-once ]; then
   if [ -e "$STUB_DIR/seen-$shard" ]; then mode=ok; else : >"$STUB_DIR/seen-$shard"; mode=fail; fi
@@ -912,6 +984,200 @@ repo="$(new_shard_repo sh-nogo)"
 run_shards sh-nogo "--shards --jobs 1"
 expect "a shard whose log names no Go toolchain is refused" 1 "Go toolchain"
 no_record "and no aggregate is written for it" "$repo"
+
+# --- the front door (#1672 P0.1 to P0.4) --------------------------------------
+
+dir_sum() { # <dir> -> one line that changes when any file in it does
+  if [ ! -d "$1" ]; then echo "absent"; return; fi
+  (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s %s\n' "$f" "$(sha256_of "$f")"; done) | sha256_of /dev/stdin
+}
+
+# P0.1 the preflight. The positive control first: everything ready, --preflight
+# says so, exits 0 and starts nothing (no worktree, no lock, no log dir).
+repo="$(new_repo pf-green)"
+RECORDER_ARGS="--preflight" run_recorder "$repo"
+expect "--preflight on a ready clone passes" 0 "preflight: ok"
+if [ ! -e "$repo/.local-gate-worktree" ] && [ ! -e "$repo/.git/local-gate" ] && [ ! -e "$repo/provenance/local-gate.json" ]; then
+  pass "and it starts nothing: no worktree, no lock, no log, no record"
+else
+  fail "and it starts nothing: no worktree, no lock, no log, no record" "$(ls -a "$repo" "$repo/.git")"
+fi
+case "$OUT" in
+  *"stub gate"*) fail "--preflight never runs the gate" "$OUT" ;;
+  *) pass "--preflight never runs the gate" ;;
+esac
+
+pf_case() { # <name> <description> <want substring> <setup function or :> [VAR=VALUE ...]
+  local name="$1" what="$2" want="$3" setup="$4"; shift 4
+  repo="$(new_repo "$name")"
+  "$setup" "$repo"
+  RECORDER_ARGS="--preflight" run_recorder "$repo" "$@"
+  expect "--preflight refuses $what" 2 "$want"
+  run_recorder "$repo" "$@"
+  expect "and a record run refuses it before the gate runs" 2 "$want"
+  case "$OUT" in
+    *"stub gate"*) fail "$what: the gate ran anyway" "$OUT" ;;
+    *) no_record "$what: nothing is written" "$repo" ;;
+  esac
+}
+no_release_ref() { git_in "$1" update-ref -d refs/remotes/origin/release; }
+no_tag() { git_in "$1" tag -d v0.0.0 >/dev/null; }
+signers_moved() {
+  printf 'retnd-release namespaces="retnd-local-gate,retnd-e2e-attest" %s\n' "$(cut -d' ' -f1,2 "$SANDBOX/impostor.pub")" >"$1/provenance/allowed_signers"
+  git_in "$1" commit -qam "a new key in the same commit"
+}
+broken_key() { cp "$SANDBOX/owner.pub" "$SANDBOX/broken.pub"; printf 'not a key\n' >"$SANDBOX/broken"; }
+
+pf_case pf-no-release "a clone with no origin/release" "origin/release" no_release_ref
+pf_case pf-no-tag "a clone with no v* tag" "v* tag" no_tag
+pf_case pf-agent-empty "a release key that is not in ssh-agent" "ssh-agent" : STUB_AGENT=none
+pf_case pf-agent-other "an agent that holds some other key" "ssh-agent" : STUB_AGENT=impostor
+pf_case pf-key-not-trusted "RETND_GATE_KEY that is not the trusted key" "not the key" : RETND_GATE_KEY="$SANDBOX/impostor" STUB_AGENT=impostor
+pf_case pf-sign-fails "a key that cannot make a test signature" "test signature" broken_key RETND_GATE_KEY="$SANDBOX/broken"
+pf_case pf-signers-moved "an allowed_signers that differs from origin/main's" "differs from" signers_moved
+pf_case pf-node "a Node major other than the one scripts/ci/pins.env pins" "Node" : STUB_NODE_VERSION=v26.13.1
+pf_case pf-gh "a gh that is not logged in" "gh auth" : STUB_GH=out
+pf_case pf-docker-down "a docker daemon that does not answer" "docker" : STUB_DOCKER=down
+pf_case pf-docker-hang "a docker info that hangs past GATE_DOCKER_INFO_TIMEOUT" "GATE_DOCKER_INFO_TIMEOUT" : STUB_DOCKER=hang GATE_DOCKER_INFO_TIMEOUT=2
+pf_case pf-buildx "a docker build that fails (the buildx cache fault)" "buildx prune" : STUB_DOCKER=build-broken
+pf_case pf-pw-lock "a browser run on the Mac with no Playwright lock" "Playwright lock" : RETND_UI_BROWSER_ALLOW_LOCAL=1 RETND_PW_LOCK="$SANDBOX/no-such-lock"
+
+# Every refusal at once, not one per run: a dirty tree and a missing tag are
+# both named by one preflight.
+repo="$(new_repo pf-two)"
+no_tag "$repo"
+printf '// edited\n' >>"$repo/core/main.go"
+RECORDER_ARGS="--preflight" run_recorder "$repo"
+case "$STATUS $OUT" in
+  2*"working tree is dirty"*"v* tag"*|2*"v* tag"*"working tree is dirty"*) pass "one preflight names every refusal it found" ;;
+  *) fail "one preflight names every refusal it found" "$OUT" ;;
+esac
+
+# Shards that all go to MARS need no local docker, Node or gh.
+repo="$(new_shard_repo pf-remote)"
+RECORDER_ARGS="--preflight --shards --host mars" run_recorder "$repo" STUB_DOCKER=down STUB_GH=out STUB_NODE_VERSION=v18.0.0
+expect "--preflight for shards placed on mars does not ask the local docker, node or gh" 0 "preflight: ok"
+case "$OUT" in
+  *"mars"*) pass "and it says what it did about the remote host" ;;
+  *) fail "and it says what it did about the remote host" "$OUT" ;;
+esac
+
+# P0.2 the recorder lock. A second recorder while the first is mid-gate exits
+# 2, names the holder, and leaves the first one's worktree where it is.
+repo="$(new_repo lock-race)"
+printf 'hold\n' >"$repo.verdict"
+(recorder_cmd "$repo" >"$SANDBOX/lock-race.first" 2>&1) &
+first=$!
+for _ in $(seq 1 600); do [ -e "$repo.verdict.held" ] && break; sleep 0.1; done
+if [ -e "$repo.verdict.held" ]; then
+  run_recorder "$repo"
+  expect "a second recorder while one is running is refused" 2 "another recorder"
+  [ -d "$repo/.local-gate-worktree" ] && pass "and the first recorder's worktree is still there" \
+    || fail "and the first recorder's worktree is still there" "$OUT"
+  RECORDER_ARGS="--preflight" run_recorder "$repo"
+  expect "--preflight says a recorder holds the lock" 2 "another recorder"
+fi
+: >"$repo.verdict.release"
+wait "$first"
+first_status=$?
+[ "$first_status" -eq 0 ] && grep -q "local-gate: recorded" "$SANDBOX/lock-race.first" \
+  && pass "and the first recorder finishes and records" \
+  || fail "and the first recorder finishes and records" "$(cat "$SANDBOX/lock-race.first")"
+[ ! -e "$repo/.git/local-gate/recorder.lock" ] && pass "and gives the lock back" \
+  || fail "and gives the lock back" "$(ls -la "$repo/.git/local-gate")"
+
+# A recorder killed with SIGKILL runs no trap. The next one finds the lock's
+# holder dead on this host and boot, reclaims it, and records.
+repo="$(new_repo lock-reclaim)"
+# The real checkout ignores the worktree (.gitignore); this one has to be told.
+printf '/.local-gate-worktree/\n' >>"$repo/.git/info/exclude"
+printf 'hold\n' >"$repo.verdict"
+(recorder_cmd "$repo" >"$SANDBOX/lock-reclaim.first" 2>&1) &
+first=$!
+for _ in $(seq 1 600); do [ -e "$repo.verdict.held" ] && break; sleep 0.1; done
+# The pid the lock names is the recorder itself, whatever wrapped it.
+kill -9 "$(cat "$repo/.git/local-gate/recorder.lock/pid" 2>/dev/null)" 2>/dev/null
+kill -9 "$first" 2>/dev/null
+wait "$first" 2>/dev/null
+kill "$(cat "$repo.verdict.held" 2>/dev/null)" 2>/dev/null
+sleep 0.3
+printf 'ok\n' >"$repo.verdict"
+run_recorder "$repo"
+expect "a lock left by a recorder that was killed -9 is reclaimed" 0 "reclaiming"
+case "$OUT" in
+  *"local-gate: recorded"*) pass "and the run that reclaimed it records" ;;
+  *) fail "and the run that reclaimed it records" "$OUT" ;;
+esac
+
+# P0.3 --status: read-only, every reason, and the header of a sharded run.
+repo="$(new_shard_repo st-none)"
+run_shards st-none "--status"
+expect "--status before any run says the shards were not run" 0 "not run"
+case "$OUT" in
+  *"$(cd "$repo" && bash "$GATE_TREE" HEAD)"*) pass "and names the gate tree gate-tree.sh computes for HEAD" ;;
+  *) fail "and names the gate tree gate-tree.sh computes for HEAD" "$OUT" ;;
+esac
+[ ! -e "$repo/.git/local-gate" ] && pass "and creates nothing under the git dir" || fail "and creates nothing under the git dir" "$(ls -R "$repo/.git/local-gate")"
+
+repo="$(new_shard_repo st-mixed)"
+run_shards st-mixed "--shards --jobs 1"
+sd="$(shards_dir_of "$repo")"
+rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$repo/provenance/local-gate.json.sig"
+printf 'edited\n' >>"$sd/static.log"
+rm -f "$sd/core-a.json.sig"
+before="$(dir_sum "$sd")"
+run_shards st-mixed "--status"
+expect "--status answers on a tree with shards" 0 "signed, reusable"
+case "$OUT" in *"static"*"its log was edited after it was signed"*) pass "--status: an edited log is stale, with the reason" ;;
+  *) fail "--status: an edited log is stale, with the reason" "$OUT" ;; esac
+case "$OUT" in *"core-a"*"its signature does not verify"*) pass "--status: a missing signature is stale, with the reason" ;;
+  *) fail "--status: a missing signature is stale, with the reason" "$OUT" ;; esac
+case "$OUT" in *"e2e"*"signed, reusable"*) pass "--status: an untouched shard is reusable" ;;
+  *) fail "--status: an untouched shard is reusable" "$OUT" ;; esac
+[ "$(dir_sum "$sd")" = "$before" ] && pass "--status changes nothing in the shards dir" || fail "--status changes nothing in the shards dir"
+[ ! -e "$repo/.local-gate-worktree" ] && [ ! -e "$repo/.git/local-gate/recorder.lock" ] \
+  && pass "--status makes no worktree and takes no lock" || fail "--status makes no worktree and takes no lock"
+
+repo="$(new_shard_repo st-other)"
+run_shards st-other "--shards --jobs 1"
+rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$repo/provenance/local-gate.json.sig"
+old_head="$(git_in "$repo" rev-parse HEAD)"
+printf '// product change\n' >>"$repo/core/main.go"
+git_in "$repo" commit -qam "product change"
+run_shards st-other "--status"
+expect "--status on a tree with nothing signed points at the tree that has" 0 "nothing is signed for this tree"
+case "$OUT" in *"${old_head:0:12}"*"core/main.go"*) pass "and shows that tree's head and what changed since" ;;
+  *) fail "and shows that tree's head and what changed since" "$OUT" ;; esac
+
+repo="$(new_shard_repo st-header)"
+run_shards st-header "--shards --jobs 1 --only static"
+run_shards st-header "--shards --jobs 1"
+case "$OUT" in *"gate tree"*"static"*"signed, reusable"*"core-a"*) pass "a sharded run opens with the gate tree and the shard table" ;;
+  *) fail "a sharded run opens with the gate tree and the shard table" "$OUT" ;; esac
+
+# P0.4 the JS workspaces in a sharded run's worktree, for shards on the Mac.
+repo="$(new_shard_repo sh-js)"
+mkdir -p "$repo/ui/shared"
+printf '{"name": "x"}\n' >"$repo/ui/shared/package.json"
+printf '{"lockfileVersion": 3}\n' >"$repo/ui/shared/package-lock.json"
+git_in "$repo" add -A && git_in "$repo" commit -qm "a JS workspace"
+git_in "$repo" update-ref refs/remotes/origin/main HEAD
+: >"$SANDBOX/stub-sh-js/needs-js"
+rm -f "$SANDBOX/npm-calls"
+run_shards sh-js "--shards --jobs 1"
+expect "a sharded run on the Mac installs the JS workspaces in its worktree first" 0 "local-gate: recorded"
+grep -q "npm ci" "$SANDBOX/npm-calls" 2>/dev/null && pass "with npm ci, from the committed lockfile" \
+  || fail "with npm ci, from the committed lockfile" "$(cat "$SANDBOX/npm-calls" 2>/dev/null)"
+repo="$(new_shard_repo sh-js-remote)"
+mkdir -p "$repo/ui/shared"
+printf '{"name": "x"}\n' >"$repo/ui/shared/package.json"
+git_in "$repo" add -A && git_in "$repo" commit -qm "a JS workspace"
+git_in "$repo" update-ref refs/remotes/origin/main HEAD
+rm -f "$SANDBOX/npm-calls"
+run_shards sh-js-remote "--shards --jobs 1 --host mars"
+[ ! -e "$SANDBOX/npm-calls" ] && pass "a sharded run that ships every shard to mars installs nothing on the Mac" \
+  || fail "a sharded run that ships every shard to mars installs nothing on the Mac" "$(cat "$SANDBOX/npm-calls")"
+unset RECORDER_ARGS
 
 echo
 if [ "$failures" -gt 0 ]; then

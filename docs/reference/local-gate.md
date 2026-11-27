@@ -21,6 +21,8 @@ scripts/ci-local.sh                       # the full gate (CI_LOCAL_FULL=1 makes
 scripts/ci-docker.sh                      # the same gate inside scripts/ci/Dockerfile
 scripts/ci-docker.sh --host ssh://user@host   # the same, on another machine's Docker daemon (below)
 scripts/release/record-local-gate.sh      # a full run, then provenance/local-gate.json
+scripts/release/record-local-gate.sh --preflight [--shards ...]   # only the checks a record run makes first
+scripts/release/record-local-gate.sh --status                     # which shards are signed and reusable for HEAD
 ```
 
 The gate takes a while (the recorder prints the wall time). Start it and go
@@ -121,6 +123,7 @@ image with `docker build -q`.
 | `GATE_STALL_GRACE` | `10` | seconds between the TERM and the KILL the watchdog sends a stalled step's processes |
 | `GOLANGCI_LINT_DIR` | unset | a directory to put ahead of `PATH` so a specific golangci-lint wins over Homebrew's |
 | `GOLANGCI_LINT_VERSION` | from `scripts/ci/pins.env` | the linter the gate is pinned to. A run with another version is ledgered INCOMPLETE and the release check refuses its record. `scripts/ci-docker.sh` builds the image with it |
+| `NODE_MAJOR` | from `scripts/ci/pins.env` (22) | the Node major the recorder's preflight wants first on `PATH` when anything runs on the Mac. A Node of another major is refused before the run starts (#1672) |
 | `RUFF_VERSION`, `MYPY_VERSION` | from `scripts/ci/pins.env` | the ruff and mypy `scripts/ci-docker.sh` builds into the gate image (with `python3-yaml`), so the Python lint step runs there instead of being ledgered. The gate itself uses whichever ruff and mypy are on `PATH` |
 | `CI_DOCKER_HOST` | unset | `user@host` or `ssh://user@host[:port]`: run `scripts/ci-docker.sh` on that machine's Docker daemon. `--host` on the command line wins. A remote `DOCKER_HOST` without it is refused, because the gate's bind mounts would be empty on the other machine |
 | `CI_DOCKER_REMOTE_DIR` | `/work/nas-work` for `devshell@` hosts, else `$HOME/workspace/nas-work` there | the parent of the one scratch directory a remote run uses |
@@ -132,7 +135,7 @@ image with `docker build -q`.
 | `RETND_PW_LOCK` | `/Users/rom/workspace/xdg-pw-lock.sh` | the Playwright lock the browser gate runs through on a Mac. When nothing executable is there the gate runs without it and prints `browser gate running without the Playwright lock` |
 | `RETND_GATE_KEY` | `~/.ssh/retnd-release-attest` | the private key the recorder signs the record with |
 | `RETND_GATE_SHARD_RUNNER` | `scripts/release/run-gate-shard.sh` of the recorded tree | the script `record-local-gate.sh --shards` runs once per shard: `<runner> <shard> [--host H]`, its output is the shard's log, its last verdict must be `==> ci-local: ok (shard <name>)`. Shards come from `scripts/release/gate-shards.txt`; each passing one is signed on the Mac and the aggregate is schema `retnd.local-gate/2` (#1455) |
-| `RETND_TRUST_REF` | `origin/main` | the reference whose `provenance/allowed_signers` the verifier compares the commit's copy with |
+| `RETND_TRUST_REF` | `origin/main` | the reference whose `provenance/allowed_signers` the verifier compares the commit's copy with. The recorder's preflight reads the release key from the same place |
 | `CI_DOCKER_SHARE_HOST` | `auto` | `1` runs the `scripts/ci-docker.sh` container with `--network host` and the daemon host's `/tmp` mounted at `/tmp`; `0` runs it on the default bridge with a private `/tmp`. `auto` picks `0` when `docker info` says Docker Desktop and `1` for any other daemon (below) |
 | `GOTOOLCHAIN` | derived | the gate exports the Go its golangci-lint was built with, so the linter can read the export data. Set it yourself only to run the whole gate on one toolchain |
 | `GOFLAGS` | unset | the recorder refuses a value that narrows tests (`-run`, `-skip`, `-short`, `-count=0`, `-failfast`, `-bench`, `-fuzz`); the gate itself does not read it |
@@ -333,6 +336,50 @@ the record's `gate_tree` must equal the commit's gate tree, `result` must be
 major.minor and golangci-lint with `scripts/ci/pins.env`. The schema id is
 versioned so a future record shape can be refused by name rather than
 misread.
+
+## The recorder's front door
+
+`record-local-gate.sh` checks everything a run needs before it makes a
+worktree (#1672). Every record run does it first; `--preflight` does only
+that and exits 0, or 2 with every refusal and its fix printed at once.
+`--preflight --shards --host mars` checks for that placement.
+
+| check | when |
+| --- | --- |
+| the guards above: a clean tree, `core.hooksPath`, no `CI_LOCAL_*`, no narrowing `GOFLAGS`, no non-amd64 `DOCKER_DEFAULT_PLATFORM`, `python3`, `ssh-keygen`, the key file | always |
+| `origin/release` and a `v*` tag are in the clone | always |
+| `provenance/allowed_signers` at HEAD equals the `RETND_TRUST_REF` copy | always |
+| `RETND_GATE_KEY` is the key that copy trusts, `ssh-add -L` holds it, and a test signature in namespace `retnd-preflight` verifies (that namespace is not in `allowed_signers`, so the signature is worth nothing to a verifier) | always |
+| no other recorder holds the lock | always |
+| Node is `NODE_MAJOR`, `gh auth status` passes, `docker info` answers within `GATE_DOCKER_INFO_TIMEOUT` and names its architecture, a one-file `docker build` works (the buildx "layer does not exist" fault shows here; the fix it prints is `docker buildx prune -f`) | `--serial`, or any shard on the Mac |
+| `RETND_PW_LOCK` is executable | `RETND_UI_BROWSER_ALLOW_LOCAL=1` and the browser steps on the Mac |
+| load and free memory | on the Mac, a note only |
+| the remote hosts, through `gate_shards.py probe` | shards on mars or nas, once that command exists; until then a note says the runner checks the host when the shard starts |
+
+**One recorder per clone.** A record run takes
+`<git common dir>/local-gate/recorder.lock` (same shape as the gate lock: a
+symlink to the holder's own directory with its pid, host, boot, checkout and
+start time) before it touches `.local-gate-worktree`. A second recorder exits 2
+naming the holder and leaves the first one's worktree alone. A holder that is
+dead on this host and boot (a `kill -9`) is reclaimed; one that cannot be
+judged is refused with the `rm -r` that breaks the lock. `--preflight` and
+`--status` never take it.
+
+**`--status`** prints HEAD, the gate tree, the manifest and runner hashes, and
+one line per shard of `scripts/release/gate-shards.txt`: `signed, reusable`,
+`stale: <reason>` (the same reason the recorder would rerun it for), `not
+signed` or `not run`, with the host, attempts and time of what ran. It reads
+everything from HEAD with `git show`, makes no worktree, takes no lock and
+writes nothing. When nothing is signed for this tree and another tree has
+signed shards, it names that tree's head and prints `git diff --stat` from
+there, which is what moved the gate tree. This is the way to ask: `git
+rev-parse HEAD^{tree}` is not the gate tree. A `--shards` run prints the same
+table before it starts.
+
+**The JS workspaces** (`ui/shared`, `apps/common/tests`,
+`apps/ugos/frontend/upk-proof`) are installed with `npm ci` in the record's
+worktree by the serial path, and by `--shards` when any shard runs on the Mac.
+A shard on mars or nas gets its install from `scripts/ci-docker.sh --deps`.
 
 ## Installing the hook
 
