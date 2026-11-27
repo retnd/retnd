@@ -1089,10 +1089,14 @@ first_status=$?
 # A recorder killed with SIGKILL runs no trap. The next one finds the lock's
 # holder dead on this host and boot, reclaims it, and records.
 repo="$(new_repo lock-reclaim)"
+# The real checkout ignores the worktree (.gitignore); this one has to be told.
+printf '/.local-gate-worktree/\n' >>"$repo/.git/info/exclude"
 printf 'hold\n' >"$repo.verdict"
 (recorder_cmd "$repo" >"$SANDBOX/lock-reclaim.first" 2>&1) &
 first=$!
 for _ in $(seq 1 600); do [ -e "$repo.verdict.held" ] && break; sleep 0.1; done
+# The pid the lock names is the recorder itself, whatever wrapped it.
+kill -9 "$(cat "$repo/.git/local-gate/recorder.lock/pid" 2>/dev/null)" 2>/dev/null
 kill -9 "$first" 2>/dev/null
 wait "$first" 2>/dev/null
 kill "$(cat "$repo.verdict.held" 2>/dev/null)" 2>/dev/null
@@ -1107,7 +1111,7 @@ esac
 
 # P0.3 --status: read-only, every reason, and the header of a sharded run.
 repo="$(new_shard_repo st-none)"
-RECORDER_ARGS="--status" run_recorder "$repo"
+run_shards st-none "--status"
 expect "--status before any run says the shards were not run" 0 "not run"
 case "$OUT" in
   *"$(cd "$repo" && bash "$GATE_TREE" HEAD)"*) pass "and names the gate tree gate-tree.sh computes for HEAD" ;;
@@ -1122,7 +1126,7 @@ rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$rep
 printf 'edited\n' >>"$sd/static.log"
 rm -f "$sd/core-a.json.sig"
 before="$(dir_sum "$sd")"
-RECORDER_ARGS="--status" run_recorder "$repo"
+run_shards st-mixed "--status"
 expect "--status answers on a tree with shards" 0 "signed, reusable"
 case "$OUT" in *"static"*"its log was edited after it was signed"*) pass "--status: an edited log is stale, with the reason" ;;
   *) fail "--status: an edited log is stale, with the reason" "$OUT" ;; esac
@@ -1140,7 +1144,7 @@ rm -f "$repo/provenance/local-gate.json" "$repo/provenance/local-gate.log" "$rep
 old_head="$(git_in "$repo" rev-parse HEAD)"
 printf '// product change\n' >>"$repo/core/main.go"
 git_in "$repo" commit -qam "product change"
-RECORDER_ARGS="--status" run_recorder "$repo"
+run_shards st-other "--status"
 expect "--status on a tree with nothing signed points at the tree that has" 0 "nothing is signed for this tree"
 case "$OUT" in *"${old_head:0:12}"*"core/main.go"*) pass "and shows that tree's head and what changed since" ;;
   *) fail "and shows that tree's head and what changed since" "$OUT" ;; esac
