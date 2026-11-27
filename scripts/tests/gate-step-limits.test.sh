@@ -168,7 +168,7 @@ if grep -qF "encryption self-test --stall-min:" <<<"$out" && grep -qF "14400s" <
 d="$(copy p3)"; strip "$d/scripts/ci-local.sh" "$SPECS"
 out="$(problems "$d")"
 if grep -qF "browser specs --cap-min: no option" <<<"$out" && grep -qF "browser specs --stall-min: no option" <<<"$out"; then pass "P3 the browser specs step without its limits is named, both of them"; else fail "P3 the browser specs step without its limits is named, both of them" "$out"; fi
-d="$(copy p4)"; perl -pi -e 's/setting\("RETND_UI_BROWSER_TIMEOUT", 5400/setting("RETND_UI_BROWSER_TIMEOUT", 9000/' "$d/scripts/bdtools/e2e/ui_browser.py"
+d="$(copy p4)"; perl -pi -e 's/setting\("RETND_UI_BROWSER_TIMEOUT", 14400/setting("RETND_UI_BROWSER_TIMEOUT", 18000/' "$d/scripts/bdtools/e2e/ui_browser.py"
 out="$(problems "$d")"
 if grep -qF "browser specs --cap-min:" <<<"$out"; then pass "P4 a lane cap raised past the step's cap is named"; else fail "P4 a lane cap raised past the step's cap is named" "$out"; fi
 d="$(copy p5)"; perl -pi -e 's/"-timeout", "10m"/"-timeout", "45m"/' "$d/scripts/bdtools/recovery/selftest.py"

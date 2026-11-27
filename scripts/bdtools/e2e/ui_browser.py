@@ -52,7 +52,7 @@ Exit statuses, so the gate does not parse prose:
      not run). The gate ledgers it, so the run ends INCOMPLETE.
 
 Knobs: RETND_UI_BROWSER_IMAGE (the pinned image), RETND_UI_BROWSER_CPUS (4),
-RETND_UI_BROWSER_MEMORY (4g), RETND_UI_BROWSER_TIMEOUT (5400 for `specs`,
+RETND_UI_BROWSER_MEMORY (4g), RETND_UI_BROWSER_TIMEOUT (14400 for `specs`,
 2700 for `run`), RETND_UI_BROWSER_STALL (600), RETND_UI_BROWSER_TEST_TIMEOUT
 (60, seconds per test, `specs` only), RETND_UI_BROWSER_PLATFORM (the daemon's
 own by default; it goes on the pull and the run).
@@ -201,11 +201,13 @@ def playwright_version(image: str) -> str:
 def body(root: Path, argv: list[str], name: str) -> int:
     mode, rest = argv[0], argv[1:]
     image = os.environ.get("RETND_UI_BROWSER_IMAGE", IMAGE)
-    cap = setting("RETND_UI_BROWSER_TIMEOUT", 5400 if mode == "specs" else 2700)
+    cap = setting("RETND_UI_BROWSER_TIMEOUT", 14400 if mode == "specs" else 2700)
     stall = setting("RETND_UI_BROWSER_STALL", 600)
     test_timeout = setting("RETND_UI_BROWSER_TEST_TIMEOUT", 60)
     # 4 and 4g: the whole run of the specs took 56 minutes on MARS at 3.5
-    # cpus (#1537), against a 5400s cap, so the fence is not where to save.
+    # cpus (#1537), so the fence is not where to save. The 14400s cap is for
+    # a busy MARS, where the specs have since taken 11505s (#1672); the 600s
+    # stall check is what catches a hang, not the cap.
     cpus = os.environ.get("RETND_UI_BROWSER_CPUS", "4")
     memory = os.environ.get("RETND_UI_BROWSER_MEMORY", "4g")
     version = playwright_version(image)
