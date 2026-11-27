@@ -97,6 +97,19 @@ fi
 exit 0
 STUB
     chmod +x scripts/rename/check-no-former-name.sh
+    # The serial-golden check (#1642): a stub that logs itself and fails when
+    # STUB_GOLDEN_BAD=1, standing in for the static comparison it is.
+    mkdir -p scripts/tests
+    cat >scripts/tests/serial-steps-golden.test.sh <<'STUB'
+#!/usr/bin/env bash
+echo "check serial-steps-golden.test.sh" >>"$FIX_LOG"
+if [ "${STUB_GOLDEN_BAD:-0}" = 1 ]; then
+  echo "    FAIL step [a planted step] is in scripts/ci-local.sh and has no line in ci-local-serial-steps.txt"
+  exit 1
+fi
+exit 0
+STUB
+    chmod +x scripts/tests/serial-steps-golden.test.sh
     # What a full run would be, for the CI_LOCAL_FULL route.
     printf '#!/usr/bin/env sh\necho "==> ci-local: ok"\nexit 0\n' >scripts/ci-local.sh
     chmod +x scripts/ci-local.sh
@@ -298,6 +311,27 @@ assert_nonzero "A11 a test file spelling the former name fails the run" "$status
 assert_contains "A11 and the hit is named" 'core/internal/a/a_test.go:3' "$out"
 assert_contains "A11 and the verdict says FAILED" 'ci-local: FAILED' "$out"
 assert_not_contains "A11 no vet ran after it" 'go vet' "$(calls "$fix")"
+
+# A13 (#1642): a change to ci-local.sh, its serial golden or the list of steps
+# the golden leaves out runs the static golden check, and nothing else does.
+# #1631 added a step without its golden line and the hook let it through.
+fix="$(make_repo)"
+fast "$fix" -- scripts/ci-local.sh
+assert_eq "A13 a ci-local.sh change passes" 0 "$status"
+assert_contains "A13 the serial-golden check ran for ci-local.sh" 'check serial-steps-golden.test.sh' "$(calls "$fix")"
+fast "$fix" -- scripts/tests/testdata/ci-local-serial-steps.txt
+assert_contains "A13 and for the golden" 'check serial-steps-golden.test.sh' "$(calls "$fix")"
+fast "$fix" -- scripts/tests/testdata/ci-local-steps-not-in-golden.txt
+assert_contains "A13 and for the list" 'check serial-steps-golden.test.sh' "$(calls "$fix")"
+fast "$fix" -- docs/x.md
+assert_not_contains "A13 a docs change does not run it" 'serial-steps-golden' "$(calls "$fix")"
+fast "$fix" -- core/internal/a/a.go
+assert_not_contains "A13 a Go change does not run it" 'serial-steps-golden' "$(calls "$fix")"
+fix="$(make_repo)"
+fast "$fix" STUB_GOLDEN_BAD=1 -- scripts/ci-local.sh
+assert_nonzero "A13 a step without its golden line fails the fast tier" "$status"
+assert_contains "A13 and the step is named" 'has no line in ci-local-serial-steps.txt' "$out"
+assert_contains "A13 and the verdict says FAILED" 'ci-local: FAILED' "$out"
 
 # A12 (#1647): the typed Python subset is type-checked in the fast tier, not
 # only linted. ruff alone let two mypy --strict errors in

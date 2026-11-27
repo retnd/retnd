@@ -26,6 +26,7 @@
 ==> every self-test and guard script is a step of this gate, or an exemption that names an issue (#1530, #1531, #1533)
 ==> the self-tests run every control the host has a lane for and ledger the rest (#1530, #1531)
 ==> the long, quiet steps carry stall and cap limits above their own bounds (#1672)
+==> every step of ci-local.sh has its serial golden line, and the reverse (#1642)
 ==> every agents and encryption self-test control runs on a Linux gate host, in the Chromium lane or where the driver runs, or skips for an allowed reason (#1543)
 ==> the EPIC U closing check refuses a moved canonical deployment, a migration other than 0022 or a BLOCKED row, and can still fail (#1353)
 ==> every retnd_* name, label and Loki field a shipped dashboard or rule names is one retnd emits, and the guard can still fail (#902)

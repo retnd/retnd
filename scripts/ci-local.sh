@@ -810,6 +810,12 @@ bash scripts/tests/selftest-lanes.test.sh
 gate_step "the long, quiet steps carry stall and cap limits above their own bounds (#1672)"
 bash scripts/tests/gate-step-limits.test.sh
 
+# Every step here has its line in the serial golden W4 of the gate self-test
+# compares against, and the golden names no step that is gone (#1642). The fast
+# tier runs the same check when this file or the golden changes. Static.
+gate_step "every step of ci-local.sh has its serial golden line, and the reverse (#1642)"
+bash scripts/tests/serial-steps-golden.test.sh
+
 # The agents and encryption self-tests' controls used to hard-code paths on
 # the maintainer's Mac and a hand-built capture image, so the gate left about
 # twenty of them out wholesale (#1543). This lists every control that would

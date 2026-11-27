@@ -424,6 +424,8 @@ make_full_tree() {
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/selftest-lanes.test.sh"
   # Reads the real drivers under scripts/bdtools, which a synthetic tree has not (#1672).
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/gate-step-limits.test.sh"
+  # Reads the real ci-local.sh and golden, measured on its own (#1642).
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/serial-steps-golden.test.sh"
   # The self-tests of the gate's own machinery (#1533): the shard runner, the
   # --shard i/n split of the self-tests, and the release e2e hooks. Each makes
   # its own throwaway repositories and stand-in commands.
